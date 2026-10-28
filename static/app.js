@@ -330,6 +330,31 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
   await api(`/api/admin/songs/${popupSongId}/lyrics`,"POST",{text:$("lyrics-textarea").value});
   $("lyrics-dialog").close();toast("已保存参考歌词");await refresh();
 },$("lyrics-save"));
+async function refreshEvents(){
+  const data=await api("/api/admin/events");
+  const active=data.events.find(e=>e.id===data.active);
+  $("event-status").textContent=active?"当前："+active.name:"暂无活动场次";
+  $("event-join-code").textContent=active&&!active.legacy?"加入密码："+active.code:"";
+  $("event-create-fields").classList.toggle("hidden",!!active);
+  $("event-close-btn").classList.toggle("hidden",!active);
+  $("event-history").textContent="已保存 "+data.events.length+" 场 KTV（含历史）";
+}
+$("event-create-btn").onclick=()=>guarded(async()=>{
+  const name=$("event-name").value.trim();
+  const code=$("event-code").value.trim();
+  if(!name)throw new Error("请填写场次名称");
+  await api("/api/admin/events","POST",{name,code:code||null});
+  $("event-name").value="";$("event-code").value="";
+  toast("新场次已创建");
+  await refresh();
+},$("event-create-btn"));
+$("event-close-btn").onclick=()=>guarded(async()=>{
+  if(!confirm("结束本场 KTV 并保留全部记录？正在播放或制作时不能结束。"))return;
+  await api("/api/admin/events/close","POST");
+  toast("场次已归档，可以创建下一场");
+  await refresh();
+},$("event-close-btn"));
+
 async function refresh(){
   if(refreshing){refreshQueued=true;return;}
   refreshing=true;
@@ -357,6 +382,7 @@ async function refresh(){
       $("login-box").classList.toggle("hidden",admin);
       $("admin-panel").classList.toggle("hidden",!admin);
       if(admin){
+        await refreshEvents();
         // The active media URL is time-signed; only compare visible state.
         const activeState=adm.active?{...adm.active,media_url:null}:null;
         const adminKey=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState]);

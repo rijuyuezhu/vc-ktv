@@ -10,6 +10,7 @@ def test_tv_token_can_only_be_issued_by_admin(tmp_path):
         secret=b"secret-test-key",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bvid, page):
         return {

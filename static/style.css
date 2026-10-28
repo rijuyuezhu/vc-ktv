@@ -147,3 +147,8 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
   .control-row .btn { padding: 10px; }
   .full-width { grid-column: auto; }
 }
+
+#event-create-fields { align-items: center; flex-wrap: wrap; }
+#event-create-fields #event-name { flex: 2 1 190px; }
+#event-create-fields #event-code { flex: 1 1 170px; }
+#event-join-code { color: var(--accent-ink); font-weight: 700; }

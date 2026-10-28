@@ -88,6 +88,7 @@ def test_app_real_render(sample_mp4, tmp_path):
         secret=b"test-secret",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bv, page):
         return {
@@ -156,6 +157,7 @@ def test_invalid_upload_is_rejected(tmp_path):
         secret=b"test-secret",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bv, page):
         return {

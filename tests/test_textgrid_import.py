@@ -73,6 +73,7 @@ def test_endpoint_saves_raw_and_rejects_bad_version(tmp_path):
         secret=b"test-secret",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bvid, page):
         return {
@@ -124,7 +125,7 @@ def test_endpoint_saves_raw_and_rejects_bad_version(tmp_path):
         assert (
             "<00:00.75>" in admin.get(f"/api/admin/songs/{song}/lyrics").json()["text"]
         )
-        assert len(list((tmp_path / "room" / "media").glob("*-alignment-*"))) == 1
+        assert len(list(app.state.store.media.glob("*-alignment-*"))) == 1
         bad = admin.post(
             f"/api/admin/songs/{song}/alignment/import",
             files={"file": ("alignment.TextGrid", grid, "text/plain")},
@@ -142,6 +143,7 @@ def test_full_textgrid_to_rendered_mp4(tmp_path):
         secret=b"test-secret",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bvid, page):
         return {
