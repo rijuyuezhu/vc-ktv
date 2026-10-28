@@ -1,3 +1,7 @@
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
@@ -136,3 +140,198 @@ def test_offline_legacy_archive_is_one_directory(tmp_path):
     new_app = make_app(root)
     assert new_app.state.events.active_id is None
     assert new_app.state.events.list()[0]["id"] == "legacy"
+
+
+def test_inflight_admin_poll_pins_event_during_close(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "room")
+    entered = threading.Event()
+    release = threading.Event()
+    original = Store.state
+
+    def paused_state(store):
+        entered.set()
+        assert release.wait(5)
+        return original(store)
+
+    with TestClient(app) as admin, TestClient(app) as poller:
+        admin_login(admin)
+        created = admin.post("/api/admin/events", json={"name": "Old"}).json()
+        poller.cookies.update(admin.cookies)
+        monkeypatch.setattr(Store, "state", paused_state)
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            poll = executor.submit(poller.get, "/api/admin/state")
+            try:
+                assert entered.wait(5), "state route did not reach the barrier"
+                closing = executor.submit(admin.post, "/api/admin/events/close")
+                for _ in range(100):
+                    if app.state.events.transitioning:
+                        break
+                    time.sleep(0.01)
+                assert app.state.events.transitioning
+                assert not closing.done()
+                assert poller.get("/api/admin/state").status_code == 409
+            finally:
+                release.set()
+            assert poll.result(timeout=5).status_code == 200
+            assert closing.result(timeout=5).status_code == 200
+        assert app.state.events.active_id is None
+        assert admin.post("/api/admin/events", json={"name": "New"}).status_code == 200
+        assert admin.get("/api/admin/state").json()["queue"] == []
+        assert (tmp_path / "room/sessions" / created["id"] / "room.sqlite3").is_file()
+
+
+def test_close_rejects_busy_worker_and_retires_idle_worker(tmp_path):
+    app = create_app(
+        root=tmp_path / "room",
+        password="test-admin",
+        secret=b"test-events-key",
+        auto_prepare=True,
+    )
+    app.state.events.create("Old", "123456")
+    entered = threading.Event()
+    release = threading.Event()
+
+    async def lookup(bvid, page):
+        return {
+            "bvid": bvid,
+            "page": page,
+            "title": "Test",
+            "uploader": "tester",
+            "cover": "",
+            "duration": 2,
+        }
+
+    def slow_download(bvid, page, directory):
+        entered.set()
+        assert release.wait(5)
+        path = directory / "source.mp4"
+        path.write_bytes(b"fake-video")
+        return path
+
+    app.state.lookup = lookup
+    app.state.autoprep.download = slow_download
+    app.state.autoprep.probe = lambda path: 2
+    with TestClient(app) as admin, TestClient(app) as guest:
+        admin_login(admin)
+        join_and_register(guest, "guest", "123456")
+        assert (
+            guest.post("/api/songs", json={"bvid": "BV0000000001"}).status_code == 200
+        )
+        try:
+            assert entered.wait(5)
+            assert admin.post("/api/admin/events/close").status_code == 409
+        finally:
+            release.set()
+        worker = app.state.autoprep
+        for _ in range(200):
+            if not worker.busy.is_set():
+                break
+            time.sleep(0.01)
+        assert not worker.busy.is_set()
+        assert admin.post("/api/admin/events/close").status_code == 200
+        assert not worker.worker.is_alive()
+        assert admin.post("/api/admin/events", json={"name": "New"}).status_code == 200
+        assert app.state.autoprep is not worker
+        assert app.state.autoprep.store is app.state.events.current_store
+        assert not worker.worker.is_alive()
+
+
+def test_create_waits_for_request_that_started_without_event(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "room")
+    entered = threading.Event()
+    release = threading.Event()
+    original = app.state.events.metadata
+
+    def paused_metadata():
+        entered.set()
+        assert release.wait(5)
+        return original()
+
+    with TestClient(app) as admin, TestClient(app) as guest:
+        admin_login(admin)
+        monkeypatch.setattr(app.state.events, "metadata", paused_metadata)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            old = executor.submit(guest.get, "/api/event")
+            try:
+                assert entered.wait(5)
+                created = executor.submit(
+                    admin.post, "/api/admin/events", json={"name": "New"}
+                )
+                for _ in range(100):
+                    if app.state.events.transitioning:
+                        break
+                    time.sleep(0.01)
+                assert app.state.events.transitioning
+                assert not created.done()
+                assert guest.get("/api/event").status_code == 409
+            finally:
+                release.set()
+            assert old.result(timeout=5).json()["event"] is None
+            assert created.result(timeout=5).status_code == 200
+
+
+def test_manual_render_worker_stays_with_own_event(tmp_path, monkeypatch):
+    app = make_app(tmp_path / "room")
+    entered = threading.Event()
+    release = threading.Event()
+    destinations = []
+
+    def delayed_render(source, lyrics, destination, duration, lead):
+        destinations.append(destination)
+        entered.set()
+        assert release.wait(5)
+        destination.write_bytes(b"rendered")
+
+    monkeypatch.setattr("vc_ktv.app.render_video", delayed_render)
+    with TestClient(app) as admin, TestClient(app) as guest:
+        admin_login(admin)
+        old = admin.post("/api/admin/events", json={"name": "Old"}).json()
+        join_and_register(guest, "guest", old["code"])
+        song = guest.post("/api/songs", json={"bvid": "BV0000000001"}).json()["id"]
+        assert (
+            admin.post(
+                f"/api/admin/songs/{song}/media",
+                files={"file": ("source.mp4", b"source", "video/mp4")},
+            ).status_code
+            == 200
+        )
+        assert (
+            admin.post(
+                f"/api/admin/songs/{song}/lyrics",
+                json={"text": "[00:01.00]测试歌曲"},
+            ).status_code
+            == 200
+        )
+        assert (
+            admin.post(
+                f"/api/admin/songs/{song}/render", json={"lead": 1.0}
+            ).status_code
+            == 200
+        )
+        try:
+            assert entered.wait(5)
+            assert admin.post("/api/admin/events/close").status_code == 409
+        finally:
+            release.set()
+        for _ in range(200):
+            if destinations and destinations[0].is_file():
+                break
+            time.sleep(0.01)
+        assert destinations[0].is_file()
+        old_media = app.state.events.current_store.media
+        assert destinations[0].parent == old_media
+        # Read completion under Store's lock, not solely by file existence.
+        for _ in range(200):
+            if (
+                not app.state.store.rows(
+                    "SELECT status FROM songs WHERE id=?", (song,)
+                )[0]["status"]
+                == "rendering"
+            ):
+                break
+            time.sleep(0.01)
+        assert admin.post("/api/admin/events/close").status_code == 200
+        assert admin.post("/api/admin/events", json={"name": "New"}).status_code == 200
+        assert not list(app.state.events.current_store.media.iterdir())
+        assert destinations[0].read_bytes() == b"rendered"

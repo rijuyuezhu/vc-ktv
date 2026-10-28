@@ -1,6 +1,7 @@
 """Local best-effort media preparation. No LLM, external agent, or human confirmation.
 
-The original video becomes playable BEFORE slower optional karaoke enhancement.
+The original video is downloadable before enhancement but is playable only
+when the active event allows unsubtitled media.
 Source failures never block the fair queue of already playable songs.
 """
 
@@ -207,10 +208,15 @@ class AutoPrep:
     def stop(self):
         self.stop_signal.set()
         if self.worker:
-            self.worker.join(timeout=1)
+            self.worker.join(timeout=2)
+            return not self.worker.is_alive()
+        return True
 
     def claim(self):
         with self.store.lock:
+            # Closing an idle event can race the next loop iteration.
+            if self.stop_signal.is_set():
+                return None
             row = self.store.db.execute(
                 """SELECT * FROM songs WHERE status='waiting' AND
                    (prep_state='pending' OR
