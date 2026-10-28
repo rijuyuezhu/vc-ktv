@@ -8,7 +8,7 @@ The copy is pinned by
 [`third_party/autoassrenderer/UPSTREAM.json`](../third_party/autoassrenderer/UPSTREAM.json).
 Exact upstream model asset URLs and SHA256 digests were copied from the upstream
 [`assets.lock.json`](../third_party/autoassrenderer/assets.lock.json).
-The automation to *notify* about newer upstream commits is tracked in #31;
+The weekly GitHub Actions upstream-commit notifier is implemented by #31;
 model weights are **not** automatically upgraded.
 
 ## Linux ARM64 CUDA environment
