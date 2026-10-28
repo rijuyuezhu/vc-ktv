@@ -155,7 +155,9 @@ def test_alignment_route_runs_asr_once_and_records_relaxation_before_tifa(
         work,
         settings,
         event,
+        tifa_session=None,
     ):
+        assert tifa_session is not None  # original-lyric blocks share one worker
         results = []
         for block in blocks:
             selected = [source[i].model_copy(deep=True) for i in block["indices"]]

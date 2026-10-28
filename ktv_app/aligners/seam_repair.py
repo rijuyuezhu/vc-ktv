@@ -111,7 +111,9 @@ def seam_groups(results):
     return groups
 
 
-def retry_seam_gaps(audio, results, duration, origin, limit, work, settings, event):
+def retry_seam_gaps(
+    audio, results, duration, origin, limit, work, settings, event, tifa_session=None
+):
     """Retry only the two edge sentences in a 24-second window, retaining fixed words."""
     reports = []
     for index in range(1, len(results)):
@@ -148,6 +150,7 @@ def retry_seam_gaps(audio, results, duration, origin, limit, work, settings, eve
                 folder,
                 settings,
                 lambda message: event("接缝 " + str(index) + "：" + message),
+                **({"tifa_session": tifa_session} if tifa_session is not None else {}),
             )
             replacements = {line.id: line for line in retry.lines}
             for block, result, line in edges:
