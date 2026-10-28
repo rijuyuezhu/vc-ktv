@@ -11,6 +11,9 @@ dependencies = [
   "beautifulsoup4>=4.12,<5",
   "textgrid>=1.6,<2",
   "yt-dlp>=2026.10,<2027",
+  "numpy>=1.26,<3",
+  "soundfile>=0.12,<1",
+  "pydantic>=2.9,<3",
 ]
 
 [dependency-groups]

@@ -1,5 +1,7 @@
 # Subtitle alignment: practical notes
 
+**Historical smoke-test snapshot; the earlier decision to defer Kim/Qwen was superseded by [#26](https://github.com/rijuyuezhu/vc-ktv/issues/26).** The adopted upstream implementation and migration status are now tracked in [UPSTREAM_PIPELINE.md](UPSTREAM_PIPELINE.md). The old direct-TIFA route remains deployed until #29.
+
 VC KTV is a **self-hosted KTV app**, not an alignment research project.
 The goal is to make queued videos with readable subtitles before their turn,
 without turning routine requests into an expensive multi-model pipeline.
