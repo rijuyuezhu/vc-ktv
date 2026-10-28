@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -15,7 +17,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import quote
 
 import httpx
@@ -74,6 +76,11 @@ class GuestLyricChoice(BaseModel):
 
 class Login(BaseModel):
     password: str
+
+
+class PlaybackSettings(BaseModel):
+    queue_policy: Literal["fair", "fcfs"]
+    allow_unsubtitled: bool
 
 
 class EventCreate(BaseModel):
@@ -246,10 +253,53 @@ class Store:
             ORDER BY s.requested_at,s.id
         """)
 
-    def fair_queue(self):
-        """One ready track per guest per turn; least-played users first."""
-        pool = self.songs()
-        ready = [s for s in pool if s["status"] == "ready"]
+    def settings(self):
+        values = {
+            row["name"]: row["value"]
+            for row in self.rows(
+                "SELECT name,value FROM room_state "
+                "WHERE name IN ('queue_policy','allow_unsubtitled')"
+            )
+        }
+        return {
+            "queue_policy": values.get("queue_policy", "fair"),
+            "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
+        }
+
+    def save_settings(self, queue_policy: str, allow_unsubtitled: bool):
+        with self.lock:
+            for key, value in (
+                ("queue_policy", queue_policy),
+                ("allow_unsubtitled", "1" if allow_unsubtitled else "0"),
+            ):
+                self.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES(?,?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    (key, value),
+                )
+            self.db.commit()
+            return self.settings()
+
+    @staticmethod
+    def playable(song, settings):
+        return (
+            song["status"] == "ready"
+            and song["has_media"]
+            and (
+                settings["allow_unsubtitled"]
+                or song["prep_state"] in ("done", "manual")
+            )
+        )
+
+    def fair_queue(self, pool=None, settings=None):
+        """Order playable tracks by the current event's policy."""
+        if pool is None:
+            pool = self.songs()
+        if settings is None:
+            settings = self.settings()
+        ready = [s for s in pool if self.playable(s, settings)]
+        if settings["queue_policy"] == "fcfs":
+            return ready  # songs() is already ordered by requested_at, id.
         users = {x["id"]: x for x in self.rows("SELECT * FROM guests")}
         # Simulate future turns so the displayed order reflects selection policy.
         tally = {k: (u["plays"], u["seconds"]) for k, u in users.items()}
@@ -281,13 +331,16 @@ class Store:
 
     def state(self):
         with self.lock:
+            pool = self.songs()
+            settings = self.settings()
             return {
-                "current": next(
-                    (s for s in self.songs() if s["status"] == "playing"), None
-                ),
-                "queue": self.fair_queue(),
+                "current": next((s for s in pool if s["status"] == "playing"), None),
+                "queue": self.fair_queue(pool, settings),
                 "waiting": [
-                    s for s in self.songs() if s["status"] in ("waiting", "rendering")
+                    {**s, "awaiting_subtitles": s["status"] == "ready"}
+                    for s in pool
+                    if s["status"] in ("waiting", "rendering")
+                    or (s["status"] == "ready" and not self.playable(s, settings))
                 ],
                 "guests": self.rows(
                     "SELECT name,plays,seconds FROM guests ORDER BY name"
@@ -645,10 +698,67 @@ def create_app(
         response.delete_cookie("vc_join", path="/")
         return {"ok": True}
 
+    @app.get("/api/admin/settings")
+    def get_playback_settings(vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            return store.settings()
+
+    @app.put("/api/admin/settings")
+    def update_playback_settings(
+        body: PlaybackSettings, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_admin(vc_admin)
+        with store.lock:
+            return store.save_settings(body.queue_policy, body.allow_unsubtitled)
+
     @app.get("/api/admin/events")
     def list_events(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
         return {"active": events.active_id, "events": events.list()}
+
+    @app.get("/api/admin/events/{event_id}/songs.csv")
+    def export_event_songs(event_id: str, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with events.lock:
+            path = events.database_path(event_id)
+            with sqlite3.connect(
+                f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
+            ) as db:
+                songs = db.execute(
+                    """SELECT s.bvid,s.page,s.title,g.name,s.requested_at,
+                              s.status,s.played_at
+                       FROM songs s JOIN guests g ON g.id=s.requester
+                       ORDER BY s.requested_at,s.id"""
+                ).fetchall()
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(
+            (
+                "order",
+                "bvid",
+                "page",
+                "title",
+                "requester",
+                "requested_at",
+                "status",
+                "played_at",
+            )
+        )
+        for index, song in enumerate(songs, 1):
+            # Avoid spreadsheet formula execution for untrusted song titles/usernames.
+            fields = list(song)
+            for field in (2, 3):
+                if fields[field] and str(fields[field])[0] in "=+-@\t\r":
+                    fields[field] = "'" + fields[field]
+            writer.writerow((index, *fields))
+        return Response(
+            "\ufeff" + output.getvalue(),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="vc-ktv-{event_id}-songs.csv"'
+            },
+        )
 
     @app.post("/api/admin/events")
     def create_event(body: EventCreate, vc_admin: str | None = Cookie(default=None)):

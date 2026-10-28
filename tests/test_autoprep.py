@@ -114,6 +114,9 @@ def test_autoprep_failed_subtitle_keeps_source(tmp_path):
         root=tmp_path / "room", password="pw", secret=b"test-key", auto_prepare=True
     )
     app.state.events.create("测试场次", "123456")
+    app.state.store.save_settings(
+        "fair", True
+    )  # This test opts into original playback.
     app.state.lookup = fake_preview
     app.state.autoprep.download = lambda bv, page, dir: dir / "source.mp4"
 
@@ -171,6 +174,9 @@ def test_auto_download_failure_does_not_block_other_songs(tmp_path):
         root=tmp_path / "room", password="pw", secret=b"test-key", auto_prepare=True
     )
     app.state.events.create("测试场次", "123456")
+    app.state.store.save_settings(
+        "fair", True
+    )  # This test opts into original playback.
     app.state.lookup = fake_preview
 
     def download(bvid, page, dir):
@@ -201,6 +207,9 @@ def test_failed_download_retries_after_backoff(tmp_path):
         root=tmp_path / "room", password="pw", secret=b"test-key", auto_prepare=True
     )
     app.state.events.create("测试场次", "123456")
+    app.state.store.save_settings(
+        "fair", True
+    )  # This test opts into original playback.
     app.state.lookup = fake_preview
     failures = []
 

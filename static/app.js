@@ -14,6 +14,8 @@ const listKeys = new Map();
 let selectingSongId = null;
 let selectionRequest = 0;
 let currentEventId = null;
+let archiveListKey = null;
+let settingsEventId = null;
 const player = $("player");
 
 
@@ -67,9 +69,13 @@ function makeSong(song, order, mode="guest") {
   }
   if(mode==="status"){
     const states={pending:"等待自动准备",downloading:"下载视频中",downloaded:"原视频已就绪",
-      aligning:"字幕生成中 · 原视频可播",done:"KTV 字幕已完成",original:"原视频可播",
+      aligning:"字幕生成中",done:"KTV 字幕已完成",original:"字幕制作失败 · 原视频已保留",
       unavailable:song.prep_retry_at>Date.now()/1000?"暂不可获取 · 将自动重试":"暂不可获取",manual:"手动素材"};
-    appendText(outer,"span",states[song.prep_state]||"排队中","status"+(song.prep_state==="unavailable"?" wait":""));
+    const pendingSong=song.awaiting_subtitles
+      ? (song.prep_state==="original"?"字幕失败 · 请重新选择歌词":
+         !song.lyric_selected?"等待选择歌词":"等待字幕完成")
+      : (states[song.prep_state]||"排队中");
+    appendText(outer,"span",pendingSong,"status"+(song.prep_state==="unavailable"?" wait":""));
     if(song.prep_state==="unavailable"){
       const a=appendText(outer,"a","B站查看");a.href="https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;a.target="_blank";a.rel="noopener noreferrer";
     }
@@ -230,7 +236,7 @@ function showPage(){
   $("hero-title").textContent=isAdmin?"管理员控制台":"下一首，轮到谁？";
   $("hero-desc").textContent=isAdmin
     ?"登录后管理点歌队列、歌词与自动连播。刷新页面会保留在此控制台。"
-    :"输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；即使没选歌词也可播放原视频。";
+    :"输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；默认须等字幕完成后才能播放。";
   document.title=isAdmin?"VC KTV · 管理员":"VC KTV · 点歌房间";
 }
 $("admin-advanced").addEventListener("toggle",()=>{
@@ -334,8 +340,44 @@ async function refreshEvents(){
   $("event-join-code").textContent=active&&!active.legacy?"加入密码："+active.code:"";
   $("event-create-fields").classList.toggle("hidden",!!active);
   $("event-close-btn").classList.toggle("hidden",!active);
-  $("event-history").textContent="已保存 "+data.events.length+" 场 KTV（含历史）";
+  $("event-settings-panel").classList.toggle("hidden",!active);
+
+  const key=JSON.stringify(data.events.map(e=>[e.id,e.name,e.status]));
+  if(key!==archiveListKey){
+    archiveListKey=key;
+    const target=$("event-history");target.replaceChildren();
+    if(!data.events.length)appendText(target,"p","暂无历史场次","muted");
+    data.events.forEach(event=>{
+      const item=document.createElement("div");item.className="archive-item";
+      appendText(item,"span",event.name+" · "+(event.id===data.active?"进行中":"已归档"));
+      const link=appendText(item,"a","导出点歌 CSV","btn neutral");
+      link.href="/api/admin/events/"+encodeURIComponent(event.id)+"/songs.csv";
+      item.append(link);target.append(item);
+    });
+  }
+  if(!active){settingsEventId=null;return;}
+  const settings=await api("/api/admin/settings");
+  if(settingsEventId!==active.id){
+    settingsEventId=active.id;
+    $("queue-policy").value=settings.queue_policy;
+    $("allow-unsubtitled").checked=settings.allow_unsubtitled;
+  }else if(document.activeElement!==$("queue-policy")&&
+           document.activeElement!==$("allow-unsubtitled")&&
+           document.activeElement!==$("settings-save-btn")){
+    $("queue-policy").value=settings.queue_policy;
+    $("allow-unsubtitled").checked=settings.allow_unsubtitled;
+  }
 }
+$("settings-save-btn").onclick=()=>guarded(async()=>{
+  await api("/api/admin/settings","PUT",{
+    queue_policy:$("queue-policy").value,
+    allow_unsubtitled:$("allow-unsubtitled").checked
+  });
+  adminStateKey=null;
+  listKeys.clear();
+  toast("本场设置已保存");
+  await refresh();
+},$("settings-save-btn"));
 $("event-create-btn").onclick=()=>guarded(async()=>{
   const name=$("event-name").value.trim();
   const code=$("event-code").value.trim();

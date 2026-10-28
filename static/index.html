@@ -19,7 +19,7 @@
     <section class="hero">
       <span class="eyebrow"><span class="dot"></span> 自托管 · 自动点歌</span>
       <h1 id="hero-title">下一首，轮到谁？</h1>
-      <p id="hero-desc">输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；即使没选歌词也可播放原视频。</p>
+      <p id="hero-desc">输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；未完成字幕的原视频默认不能播放，管理员可在本场设置中允许。</p>
     </section>
     <div id="toast" role="status" aria-live="polite"></div>
     <div id="guest-view" class="dashboard">
@@ -105,7 +105,29 @@
             <button id="event-create-btn" class="btn primary" type="button">创建场次</button>
           </div>
           <button id="event-close-btn" class="btn neutral hidden" type="button">结束并归档本场</button>
-          <p id="event-history" class="muted"></p>
+        </section>
+        <section class="panel full-width" id="event-settings-panel">
+          <div class="section-head"><div><div class="kicker">本场设置</div><h2>排队与字幕</h2></div></div>
+          <div class="settings-fields">
+            <div>
+              <label for="queue-policy">点歌顺序</label>
+              <select id="queue-policy">
+                <option value="fair">公平优先 · 演唱次数少的人先唱</option>
+                <option value="fcfs">先来先唱 · 按点歌时间顺序</option>
+              </select>
+            </div>
+            <label class="toggle">
+              <input id="allow-unsubtitled" type="checkbox">
+              允许字幕尚未嵌好时播放原视频
+            </label>
+          </div>
+          <p class="muted">默认公平优先，且必须等字幕完成。设置只影响后续选歌，不打断正在播放的歌曲；手动上传的成品仍可播放。</p>
+          <button id="settings-save-btn" class="btn primary" type="button">保存本场设置</button>
+        </section>
+        <section class="panel full-width" id="event-archive-panel">
+          <div class="section-head"><div><div class="kicker">场次归档</div><h2>历史点歌</h2></div></div>
+          <p class="muted">保留每场全部点歌记录。可下载包含 BV 号和分 P 的 CSV，未来可用于整理 B 站收藏夹。</p>
+          <div id="event-history" class="archive-list"></div>
         </section>
         <section class="panel">
           <div class="section-head"><div><div class="kicker">播放控制台</div><h2>本地连播</h2></div><button id="logout-btn" class="btn subtle">退出登录</button></div>
@@ -149,7 +171,7 @@
       <button id="guest-lyrics-search" class="btn neutral" type="button">重新搜索</button>
     </div>
     <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
-    <p class="muted">暂时不选择也可以：原视频准备好后仍能播放。稍后可以在自己的歌曲旁重新打开这里。</p>
+    <p class="muted">可以稍后再选歌词；默认必须等字幕完成后才会进入可播队列。稍后可以在自己的歌曲旁重新打开这里。</p>
   </dialog>
   <dialog id="lyrics-dialog">
     <form method="dialog"><div class="section-head"><h2>编辑参考歌词</h2><button class="btn subtle">关闭</button></div></form>
