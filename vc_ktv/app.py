@@ -233,6 +233,13 @@ class Store:
             self.db.execute(
                 "ALTER TABLE songs ADD COLUMN lyric_source TEXT NOT NULL DEFAULT ''"
             )
+        for column, ddl in (
+            ("skip_subtitles", "INTEGER NOT NULL DEFAULT 0"),
+            ("prep_stage", "TEXT NOT NULL DEFAULT ''"),
+            ("prep_stage_at", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if column not in columns:
+                self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
         self.db.commit()
 
     def rows(self, sql, args=()):
@@ -249,6 +256,7 @@ class Store:
             SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.cover,s.duration,
                    s.requested_at,s.status,s.media_file IS NOT NULL AS has_media,s.render_error,
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
+                   s.skip_subtitles,s.prep_stage,s.prep_stage_at,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
                    g.name AS nickname,g.id AS requester_id,s.lyrics != '' AS has_lyrics
             FROM songs s JOIN guests g ON g.id=s.requester
@@ -303,6 +311,7 @@ class Store:
             and song["has_media"]
             and (
                 settings["allow_unsubtitled"]
+                or song.get("skip_subtitles", 0)
                 or song["prep_state"] in ("done", "manual")
             )
         )
@@ -1075,11 +1084,46 @@ def create_app(
             if not (store.media / Path(row["source_file"]).name).is_file():
                 bail(409, "原视频已丢失，无法仅重试字幕")
             store.db.execute(
-                "UPDATE songs SET prep_state='downloaded',prep_error='' WHERE id=?",
-                (song_id,),
+                "UPDATE songs SET prep_state='downloaded',prep_error='',"
+                "skip_subtitles=0,prep_stage='queued',prep_stage_at=? WHERE id=?",
+                (time_now(), song_id),
             )
             store.db.commit()
         return {"ok": True, "id": song_id, "status": "downloaded"}
+
+    @app.post("/api/admin/songs/{song_id}/subtitles/skip")
+    def skip_subtitles(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT status,prep_state,source_file,skip_subtitles "
+                "FROM songs WHERE id=?",
+                (song_id,),
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            if (
+                row["skip_subtitles"]
+                or row["status"] != "ready"
+                or row["prep_state"]
+                not in (
+                    "downloaded",
+                    "original",
+                    "aligning",
+                )
+            ):
+                bail(409, "仅可对已下载且尚未播放的歌曲跳过字幕")
+            source = store.media / Path(row["source_file"] or "").name
+            if not source.is_file():
+                bail(409, "原视频尚未就绪，无法进入队列")
+            store.db.execute(
+                "UPDATE songs SET media_file=source_file,prep_state='original',"
+                "skip_subtitles=1,prep_stage='skipped',prep_stage_at=?,"
+                "prep_error='管理员已选择播放原片' WHERE id=?",
+                (time_now(), song_id),
+            )
+            store.db.commit()
+        return {"ok": True, "id": song_id, "status": "ready", "source": "original"}
 
     @app.post("/api/admin/songs/{song_id}/media")
     async def upload(
@@ -1403,7 +1447,7 @@ def create_app(
         require_admin(vc_admin)
         with store.lock:
             cur = store.db.execute(
-                "UPDATE songs SET status='cancelled' WHERE id=? AND status IN ('waiting','ready')",
+                "UPDATE songs SET status='cancelled' WHERE id=? AND status IN ('waiting','ready','rendering')",
                 (song_id,),
             )
             store.db.commit()

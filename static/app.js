@@ -86,6 +86,22 @@ function makeSong(song, order, mode="guest") {
       const a=appendText(outer,"a","↗ B站");a.href="https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;a.target="_blank";a.rel="noopener noreferrer";
     }
   }else if(mode==="admin"){
+    const stageNames={
+      download:"下载原片",downloaded:"原片已下载",queued:"等待模型",
+      extract:"提取音频",kim:"Kim 人声分离",
+      align:"Qwen/TIFA 对齐",subtitles:"生成字幕",render:"FFmpeg 烧录",
+      done:"字幕已完成",skipped:"使用原视频"
+    };
+    const stage=stageNames[song.prep_stage];
+    if(stage && ["waiting","ready"].includes(song.status) &&
+       ["downloading","aligning","original","downloaded"].includes(song.prep_state)){
+      const elapsed=song.prep_stage_at?
+        Math.max(0,Math.floor(Date.now()/1000-song.prep_stage_at)):0;
+      const suffix=["downloading","aligning"].includes(song.prep_state)&&elapsed>=60?
+        "（已进行 "+Math.floor(elapsed/60)+" 分钟）":"";
+      const line=appendText(copy,"small",stage+suffix,"muted");
+      line.title="按阶段变更更新，不通过 GPU 采样估算百分比";
+    }
     const actions=document.createElement("div");actions.className="song-actions";outer.append(actions);
     if(song.status==="waiting" && !["downloading","pending"].includes(song.prep_state)){
       const upload=appendText(actions,"label","上传 MP4","mini upload-label");
@@ -102,7 +118,10 @@ function makeSong(song, order, mode="guest") {
     const lyrics=appendText(actions,"button","歌词","mini");lyrics.onclick=()=>editLyrics(song.id,song.title);
     if(song.status==="ready" && (song.prep_state==="original" || song.prep_state==="done")){
       const done=song.prep_state==="done";
-      const retry=appendText(actions,"button",done?"↻ 按新风格重制":"↻ 重试字幕","mini");
+      const retry=appendText(
+        actions,"button",done?"↻ 按新风格重制":
+        song.skip_subtitles?"↻ 重新生成字幕":"↻ 重试字幕","mini"
+      );
       retry.title=done?"使用当前本场字幕预设重新制作，旧成片保留到新片完成":song.prep_error||"只重试字幕，保留原视频";
       retry.onclick=()=>guarded(async()=>{
         if(done&&!confirm("按当前字幕风格重新制作这首歌？重制完成前旧成片会保留。"))return;
@@ -110,8 +129,19 @@ function makeSong(song, order, mode="guest") {
         toast("◷ 已重新排队制作字幕");await refresh();
       },retry);
     }
-    if(song.status==="ready"){
-      const render=appendText(actions,"button","制作 KTV","mini");render.onclick=()=>guarded(async()=>{
+    if(song.status==="ready" && song.has_media &&
+       ["downloaded","original","aligning"].includes(song.prep_state) &&
+       !song.skip_subtitles){
+      const bypass=appendText(actions,"button","▶ 原片入队","mini");
+      bypass.title="仅此首歌跳过字幕，立即以原视频排队；已经开始的推理不会立刻停止";
+      bypass.onclick=()=>guarded(async()=>{
+        if(!confirm("仅让这首歌以原视频进入队列？字幕制作结果将被忽略。"))return;
+        await api(`/api/admin/songs/${song.id}/subtitles/skip`,"POST");
+        toast("✓ 已允许原片入队");await refresh();
+      },bypass);
+    }
+    if(song.status==="ready" && song.prep_state!=="aligning"){
+      const render=appendText(actions,"button","手工制作 KTV","mini");render.onclick=()=>guarded(async()=>{
         const lead=Number($("lead-seconds").value);
         await api(`/api/admin/songs/${song.id}/render`,"POST",{lead});
         toast("◷ 正在制作字幕");await refresh();
@@ -119,8 +149,9 @@ function makeSong(song, order, mode="guest") {
     }else if(song.status==="rendering"){
       appendText(actions,"span","制作中","status wait");
     }
-    if(song.status!=="rendering"){
-      const cancel=appendText(actions,"button","取消","mini");cancel.onclick=()=>guarded(async()=>{
+    {
+      const cancel=appendText(actions,"button","✕ 取消点歌","mini");
+      cancel.title="取消这首待播歌曲；若正在推理，当前计算可能仍需结束";cancel.onclick=()=>guarded(async()=>{
       if(!confirm("取消这首歌曲？"))return;
       await api(`/api/admin/songs/${song.id}/cancel`,"POST"); await refresh();
     },cancel);
