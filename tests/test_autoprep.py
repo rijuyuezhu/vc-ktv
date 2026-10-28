@@ -249,11 +249,19 @@ def test_failed_download_retries_after_backoff(tmp_path):
 
 
 def test_vocalization_normalization():
-    from vc_ktv.autoprep import alignment_lyrics
+    from vc_ktv.autoprep import pronunciation_lyrics
 
-    source = "Ha aa~ \u4f60\u597d\nHa aa~ \u4e16\u754c"
-    assert alignment_lyrics(source) == "\u4f60\u597d\n\u4e16\u754c"
-    assert alignment_lyrics("Hello world\nI love you") == "Hello world\nI love you"
+    source = "Ha aa~ 你好\nHa aa~ 世界"
+    pronunciation, mapping, changes = pronunciation_lyrics(source)
+    assert pronunciation == "哈 啊~ 你好\n哈 啊~ 世界"
+    assert len(changes) == 4
+    assert mapping[0][0] == (0, 2)
+    assert (
+        pronunciation_lyrics("Hello world\nI love you")[0] == "Hello world\nI love you"
+    )
+    assert (
+        pronunciation_lyrics("DUDUDU DUDUDUDU\nDaLaDa")[0] == "嘟嘟嘟 嘟嘟嘟嘟\n哒啦哒"
+    )
 
 
 def test_tifa_no_output_classifies_oov(tmp_path, monkeypatch):
