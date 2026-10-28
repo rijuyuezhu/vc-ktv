@@ -1,68 +1,37 @@
-# Alignment baseline and upstream decision record
+# Subtitle alignment: practical notes
 
-Status: P0 infrastructure and source audit (2026-10-28). **No verified real-singing accuracy results yet.** This document is not a claim that VC KTV matches the upstream model pipeline.
+VC KTV is a **self-hosted KTV app**, not an alignment research project.
+The goal is to make queued videos with readable subtitles before their turn,
+without turning routine requests into an expensive multi-model pipeline.
 
-## Why this comparison matters
+## Current pipeline and upstream comparison
 
-VC KTV is an on-demand, Bilibili BV-first service: guests submit and confirm lyrics while the background queue prepares a playable video. Our effective outcome is not just “a TextGrid exists”: a prepared song needs faithful displayed lyrics, acceptable alignment timing, and a completed MP4 **before its turn to play**. The default per-event subtitle gate excludes unrendered originals.
+- **VC KTV:** user-selected BV + lyrics → mixed audio → full-song TIFA → enhanced LRC → ASS → MP4. Known scat such as DUDUDU gets a Chinese pronunciation hint but retains original display text. Failures retain source media and support subtitle-only retry.
+- **[AutoASSrenderer4karaOK @ 39cedb3](https://github.com/Volta233/AutoASSrenderer4karaOK/tree/39cedb317c9e11add83e9a72c31368cabd8416d4):** vocal separation (Kim) → dual-pass Qwen3-ASR anchors → safe TIFA blocks and local retry → explicit recovered/estimated timestamp provenance. Stronger offline correction, but more models, setup and runtime.
+- **Decision:** keep our simpler pipeline. No unconditional Kim, Qwen, automatic estimated timestamps, or large editing UI. Revisit local block recovery only if actual full-song failures become common; don't invent cut points.
 
-Reference implementation: [Volta233/AutoASSrenderer4karaOK at 39cedb3](https://github.com/Volta233/AutoASSrenderer4karaOK/tree/39cedb317c9e11add83e9a72c31368cabd8416d4) (Apache-2.0), especially [PIPELINE.md](https://github.com/Volta233/AutoASSrenderer4karaOK/blob/39cedb317c9e11add83e9a72c31368cabd8416d4/docs/PIPELINE.md), [worker.py](https://github.com/Volta233/AutoASSrenderer4karaOK/blob/39cedb317c9e11add83e9a72c31368cabd8416d4/ktv_app/aligners/worker.py), [reliable_blocks.py](https://github.com/Volta233/AutoASSrenderer4karaOK/blob/39cedb317c9e11add83e9a72c31368cabd8416d4/ktv_app/aligners/reliable_blocks.py), [completion.py](https://github.com/Volta233/AutoASSrenderer4karaOK/blob/39cedb317c9e11add83e9a72c31368cabd8416d4/ktv_app/completion.py). Audit baseline is fixed, not floating main.
+## Small real-singing smoke test (2026-10-28)
 
-## Stage-by-stage source-linked map
+Ran three short sung clips on Spark-WSL with existing TIFA and CUDA.
+Source: [ACE-KiSing validation](https://huggingface.co/datasets/espnet/ace-kising-segments), CC BY-NC 4.0.
+Used the dataset's **reference phoneme sequence** as explicit TIFA PFML input and compared the resulting TextGrid phone tier to reference phoneme timestamps.
+This checks acoustic alignment only; it is **not** a BV-to-MP4 end-to-end test, and all three clips are from one singer.
 
-| Stage | VC KTV HEAD (post #15/#16) | Reference | Decision |
-| --- | --- | --- | --- |
-| Recording and lyrics | BV video download, VCPedia/LRCLIB candidate chosen by guest, original audio retained ([autoprep.py](../vc_ktv/autoprep.py), [lyric_selection.py](../vc_ktv/lyric_selection.py)) | User-supplied MV or audio+picture, confirms recording version, broader source fallback | **Keep** BV-first selection; assess search fallback separately |
-| Audio | FFmpeg extracts mono 48 kHz from mixed video | Kim Mel-Band Roformer vocal separation, checks same clock/duration | **Evaluate** after same-song baseline; no dependency added |
-| Lyrics pronunciation | Deterministic known scat mappings, original source spans and logs; unknown language may still fail ([autoprep.py](../vc_ktv/autoprep.py)) | Partial G2P traces, omitted words preserved ([partial_g2p.py](https://github.com/Volta233/AutoASSrenderer4karaOK/blob/39cedb317c9e11add83e9a72c31368cabd8416d4/ktv_app/aligners/partial_g2p.py)) | **Adopted minimal mapping** in #15; revisit partial word recovery with #19 |
-| Song-version grounding | Pass entire confirmed lyrics directly to TIFA | Two-pass Qwen3-ASR, TIFA window locator, lyric-version anchoring | **Evaluate** #20 with repeated/missing verses; ASR is not timing truth |
-| Acoustic alignment | One whole-song TIFA, output TextGrid | Verified safe boundaries, formal TIFA blocks <90s, seam fixes and local retries | **Adapt conditionally** #19 after #18 baseline; never cut blindly |
-| Output timeline | Native words -> enhanced LRC -> ASS/libass -> MP4; no estimation ([textgrid_import.py](../vc_ktv/textgrid_import.py)) | Native indices, `model/manual/estimated` provenance, bounded completion | **Defer estimation** until explicit source flags and acceptability policy exist |
-| Failure and replay | Per-attempt archived logs and subtitle-only retry, default subtitle gate (introduced in #15) | Localized failures with explicit omitted/estimated provenance; genuine resource errors remain errors | **Keep** current gate; test effects before expanding |
-| Review and UI | Minimal guest/admin queue, no editor | Offline editor/review workflow | **Defer** rich editor; may add concise admin diagnostics if a measurement shows need |
+| Clip | Duration | Matched phones | Mean onset/end absolute error | Notes |
+| --- | ---: | ---: | ---: | --- |
+| kising_yunhao_442_011 | 4.73 s | 21/22 (95.5%) | 88 ms | One skipped ang |
+| kising_yunhao_442_018 | 8.97 s | 38/40 (95.0%) | 91 ms | Two skipped phones; ~12.7 s wall time |
+| kising_yunhao_443_010 | 15.74 s | 80/80 (100%) | 88 ms | ~11.2 s wall time |
 
-The upstream pipeline is **Kim → two-pass short-window Qwen3-ASR → TIFA window locator → supported cuts → block TIFA/local repair → explicitly marked completion**. It does **not** apply Qwen ForcedAligner on each song. Neither its filled timestamps nor our unit tests are evidence of real singing accuracy.
+All three inference runs exited normally and emitted TextGrid. Some phones were skipped despite successful exit; future subtitle fixes should treat missing units as explicit failures, not invisible successes. These numbers are a quick smoke check, not a song-level accuracy or latency claim.
 
-## Experiment inputs and evidence
+Isolated data on Spark-WSL: /home/user/Playground/vc-ktv-alignment-benchmark (downloaded ~25 MB validation shard; sample audio, reference labels, PFML, TIFA logs/TextGrids and GPU samples). No production songs or media were used.
 
-Use small, lawful test recordings whose recording and lyric usage is authorized. No production session media, cookies, private accounts, live SQLite, or unlicensed fetched songs. At minimum cover:
-1. Small synthetic speech control (existing committed `tests/fixtures/tifa-espeak-hello.TextGrid` validates the converter but is **not** a full-song inference control).
-2. Chinese/VC sung phrase with backing track and human-annotated word starts/ends.
-3. Repeated chorus and skipped/shortened lyric verse.
-4. `DUDUDU` / `DaLaDa`, mixed Chinese/English and version mismatch.
+## When something fails in practice
 
-For every sample record a permission note, **exact WAV bytes and lyric version hashes**, utterance time reference in seconds, manual word boundaries where available, model source commit and SHA256, PyTorch/CUDA/FFmpeg versions, command arguments, clocks, failed segments, and lyrics-display fidelity. Human onset/offset labels are required before quantifying alignment error; process exit success is only an availability measure.
+1. For a failed song use the administrator's **retry subtitles** action, without redownloading. Look at the attempt-specific tifa.log and attempt.json.
+2. Check that selected lyrics match the recording; retry does not repair incorrect song versions.
+3. If recurring misses appear, open a narrow bug report with a reproducible lyric/audio snippet and the failure logs. Only then consider #19 (local block recovery).
+4. Extra Kim/Qwen models are deferred until simple TIFA visibly fails in real use. Avoid adding them just to match upstream.
 
-Acceptance metrics (not yet measured):
-- **Availability**: percent of requested songs producing *valid* TextGrid and final MP4, broken down by failure type.
-- **Coverage**: proportion of confirmed words with retained native timestamps; count missed/repeated spans separately.
-- **Timing**: median and p90 absolute onset/offset error in milliseconds versus annotated recording truth; report word/line definitions.
-- **Latency and capacity**: cold/warm total preparation (download, GPU alignment, render), GPU peak allocated/resident MiB per stage, model downloads and install disk budget; compare to *time until song is due*.
-- **Fidelity**: preserve exact source words, including scat, chorus order, and original soundtrack. Estimated intervals must be reported separately and cannot count as accurate model timestamps.
-- Report **N**, song mix, number of trials, operating conditions and unknowns; no invented accuracy thresholds.
-
-## Isolated, repeatable baseline runner
-
-`scripts/alignment_baseline.py` accepts a local **authorized** WAV and confirmed plain TXT, an existing frozen TIFA checkout/model/Python executable and a brand-new output directory. It refuses to overwrite an existing run, has no KTV DB/network/API integration, and only runs when an operator supplies `--confirm-rights`. It copies the input WAV into that new directory beside the same-stem TIFA lyric text (never alters the original input), runs a whole-song baseline, archives `tifa.log`, raw TextGrid, lyric and model hashes, exact command, elapsed time, optional converted LRC, and `result.json`.
-
-Invoke from the repository root with an already installed TIFA environment; replace all placeholders with explicit absolute paths:
-
-```bash
-python -m scripts.alignment_baseline \
-  --audio /research/fixtures/authorized-song.wav \
-  --lyrics /research/fixtures/authorized-song.txt \
-  --tifa /isolated/TIFA --model /isolated/models/TIFA-1.0-ST/model.pt \
-  --python /isolated/tifa-env/bin/python \
-  --out /research/results/sample01-raw --mode raw --confirm-rights
-```
-
-Use a *different* output directory and `--mode pronunciation` to compare the post-#15 deterministic mappings on the same input. Never treat either option as a substitute for independent manual timing verification. Runner records `gpu_memory_peak_mib: null` and `manually_labelled_accuracy: false` deliberately; these measurements are not implemented and **must be collected separately**, not guessed from model logs.
-
-Results are intentionally stored outside Git and outside production media; only tests and this protocol are committed. An isolated run may take substantial GPU time. Current setup has a TIFA model/runtime in the separately ignored production checkout, not in this fresh worktree, and **no authorized real-singing fixture was used** in this P0 audit.
-
-## Next decisions (not auto-approved)
-
-1. Finish #18 by gathering authorized annotated fixtures and a **real** reproducible direct-TIFA result (both raw/pronunciation), with measured timing/coverage. Missing fixture = documented blocker, not a fake success.
-2. If #18 establishes an on-demand benefit, #19 should be one end-to-end feature PR for safe bounded blocks, owned word intervals, local recovery, provenance and observable readiness; not a dozen helper micro-PRs. Go/no-go remains open.
-3. #20 evaluates Kim and Qwen3-ASR *independently* on the same audio and reference labels. Report resource cost and whether the extra stages help enough to justify a new cohesive feature.
-4. Keep real deployment a separate explicit approval after CI and isolated media checks.
+For isolated experiments there is an optional scripts/alignment_baseline.py (authorized WAV/TXT; frozen TIFA checkout/model; new output directory; --confirm-rights). It copies audio and same-stem lyrics to a fresh directory, saves raw logs and TextGrid, and leaves production untouched. Routine VC KTV development does **not** need to invoke it.
