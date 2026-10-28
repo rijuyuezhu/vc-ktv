@@ -28,3 +28,12 @@ def test_ui_uses_light_indigo_palette():
     assert "--accent: #4f5bd5" in css
     assert "color-scheme: light" in css
     assert "focus-visible" in css
+
+
+def test_state_refresh_preserves_unchanged_song_list_and_recovers():
+    script = (Path(__file__).resolve().parents[1] / "static/app.js").read_text()
+    assert "if(listKeys.get(id)===key)return;" in script
+    assert "JSON.stringify([state.current,state.queue,state.waiting])" in script
+    assert 'document.addEventListener("visibilitychange"' in script
+    assert 'window.addEventListener("online"' in script
+    assert "if(refreshQueued){refreshQueued=false;refresh();}" in script
