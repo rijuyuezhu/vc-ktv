@@ -1027,6 +1027,29 @@ def create_app(
             }
         return {**store.state(), "active": active_view()}
 
+    @app.post("/api/admin/songs/{song_id}/subtitles/retry")
+    def retry_subtitles(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT status,prep_state,lyric_choice,source_file FROM songs WHERE id=?",
+                (song_id,),
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            if row["status"] != "ready" or row["prep_state"] != "original":
+                bail(409, "仅可重试尚未播放且字幕失败的歌曲")
+            if not row["lyric_choice"] or not row["source_file"]:
+                bail(409, "歌曲缺少已选歌词或原始视频")
+            if not (store.media / Path(row["source_file"]).name).is_file():
+                bail(409, "原视频已丢失，无法仅重试字幕")
+            store.db.execute(
+                "UPDATE songs SET prep_state='downloaded',prep_error='' WHERE id=?",
+                (song_id,),
+            )
+            store.db.commit()
+        return {"ok": True, "id": song_id, "status": "downloaded"}
+
     @app.post("/api/admin/songs/{song_id}/media")
     async def upload(
         song_id: int,

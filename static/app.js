@@ -77,7 +77,8 @@ function makeSong(song, order, mode="guest") {
       ? (song.prep_state==="original"?"! 字幕失败":
          !song.lyric_selected?"◷ 等待歌词":"◷ 等待字幕")
       : (states[song.prep_state]||"◷ 准备中");
-    appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
+    const stateLabel=appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
+    if(song.prep_error)stateLabel.title=song.prep_error;
     if(song.prep_state==="unavailable"){
       const a=appendText(outer,"a","↗ B站");a.href="https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;a.target="_blank";a.rel="noopener noreferrer";
     }
@@ -96,6 +97,14 @@ function makeSong(song, order, mode="guest") {
       });
     }
     const lyrics=appendText(actions,"button","歌词","mini");lyrics.onclick=()=>editLyrics(song.id,song.title);
+    if(song.status==="ready" && song.prep_state==="original"){
+      const retry=appendText(actions,"button","↻ 重试字幕","mini");
+      retry.title=song.prep_error||"只重试字幕，保留原视频";
+      retry.onclick=()=>guarded(async()=>{
+        await api(`/api/admin/songs/${song.id}/subtitles/retry`,"POST");
+        toast("◷ 已重新排队制作字幕");await refresh();
+      },retry);
+    }
     if(song.status==="ready"){
       const render=appendText(actions,"button","制作 KTV","mini");render.onclick=()=>guarded(async()=>{
         const lead=Number($("lead-seconds").value);
