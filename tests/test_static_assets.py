@@ -58,3 +58,21 @@ def test_state_refresh_preserves_unchanged_song_list_and_recovers():
     assert 'document.addEventListener("visibilitychange"' in script
     assert 'window.addEventListener("online"' in script
     assert "if(refreshQueued){refreshQueued=false;refresh();}" in script
+
+
+def test_admin_policy_and_archive_panel_elements():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    for element in (
+        "event-settings-panel",
+        "queue-policy",
+        "allow-unsubtitled",
+        "settings-save-btn",
+        "event-archive-panel",
+        "event-history",
+    ):
+        assert 'id="' + element + '"' in html
+    assert 'api("/api/admin/settings")' in js
+    assert 'api("/api/admin/settings","PUT"' in js
+    assert '"/songs.csv"' in js

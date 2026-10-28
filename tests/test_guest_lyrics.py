@@ -162,6 +162,7 @@ def test_select_after_original_video_ready_starts_enhancement(tmp_path):
     import time
 
     app, _ = app_for_lyrics(tmp_path)
+    app.state.store.save_settings("fair", True)  # Test original-media availability.
 
     def download(_bv, _page, directory):
         target = directory / "source.mp4"

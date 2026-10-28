@@ -80,6 +80,24 @@ class Events:
                 items.append(json.loads((f / "info.json").read_text()))
         return items
 
+    def database_path(self, event_id: str) -> Path:
+        """Existing per-event SQLite file; never create missing archives."""
+        if not EVENT_ID.fullmatch(event_id):
+            raise HTTPException(404, "场次不存在")
+        if event_id == "legacy":
+            folder = self.base / "legacy"
+            path = (
+                folder / "room.sqlite3"
+                if folder.is_dir()
+                else self.root / "room.sqlite3"
+            )
+        else:
+            folder = self.base / event_id
+            path = folder / "room.sqlite3"
+        if not path.is_file() or event_id not in {e["id"] for e in self.list()}:
+            raise HTTPException(404, "场次不存在")
+        return path
+
     def create(self, name: str, code: str | None = None):
         with self.lock:
             if self.active_id:

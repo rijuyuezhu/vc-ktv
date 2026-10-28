@@ -158,3 +158,10 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 #guest-profile { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #guest-greeting { font-weight: 650; }
 @media (max-width: 760px) { .auth-grid { grid-template-columns: 1fr; } }
+
+.settings-fields { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; margin-bottom: 12px; }
+.settings-fields > div { flex: 1 1 260px; }
+.settings-fields select { width: 100%; max-width: 450px; padding: 9px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px; }
+.archive-list { display: flex; flex-direction: column; gap: 8px; }
+.archive-item { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.archive-item span { overflow-wrap: anywhere; }
