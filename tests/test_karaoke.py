@@ -5,6 +5,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register
 from vc_ktv.app import create_app, probe_media
 from vc_ktv.karaoke import parse_lrc, render_video, write_ass
 
@@ -105,6 +106,7 @@ def test_app_real_render(sample_mp4, tmp_path):
 
     app.state.lookup = lookup
     with TestClient(app) as user, TestClient(app) as admin:
+        join_and_register(user, "用户")
         song = user.post(
             "/api/songs", json={"bvid": "BV0000000003", "page": 1, "nickname": "测试"}
         ).json()["id"]
@@ -171,6 +173,7 @@ def test_invalid_upload_is_rejected(tmp_path):
 
     app.state.lookup = lookup
     with TestClient(app) as user, TestClient(app) as admin:
+        join_and_register(user, "用户")
         song = user.post(
             "/api/songs", json={"bvid": "BV0000000003", "nickname": "测试"}
         ).json()["id"]

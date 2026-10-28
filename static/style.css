@@ -152,3 +152,9 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 #event-create-fields #event-name { flex: 2 1 190px; }
 #event-create-fields #event-code { flex: 1 1 170px; }
 #event-join-code { color: var(--accent-ink); font-weight: 700; }
+
+.auth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.auth-grid h3 { margin: 6px 0 12px; }
+#guest-profile { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#guest-greeting { font-weight: 650; }
+@media (max-width: 760px) { .auth-grid { grid-template-columns: 1fr; } }

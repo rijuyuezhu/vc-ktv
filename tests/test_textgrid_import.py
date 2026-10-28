@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from textgrid import IntervalTier, TextGrid
 
+from tests.helpers import join_and_register
 from vc_ktv.app import create_app
 from vc_ktv.karaoke import parse_lrc, write_ass
 from vc_ktv.textgrid_import import convert_textgrid
@@ -88,6 +89,7 @@ def test_endpoint_saves_raw_and_rejects_bad_version(tmp_path):
     app.state.lookup = lookup
     app.state.probe = lambda file: 4
     with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "访客")
         song = guest.post(
             "/api/songs",
             json={
@@ -185,6 +187,7 @@ def test_full_textgrid_to_rendered_mp4(tmp_path):
     )
     grid = grid_file(tmp_path / "real.TextGrid").read_bytes()
     with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "访客")
         song = guest.post(
             "/api/songs", json={"bvid": "BV0000000003", "nickname": "测试", "page": 1}
         ).json()["id"]
