@@ -7,6 +7,7 @@ Source failures never block the fair queue of already playable songs.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -25,6 +26,12 @@ from .textgrid_import import convert_textgrid
 
 log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class SubtitleError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
 
 
 def title_key(name: str) -> str:
@@ -110,30 +117,33 @@ def make_tifa_video(
     python = ROOT / ".runtime/tifa-env/bin/python"
     model = ROOT / ".runtime/models/TIFA-1.0-ST/model.pt"
     if not (python.is_file() and (tifa / "infer.py").is_file() and model.is_file()):
-        raise RuntimeError("TIFA 未安装，本次播放原视频")
+        raise SubtitleError("model_missing", "TIFA 模型或运行环境未安装")
     archive.mkdir(parents=True, exist_ok=True)
     audio = archive / "audio.wav"
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            str(source),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "48000",
-            str(audio),
-        ],
-        check=True,
-        capture_output=True,
-        timeout=70,
-    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "48000",
+                str(audio),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=70,
+        )
+    except (subprocess.SubprocessError, OSError) as error:
+        raise SubtitleError("audio_extract", "FFmpeg 音频提取失败") from error
     normalized = alignment_lyrics(lyrics)
     (archive / "lyrics.source.txt").write_text(lyrics, encoding="utf-8")
     (archive / "audio.txt").write_text(normalized, encoding="utf-8")
@@ -154,23 +164,37 @@ def make_tifa_video(
         "--num-workers",
         "0",
     ]
-    with (archive / "tifa.log").open("w") as trace:
-        proc = subprocess.run(
-            cmd,
-            cwd=tifa,
-            stdout=trace,
-            stderr=subprocess.STDOUT,
-            timeout=360,
-            env={**os.environ, "OMP_NUM_THREADS": "4"},
-        )
+    try:
+        with (archive / "tifa.log").open("w") as trace:
+            proc = subprocess.run(
+                cmd,
+                cwd=tifa,
+                stdout=trace,
+                stderr=subprocess.STDOUT,
+                timeout=360,
+                env={**os.environ, "OMP_NUM_THREADS": "4"},
+            )
+    except (subprocess.SubprocessError, OSError) as error:
+        raise SubtitleError("tifa_runtime", "TIFA 推理运行失败或超时") from error
     if proc.returncode:
-        raise RuntimeError("TIFA 未能完成对齐")
+        raise SubtitleError("tifa_runtime", "TIFA 推理进程失败")
     grid = output / "audio.TextGrid"
     if not grid.is_file():
-        raise RuntimeError("TIFA 未返回 TextGrid")
-    lrc, report = convert_textgrid(grid, normalized, duration)
+        log_text = (archive / "tifa.log").read_text(encoding="utf-8", errors="replace")
+        if "Unknown phonemes" in log_text and "Skipping" in log_text:
+            raise SubtitleError("alignment_oov", "TIFA 无法处理部分歌词发音")
+        raise SubtitleError("tifa_no_output", "TIFA 未生成 TextGrid 对齐结果")
+    try:
+        lrc, report = convert_textgrid(grid, normalized, duration)
+    except ValueError as error:
+        raise SubtitleError(
+            "alignment_mismatch", "歌词与 TIFA 对齐结果不匹配"
+        ) from error
     (archive / "aligned.lrc").write_text(lrc, encoding="utf-8")
-    render_video(source, lrc, destination, duration, lead=1.8)
+    try:
+        render_video(source, lrc, destination, duration, lead=1.8)
+    except (subprocess.SubprocessError, OSError, ValueError) as error:
+        raise SubtitleError("render_failed", "FFmpeg 字幕烧录失败") from error
     return report
 
 
@@ -287,7 +311,7 @@ class AutoPrep:
                     else:
                         self.store.db.execute(
                             "UPDATE songs SET prep_state='original',"
-                            "prep_error='字幕处理失败，原视频仍可播放' WHERE id=? AND status='ready'",
+                            "prep_error='字幕制作失败' WHERE id=? AND status='ready'",
                             (row["id"],),
                         )
                     self.store.db.commit()
@@ -333,10 +357,27 @@ class AutoPrep:
         lyrics = row["lyric_choice"]
         if not lyrics:
             return
-        archive = self.store.media / f"{song_id}-auto-alignment"
+        # A retry must never accidentally reuse an old TextGrid or overwrite a
+        # previous diagnostic. Keep all artifacts scoped to this song/event.
+        archive = (
+            self.store.media
+            / f"{song_id}-auto-alignment"
+            / (f"attempt-{time.time_ns()}-{secrets.token_hex(3)}")
+        )
+        archive.mkdir(parents=True)
         target = self.store.media / f"{song_id}-auto-{secrets.token_hex(6)}.mp4"
+        metadata = {
+            "song_id": song_id,
+            "source_file": row["source_file"],
+            "lyric_source": row["lyric_source"],
+            "outcome": "running",
+        }
         try:
-            self.enhance(source, lyrics, target, archive, float(row["duration"]))
+            report = self.enhance(
+                source, lyrics, target, archive, float(row["duration"])
+            )
+            metadata["outcome"] = "rendered"
+            metadata["report"] = report
             with self.store.lock:
                 latest = self.store.db.execute(
                     "SELECT status,source_file,media_file FROM songs WHERE id=?",
@@ -357,10 +398,14 @@ class AutoPrep:
                             missing_ok=True
                         )
                 else:
-                    target.unlink(
-                        missing_ok=True
-                    )  # playback has started: keep original
+                    target.unlink(missing_ok=True)  # Playback already started.
+                    metadata["outcome"] = "stale"
         except Exception as error:
+            metadata["outcome"] = "failed"
+            metadata["error_code"] = (
+                error.code if isinstance(error, SubtitleError) else "unexpected"
+            )
+            metadata["error_message"] = str(error)[:400]
             log.warning(
                 "Song #%s subtitle enhancement failed, original preserved: %s",
                 song_id,
@@ -368,8 +413,20 @@ class AutoPrep:
             )
             target.unlink(missing_ok=True)
             with self.store.lock:
+                message = (
+                    str(error)
+                    if isinstance(error, SubtitleError)
+                    else "字幕制作失败，请查看日志"
+                )
                 self.store.db.execute(
-                    "UPDATE songs SET prep_state='original',prep_error='字幕准备失败，播放原视频' WHERE id=?",
-                    (song_id,),
+                    "UPDATE songs SET prep_state='original',prep_error=? "
+                    "WHERE id=? AND status='ready' AND prep_state='aligning' "
+                    "AND source_file=?",
+                    (message, song_id, row["source_file"]),
                 )
                 self.store.db.commit()
+        finally:
+            (archive / "attempt.json").write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )

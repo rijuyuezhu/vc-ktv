@@ -254,3 +254,43 @@ def test_vocalization_normalization():
     source = "Ha aa~ \u4f60\u597d\nHa aa~ \u4e16\u754c"
     assert alignment_lyrics(source) == "\u4f60\u597d\n\u4e16\u754c"
     assert alignment_lyrics("Hello world\nI love you") == "Hello world\nI love you"
+
+
+def test_tifa_no_output_classifies_oov(tmp_path, monkeypatch):
+    import subprocess
+
+    from vc_ktv import autoprep
+
+    root = tmp_path / "tifa-fixture"
+    for name in (
+        ".runtime/TIFA/infer.py",
+        ".runtime/tifa-env/bin/python",
+        ".runtime/models/TIFA-1.0-ST/model.pt",
+    ):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture")
+    monkeypatch.setattr(autoprep, "ROOT", root)
+    original = tmp_path / "original.mp4"
+    original.write_bytes(b"video")
+
+    def fake_run(command, **kwargs):
+        if command[0] != "ffmpeg":
+            kwargs["stdout"].write("Skipping 'audio': Unknown phonemes ['dududu']")
+            kwargs["stdout"].flush()
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(autoprep.subprocess, "run", fake_run)
+    import pytest
+
+    with pytest.raises(autoprep.SubtitleError) as caught:
+        autoprep.make_tifa_video(
+            original,
+            "DUDUDU\n你好",
+            tmp_path / "rendered.mp4",
+            tmp_path / "archive",
+            20,
+        )
+    assert caught.value.code == "alignment_oov"
+    assert "Unknown phonemes" in (tmp_path / "archive/tifa.log").read_text()
+    assert not (tmp_path / "rendered.mp4").exists()
