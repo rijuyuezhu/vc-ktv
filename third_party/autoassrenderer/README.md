@@ -21,3 +21,30 @@ For automated upstream checks, the machine-readable source reference is
 rebasing the vendored files to a new upstream revision. The accompanying
 `assets.lock.json` is a **snapshot** of the upstream pinned model inputs;
 do not equate an upstream source commit update with a model upgrade.
+
+## Upstream update notification
+
+[`.github/workflows/upstream-check.yml`](../../.github/workflows/upstream-check.yml)
+checks upstream `main` every Monday at **06:20 UTC** against the exact
+`commit` in `UPSTREAM.json`. When there is a change, it opens one
+`upstream-update` GitHub Issue (or updates the existing open notification)
+with a comparison link. Notifications are deduplicated by upstream SHA,
+including previously closed notifications. It never updates source or models.
+
+The workflow runs with GitHub's built-in `GITHUB_TOKEN`, with only
+`contents: read` and `issues: write`. There is no PAT, external service,
+Dependabot configuration, model download or automatic PR merge.
+
+To test from the GitHub Actions UI use **Vendored upstream update reminder**
+→ **Run workflow** → check `dry_run` and optionally enter a simulated
+40-character upstream SHA. No Issues or labels are modified in dry-run mode.
+Equivalent CLI commands from the default branch:
+
+```sh
+gh workflow run upstream-check.yml -f dry_run=true -f simulated_head=1234567890abcdef1234567890abcdef12345678
+GITHUB_REPOSITORY=rijuyuezhu/vc-ktv python3 scripts/check_upstream.py
+```
+
+After manually reviewing a new upstream revision, update `UPSTREAM.json` to
+the adopted commit *in the same PR that updates the copied code*. Review the
+model asset lock separately if upstream changes its model versions.

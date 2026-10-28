@@ -1,0 +1,46 @@
+name: Vendored upstream update reminder
+
+on:
+  schedule:
+    - cron: "20 6 * * 1" # Weekly Monday UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Preview action without creating or editing issues"
+        type: boolean
+        default: false
+      simulated_head:
+        description: "Optional simulated 40-char SHA for dry run only"
+        type: string
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: vendored-upstream-update-check
+  cancel-in-progress: false
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check pinned upstream SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SIMULATED_HEAD: ${{ inputs.simulated_head }}
+        run: |
+          args=()
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          if [[ -n "$SIMULATED_HEAD" ]]; then
+            args+=(--head "$SIMULATED_HEAD")
+          fi
+          python3 scripts/check_upstream.py "${args[@]}"
