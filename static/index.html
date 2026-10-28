@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10151d">
+  <title>VC KTV · 点歌房间</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topinner">
+      <div class="brand"><div class="brandicon">♪</div><div><strong>VC KTV</strong><small>自动点歌 · 本地处理</small></div></div>
+      <div class="tabs" role="tablist"><button id="tab-guest" class="selected" type="button">点歌大厅</button><button id="tab-admin" type="button">管理员</button></div>
+    </div>
+  </header>
+  <main class="layout">
+    <section class="hero">
+      <span class="eyebrow"><span class="dot"></span> 自托管 · 自托管</span>
+      <h1>下一首，轮到谁？</h1>
+      <p>输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；即使没选歌词也可播放原视频。</p>
+    </section>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="guest-view" class="dashboard">
+      <section class="panel form-panel">
+        <div class="section-head"><div><div class="kicker">01 · 点歌</div><h2>输入 BV 号即可</h2></div><span class="small-tag">无需注册</span></div>
+        <label for="bvid">B 站视频 BV 号或链接</label>
+        <div class="input-row"><input id="bvid" placeholder="BVxxxxxxxxxx / B站链接" spellcheck="false"><button id="quick-submit-btn" class="btn primary">点歌</button></div>
+        <p class="muted" style="margin-top:12px">点击点歌后会自动弹出歌词候选。没找到的话可以自己修改歌名关键词再搜索。</p>
+        <details class="advanced"><summary>可选：昵称与视频预览</summary>
+          <label for="nickname">显示昵称（可留空）</label>
+          <input id="nickname" maxlength="24" placeholder="默认自动生成游客昵称" autocomplete="nickname">
+          <button id="preview-btn" class="btn neutral" type="button" style="margin-top:10px">查看 B 站视频详情</button>
+        <div id="preview" class="preview hidden">
+          <div class="song-preview"><img id="preview-cover" alt="视频封面"><div class="preview-info"><strong id="preview-title"></strong><span id="preview-owner"></span><span id="preview-duration"></span></div></div>
+          <div id="multi-page" class="hidden"><label for="page-select">选择分 P</label><select id="page-select"></select></div>
+          <div class="preview-actions"><button id="watch-btn" class="btn neutral">在网页内试听</button><a id="official-link" target="_blank" rel="noopener noreferrer">在 B 站查看</a></div>
+          <div id="embed-container" class="hidden"><iframe id="embed" title="B站官方预览播放器" allow="autoplay;fullscreen;picture-in-picture" allowfullscreen></iframe></div>
+          <button id="submit-btn" class="btn primary wide">确认，这是我要唱的歌 → 加入队列</button>
+        </div>
+        </details>
+        <div class="tip"><strong>制作流程</strong> · 视频自动下载；你选好歌词后再自动对齐。无法对齐时保留原视频，不需要管理员操作。</div>
+      </section>
+      <section class="panel queue-panel">
+        <div class="section-head"><div><div class="kicker">02 · 播放计划</div><h2>点歌队列</h2></div><span id="queue-count" class="small-tag">0 首可播</span></div>
+        <div id="current-guest" class="current-card"><span class="current-label">正在播放</span><p>尚未开始播放</p></div>
+        <h3>已经准备好的歌曲 <span class="subtext">· 按公平调度排序</span></h3>
+        <div id="queue-ready" class="song-list"><div class="empty">还没有准备好的歌曲</div></div>
+        <h3>等待素材 / 字幕制作 <span class="subtext">· 不会阻塞已准备好的歌曲</span></h3>
+        <div id="queue-waiting" class="song-list"><div class="empty">暂时没有等待中的歌曲</div></div>
+      </section>
+
+    </div>
+    <div id="admin-view" class="hidden">
+      <div id="login-box" class="panel login-panel">
+        <div class="kicker">管理员控制</div><h2>登录控制台</h2>
+        <p class="muted">只有管理员可以上传视频、编辑歌词、切换和结束歌曲。</p>
+        <label for="password">管理员密码</label>
+        <div class="input-row"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"><button id="login-btn" class="btn primary">登录</button></div>
+      </div>
+      <div id="admin-panel" class="hidden admin-layout">
+        <section class="panel">
+          <div class="section-head"><div><div class="kicker">播放控制台</div><h2>本地连播</h2></div><button id="logout-btn" class="btn subtle">退出登录</button></div>
+          <div class="player-shell">
+            <video id="player" playsinline controls preload="metadata"></video>
+            <div id="player-empty">等待开始播放 · 需要已准备好的媒体</div>
+          </div>
+          <p id="playing-title" class="muted">当前没有正在播放的歌曲。</p>
+          <button id="tv-link-btn" class="btn primary wide" type="button">在电视／投屏窗口打开自动播放</button>
+          <p class="muted">可在另一台设备的浏览器打开电视窗口，或用手机屏幕镜像投屏；乐播 SDK 直连仍待设备验收。</p>
+          <div class="control-row"><button id="start-btn" class="btn primary">▶ 启动自动连播</button><button id="finish-btn" class="btn neutral">✓ 唱完</button><button id="skip-btn" class="btn neutral">跳过</button></div>
+          <label class="toggle"><input id="autoplay" type="checkbox" checked> 播放完毕自动切到下一首</label>
+          <div class="tip">当前为网页 HTML5 连播验证，不是乐播手机 SDK。后续 Android App 将通过相同的管理 API 控制接收端。</div>
+        </section>
+        <section class="panel">
+          <div class="section-head"><div><div class="kicker">待处理素材</div><h2>制作 / 管理歌曲</h2></div></div>
+          <p class="muted">自动下载优先、自动做字幕，所有任务均会显示状态。无法取得媒体时会提供原视频链接。</p>
+          <div id="manage-status" class="song-list"></div>
+          <details class="advanced" id="admin-advanced">
+            <summary>高级：手动上传与字幕调整（一般不需要）</summary>
+            <label for="lead-seconds">字幕提前显示（秒）</label>
+            <input id="lead-seconds" type="number" min="0" max="5" step="0.1" value="1.8">
+            <div id="manage-list" class="song-list"></div>
+          </details>
+        </section>
+        <section class="panel full-width">
+          <div class="section-head"><div><div class="kicker">公平性</div><h2>演唱统计</h2></div></div>
+          <div id="stats" class="stats"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer>VC KTV MVP v0.5.0 · 自托管 · BV 自动处理 · 乐播设备仍待实机验证</footer>
+  <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog">
+    <form method="dialog"><div class="section-head"><h2>选择这首歌的歌词</h2><button class="btn subtle">稍后再选</button></div></form>
+    <p id="guest-lyrics-song" class="muted"></p>
+    <p class="muted">已为你自动搜索 VCPedia 和 LRCLIB。请选择演唱版本匹配的歌词；若都不对，可以改关键词重新搜索。</p>
+    <label for="guest-lyrics-query">歌词搜索关键词</label>
+    <div class="input-row">
+      <input id="guest-lyrics-query" maxlength="60" placeholder="歌名，例如：歌曲名称">
+      <button id="guest-lyrics-search" class="btn neutral" type="button">重新搜索</button>
+    </div>
+    <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
+    <p class="muted">暂时不选择也可以：原视频准备好后仍能播放。稍后可以在自己的歌曲旁重新打开这里。</p>
+  </dialog>
+  <dialog id="lyrics-dialog">
+    <form method="dialog"><div class="section-head"><h2>编辑参考歌词</h2><button class="btn subtle">关闭</button></div></form>
+    <p class="muted">可从 VCPedia 导入候选并人工核对。制作字幕需提供 [mm:ss.xx] 或带 &lt;mm:ss.xx&gt; 逐字时间的 LRC；纯文本不能自动对齐。</p>
+    <div class="input-row"><input id="lyric-source-title" placeholder="VCPedia 页面名称，如 勾指起誓"><button id="lyric-source-btn" class="btn neutral">获取候选</button></div>
+    <div id="lyric-source-results" class="result-list"></div>
+    <div class="input-row" style="margin:12px 0">
+      <label class="mini upload-label">导入 TIFA TextGrid
+        <input id="textgrid-file" type="file" accept=".TextGrid,.textgrid">
+      </label>
+      <span class="muted">先保存确认的纯文本歌词并上传视频，之后才可导入对齐结果</span>
+    </div>
+    <label for="alignment-offset">TextGrid 时间偏移（秒，仅校准音视频起点，默认 0）</label>
+    <input id="alignment-offset" type="number" value="0" min="-10" max="10" step="0.05">
+    <textarea id="lyrics-textarea" rows="16" placeholder="[00:01.00]&lt;00:01.00&gt;你&lt;00:01.38&gt;好\n[00:03.00]下一句"></textarea>
+    <button id="lyrics-save" class="btn primary wide">保存歌词</button>
+  </dialog>
+</body>
+</html>

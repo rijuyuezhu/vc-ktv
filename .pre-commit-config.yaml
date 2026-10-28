@@ -1,0 +1,48 @@
+# All tools are installed via uv.lock, no extra GitHub hook clones needed.
+repos:
+  - repo: local
+    hooks:
+      - id: check-added-large-files
+        name: Reject large source files
+        entry: uv run --no-sync check-added-large-files --maxkb=1024
+        language: system
+      - id: check-merge-conflict
+        name: Reject unresolved conflict markers
+        entry: uv run --no-sync check-merge-conflict
+        language: system
+        types: [text]
+      - id: check-toml
+        name: Validate TOML
+        entry: uv run --no-sync check-toml
+        language: system
+        types: [toml]
+      - id: check-yaml
+        name: Validate YAML
+        entry: uv run --no-sync check-yaml
+        language: system
+        types: [yaml]
+      - id: detect-private-key
+        name: Reject private keys
+        entry: uv run --no-sync detect-private-key
+        language: system
+        types: [text]
+      - id: end-of-file-fixer
+        name: Fix EOF newline
+        entry: uv run --no-sync end-of-file-fixer
+        language: system
+        types: [text]
+      - id: trailing-whitespace
+        name: Fix trailing whitespace
+        entry: uv run --no-sync trailing-whitespace-fixer
+        language: system
+        types: [text]
+      - id: ruff
+        name: Ruff lint (F/I)
+        entry: uv run --no-sync ruff check --select F,I --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: Ruff format
+        entry: uv run --no-sync ruff format
+        language: system
+        types_or: [python, pyi]
