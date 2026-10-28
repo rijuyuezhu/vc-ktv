@@ -248,57 +248,42 @@ def test_failed_download_retries_after_backoff(tmp_path):
         assert len(failures) == 2
 
 
-def test_vocalization_normalization():
-    from vc_ktv.autoprep import pronunciation_lyrics
-
-    source = "Ha aa~ 你好\nHa aa~ 世界"
-    pronunciation, mapping, changes = pronunciation_lyrics(source)
-    assert pronunciation == "哈 啊~ 你好\n哈 啊~ 世界"
-    assert len(changes) == 4
-    assert mapping[0][0] == (0, 2)
-    assert (
-        pronunciation_lyrics("Hello world\nI love you")[0] == "Hello world\nI love you"
-    )
-    assert (
-        pronunciation_lyrics("DUDUDU DUDUDUDU\nDaLaDa")[0] == "嘟嘟嘟 嘟嘟嘟嘟\n哒啦哒"
-    )
-
-
-def test_tifa_no_output_classifies_oov(tmp_path, monkeypatch):
-    import subprocess
+def test_default_auto_renderer_is_only_upstream_pipeline(tmp_path, monkeypatch):
+    """A normal AutoPrep enhancement never calls our old direct TextGrid path."""
+    import json
+    from types import SimpleNamespace
 
     from vc_ktv import autoprep
 
-    root = tmp_path / "tifa-fixture"
-    for name in (
-        ".runtime/TIFA/infer.py",
-        ".runtime/tifa-env/bin/python",
-        ".runtime/models/TIFA-1.0-ST/model.pt",
-    ):
-        path = root / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("fixture")
-    monkeypatch.setattr(autoprep, "ROOT", root)
-    original = tmp_path / "original.mp4"
-    original.write_bytes(b"video")
+    source = tmp_path / "original.mp4"
+    source.write_bytes(b"original-soundtrack")
+    attempt = tmp_path / "attempt"
+    attempt.mkdir()
+    produced = []
 
-    def fake_run(command, **kwargs):
-        if command[0] != "ffmpeg":
-            kwargs["stdout"].write("Skipping 'audio': Unknown phonemes ['dududu']")
-            kwargs["stdout"].flush()
-        return subprocess.CompletedProcess(command, 0)
+    def fake_pipeline(video, lyrics, work, settings):
+        assert video == source
+        assert lyrics == "DUDUDU\n你好"
+        assert settings.kim_model.name == "MelBandRoformer.ckpt"
+        assert work == attempt / "pipeline" and not work.exists()
+        produced.append(work)
+        subtitles = work / "subtitles"
+        subtitles.mkdir(parents=True)
+        (subtitles / "lyrics.ass").write_text("Original DUDUDU\n你好")
+        (subtitles / "lyrics.lrc").write_text("[00:01.00]DUDUDU你好\n")
+        report = subtitles / "export_report.json"
+        report.write_text(json.dumps({"rendered_lines": 1}))
+        video = subtitles / "karaoke.mp4"
+        video.write_bytes(b"mp4-with-original-soundtrack")
+        return SimpleNamespace(video=video, ass=subtitles / "lyrics.ass", report=report)
 
-    monkeypatch.setattr(autoprep.subprocess, "run", fake_run)
-    import pytest
-
-    with pytest.raises(autoprep.SubtitleError) as caught:
-        autoprep.make_tifa_video(
-            original,
-            "DUDUDU\n你好",
-            tmp_path / "rendered.mp4",
-            tmp_path / "archive",
-            20,
-        )
-    assert caught.value.code == "alignment_oov"
-    assert "Unknown phonemes" in (tmp_path / "archive/tifa.log").read_text()
-    assert not (tmp_path / "rendered.mp4").exists()
+    monkeypatch.setattr(autoprep, "make_karaoke_video", fake_pipeline)
+    target = tmp_path / "finished.mp4"
+    report = autoprep.render_upstream_video(
+        source, "DUDUDU\n你好", target, attempt, 4.73
+    )
+    assert report["rendered_lines"] == 1
+    assert target.read_bytes() == b"mp4-with-original-soundtrack"
+    assert source.read_bytes() == b"original-soundtrack"
+    assert (attempt / "aligned.lrc").read_text() == "[00:01.00]DUDUDU你好\n"
+    assert produced == [attempt / "pipeline"]

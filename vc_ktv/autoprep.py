@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import secrets
 import shutil
@@ -21,11 +20,9 @@ import time
 from pathlib import Path
 
 from .bilibili_media import public_media_download
-from .karaoke import render_video
-from .textgrid_import import convert_textgrid
+from .upstream_pipeline import make_karaoke_video, spark_settings
 
 log = logging.getLogger(__name__)
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class SubtitleError(RuntimeError):
@@ -96,192 +93,16 @@ def media_download(bvid: str, page: int, directory: Path) -> Path:
     return matches[0]
 
 
-SCAT_READINGS = {
-    "du": "嘟",
-    "da": "哒",
-    "la": "啦",
-    "ha": "哈",
-    "aa": "啊",
-    "ah": "啊",
-    "oh": "哦",
-    "na": "呐",
-    "ya": "呀",
-    "wu": "呜",
-    "woo": "呜",
-    "ooh": "呜",
-}
-SCAT_PART = re.compile(
-    "|".join(sorted(SCAT_READINGS, key=len, reverse=True)), re.IGNORECASE
-)
-SCAT_WORD = re.compile(
-    r"(?<![A-Za-z])(?:" + SCAT_PART.pattern + r"){2,}(?![A-Za-z])",
-    re.IGNORECASE,
-)
-SCAT_PREFIX = re.compile(
-    r"^(?:(?:ha|ah|aa|la|oh|woo|ooh|wu|na|ya)\b[\s~]*){1,8}"
-    r"(?=[\u3400-\u9fff])",
-    re.IGNORECASE,
-)
-
-
-def pronunciation_lyrics(lyrics: str):
-    """Explicit Mandarin pronunciation hints with a source-character mapping.
-
-    Translate only known scat syllables, never ordinary English words. All
-    displayed text remains in its original form, including repeated refrains.
-    """
-    lines = [line.strip() for line in lyrics.splitlines() if line.strip()]
-    spoken, maps, changes = [], [], []
-    for line_no, display in enumerate(lines):
-        replacements = []
-        # Repeated scat words anywhere in a line: DUDUDU / DaLaDa.
-        for match in SCAT_WORD.finditer(display):
-            parts = SCAT_PART.findall(match.group())
-            if "".join(parts).casefold() == match.group().casefold():
-                replacements.append(
-                    (
-                        match.start(),
-                        match.end(),
-                        "".join(SCAT_READINGS[p.lower()] for p in parts),
-                    )
-                )
-        # Older supported case: short independent vocables before Hanzi.
-        prefix = SCAT_PREFIX.match(display)
-        if prefix:
-            for match in re.finditer(r"[A-Za-z]+", prefix.group()):
-                if SCAT_PART.fullmatch(match.group()) and not any(
-                    start <= match.start() < end for start, end, _ in replacements
-                ):
-                    replacements.append(
-                        (
-                            match.start(),
-                            match.end(),
-                            SCAT_READINGS[match.group().lower()],
-                        )
-                    )
-        replacements.sort()
-        cursor, text, spans = 0, [], []
-        for begin, end, reading in replacements:
-            if begin < cursor:
-                continue
-            for i in range(cursor, begin):
-                text.append(display[i])
-                spans.append((i, i + 1))
-            for syllable in reading:
-                text.append(syllable)
-                spans.append((begin, end))
-            changes.append(
-                {
-                    "line": line_no,
-                    "source_start": begin,
-                    "source_end": end,
-                    "display": display[begin:end],
-                    "pronunciation": reading,
-                }
-            )
-            cursor = end
-        for i in range(cursor, len(display)):
-            text.append(display[i])
-            spans.append((i, i + 1))
-        spoken.append("".join(text))
-        maps.append(spans)
-    return "\n".join(spoken), maps, changes
-
-
-def make_tifa_video(
+def render_upstream_video(
     source: Path, lyrics: str, destination: Path, archive: Path, duration: float
 ) -> dict:
-    """Optional best-effort stage; callers must fall back to source on any exception."""
-    tifa = ROOT / ".runtime/TIFA"
-    python = ROOT / ".runtime/tifa-env/bin/python"
-    model = ROOT / ".runtime/models/TIFA-1.0-ST/model.pt"
-    if not (python.is_file() and (tifa / "infer.py").is_file() and model.is_file()):
-        raise SubtitleError("model_missing", "TIFA 模型或运行环境未安装")
-    archive.mkdir(parents=True, exist_ok=True)
-    audio = archive / "audio.wav"
-    try:
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-nostdin",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                str(source),
-                "-vn",
-                "-ac",
-                "1",
-                "-ar",
-                "48000",
-                str(audio),
-            ],
-            check=True,
-            capture_output=True,
-            timeout=70,
-        )
-    except (subprocess.SubprocessError, OSError) as error:
-        raise SubtitleError("audio_extract", "FFmpeg 音频提取失败") from error
-    pronunciation, spans, changes = pronunciation_lyrics(lyrics)
-    (archive / "lyrics.source.txt").write_text(lyrics, encoding="utf-8")
-    (archive / "audio.txt").write_text(pronunciation, encoding="utf-8")
-    (archive / "pronunciation_trace.json").write_text(
-        json.dumps({"substitutions": changes}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    output = archive / "alignment"
-    output.mkdir(exist_ok=True)
-    cmd = [
-        str(python),
-        str(tifa / "infer.py"),
-        str(audio),
-        "-m",
-        str(model),
-        "-l",
-        "zh",
-        "-o",
-        str(output),
-        "--batch-size",
-        "1",
-        "--num-workers",
-        "0",
-    ]
-    try:
-        with (archive / "tifa.log").open("w") as trace:
-            proc = subprocess.run(
-                cmd,
-                cwd=tifa,
-                stdout=trace,
-                stderr=subprocess.STDOUT,
-                timeout=360,
-                env={**os.environ, "OMP_NUM_THREADS": "4"},
-            )
-    except (subprocess.SubprocessError, OSError) as error:
-        raise SubtitleError("tifa_runtime", "TIFA 推理运行失败或超时") from error
-    if proc.returncode:
-        raise SubtitleError("tifa_runtime", "TIFA 推理进程失败")
-    grid = output / "audio.TextGrid"
-    if not grid.is_file():
-        log_text = (archive / "tifa.log").read_text(encoding="utf-8", errors="replace")
-        if "Unknown phonemes" in log_text and "Skipping" in log_text:
-            raise SubtitleError("alignment_oov", "TIFA 无法处理部分歌词发音")
-        raise SubtitleError("tifa_no_output", "TIFA 未生成 TextGrid 对齐结果")
-    try:
-        lrc, report = convert_textgrid(
-            grid, lyrics, duration, pronunciation=pronunciation, source_spans=spans
-        )
-        report["pronunciation_substitutions"] = len(changes)
-    except ValueError as error:
-        raise SubtitleError(
-            "alignment_mismatch", "歌词与 TIFA 对齐结果不匹配"
-        ) from error
-    (archive / "aligned.lrc").write_text(lrc, encoding="utf-8")
-    try:
-        render_video(source, lrc, destination, duration, lead=1.8)
-    except (subprocess.SubprocessError, OSError, ValueError) as error:
-        raise SubtitleError("render_failed", "FFmpeg 字幕烧录失败") from error
-    return report
+    """Run the copied upstream pipeline; no legacy automatic TIFA fallback."""
+    # AutoPrep owns a new attempt directory; the pipeline owns its own
+    # isolated child directory and does not mutate the original source.
+    result = make_karaoke_video(source, lyrics, archive / "pipeline", spark_settings())
+    shutil.copyfile(result.video, destination)
+    shutil.copyfile(result.ass.parent / "lyrics.lrc", archive / "aligned.lrc")
+    return json.loads(result.report.read_text(encoding="utf-8"))
 
 
 class AutoPrep:
@@ -290,7 +111,7 @@ class AutoPrep:
         store,
         probe,
         download=media_download,
-        enhance=make_tifa_video,
+        enhance=render_upstream_video,
     ):
         self.store = store
         self.probe = probe
@@ -443,8 +264,8 @@ class AutoPrep:
         lyrics = row["lyric_choice"]
         if not lyrics:
             return
-        # A retry must never accidentally reuse an old TextGrid or overwrite a
-        # previous diagnostic. Keep all artifacts scoped to this song/event.
+        # A retry must never reuse old alignment output or overwrite diagnostics.
+        # Keep all artifacts scoped to this song/event.
         archive = (
             self.store.media
             / f"{song_id}-auto-alignment"
@@ -466,13 +287,15 @@ class AutoPrep:
             metadata["report"] = report
             with self.store.lock:
                 latest = self.store.db.execute(
-                    "SELECT status,source_file,media_file FROM songs WHERE id=?",
+                    "SELECT status,source_file,media_file,prep_state,lyric_choice FROM songs WHERE id=?",
                     (song_id,),
                 ).fetchone()
                 if (
                     latest
                     and latest["status"] == "ready"
                     and latest["source_file"] == row["source_file"]
+                    and latest["prep_state"] == "aligning"
+                    and latest["lyric_choice"] == lyrics
                 ):
                     self.store.db.execute(
                         "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',prep_error='' WHERE id=?",
@@ -488,9 +311,7 @@ class AutoPrep:
                     metadata["outcome"] = "stale"
         except Exception as error:
             metadata["outcome"] = "failed"
-            metadata["error_code"] = (
-                error.code if isinstance(error, SubtitleError) else "unexpected"
-            )
+            metadata["error_code"] = getattr(error, "code", type(error).__name__)
             metadata["error_message"] = str(error)[:400]
             log.warning(
                 "Song #%s subtitle enhancement failed, original preserved: %s",

@@ -59,7 +59,8 @@ and MP4 render with original MV audio. Each step's logs and artifacts stay
 under its own attempt; `run.json` indicates the final outcome. The entry
 point is also callable through
 `vc_ktv.upstream_pipeline.make_karaoke_video`.
-The live event-store / playback integration comes in #29.
+The event-store / playback integration is implemented in #29; production
+deployment still requires separate approval.
 
 ## Actual GPU smoke run (2026-10-28)
 
@@ -85,6 +86,10 @@ benchmark.
   fix retains the `venv/bin/python` entry point and replaces Windows-only
   setup error messages.
 
-Long-song safe-block planning and genuine Bilibili user/queue playback remain
-to be accepted in #29. Upstream's focused planner/seam tests continue to
-cover the split/recovery logic; no research-scale benchmark is needed.
+A second isolated application-level check exercised guest song submission,
+guest lyric selection, real Kim/Qwen/TIFA, `prep_state=done`, TV next, and
+the served MP4 with identical AAC audio packet MD5, under
+`~/.local/share/vc-ktv-pipeline-staging/smoke-app-29/`. This simulated the
+BV lookup and download from a permitted local test file. Long-song safe-block
+behavior and actual remote Bilibili downloads still need real use confirmation;
+planner/seam fixtures cover the algorithmic boundaries.

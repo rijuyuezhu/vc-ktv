@@ -5,23 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from ktv_app.config import Settings
-from vc_ktv.upstream_pipeline import make_karaoke_video
-
-
-def spark_settings(root: Path, tifa_root: Path) -> Settings:
-    models = root / "models"
-    runtime = root / "runtime"
-    return Settings(
-        tifa_source=tifa_root / ".runtime/TIFA",
-        tifa_python=tifa_root / ".runtime/tifa-env/bin/python",
-        tifa_model=tifa_root / ".runtime/models/TIFA-1.0-ST/model.pt",
-        kim_source=models / "separation/sources/Kim",
-        kim_model=models / "separation/Kim/MelBandRoformer.ckpt",
-        separation_python=runtime / "kim/bin/python",
-        asr_model=models / "Qwen3-ASR-1.7B",
-        locator_python=runtime / "qwen/bin/python",
-    )
+from vc_ktv.upstream_pipeline import make_karaoke_video, spark_settings
 
 
 def main():

@@ -1,5 +1,7 @@
 # TIFA 声学对齐：现状与复现
 
+**注意：以下主要是早期 TIFA 实验与管理员手工导入 TextGrid 的历史说明。自动字幕流程已切换为 [UPSTREAM_PIPELINE.md](UPSTREAM_PIPELINE.md) 的 Kim / Qwen3-ASR / TIFA 集成，Spark-WSL 实验见 [SPARK_WSL_PIPELINE.md](SPARK_WSL_PIPELINE.md)。**
+
 > **版本说明**：本页主体记录 v0.3.1 时的 TIFA 验收数据，并非当前程序的运行能力全表。v0.5.0 已增加用户选词后自动触发本地 TIFA/FFmpeg 的后台流程，模型和 GPU 环境仍需管理员在部署前配置一次。未安装模型时会记录失败；当前默认字幕门槛阻止原片进入可播队列。
 
 ## 已完成的验证

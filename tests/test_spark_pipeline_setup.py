@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 
 from ktv_app import model_runtime
-from scripts.run_spark_pipeline import spark_settings
 from scripts.setup_spark_assets import ASSETS, selected
+from vc_ktv.upstream_pipeline import spark_settings
 
 
 def test_upstream_pin_and_manifest_consistent():
