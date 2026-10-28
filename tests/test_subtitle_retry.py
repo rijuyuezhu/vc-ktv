@@ -43,7 +43,7 @@ def test_retry_only_subtitles_preserves_download_and_previous_logs(tmp_path):
         path.write_bytes(b"preserved-source")
         return path
 
-    def enhance(source, lyrics, target, archive, duration):
+    def enhance(source, lyrics, target, archive, duration, *, preset):
         attempts.append(archive)
         assert source.read_bytes() == b"preserved-source"
         if len(attempts) == 1:

@@ -97,10 +97,12 @@ function makeSong(song, order, mode="guest") {
       });
     }
     const lyrics=appendText(actions,"button","歌词","mini");lyrics.onclick=()=>editLyrics(song.id,song.title);
-    if(song.status==="ready" && song.prep_state==="original"){
-      const retry=appendText(actions,"button","↻ 重试字幕","mini");
-      retry.title=song.prep_error||"只重试字幕，保留原视频";
+    if(song.status==="ready" && (song.prep_state==="original" || song.prep_state==="done")){
+      const done=song.prep_state==="done";
+      const retry=appendText(actions,"button",done?"↻ 按新风格重制":"↻ 重试字幕","mini");
+      retry.title=done?"使用当前本场字幕预设重新制作，旧成片保留到新片完成":song.prep_error||"只重试字幕，保留原视频";
       retry.onclick=()=>guarded(async()=>{
+        if(done&&!confirm("按当前字幕风格重新制作这首歌？重制完成前旧成片会保留。"))return;
         await api(`/api/admin/songs/${song.id}/subtitles/retry`,"POST");
         toast("◷ 已重新排队制作字幕");await refresh();
       },retry);
@@ -376,18 +378,27 @@ async function refreshEvents(){
   if(settingsEventId!==active.id){
     settingsEventId=active.id;
     $("queue-policy").value=settings.queue_policy;
+    $("subtitle-style").value=settings.subtitle_style;
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
   }else if(document.activeElement!==$("queue-policy")&&
            document.activeElement!==$("allow-unsubtitled")&&
+           document.activeElement!==$("subtitle-style")&&
            document.activeElement!==$("settings-save-btn")){
     $("queue-policy").value=settings.queue_policy;
+    $("subtitle-style").value=settings.subtitle_style;
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
   }
+  updateStylePreview();
 }
+function updateStylePreview(){
+  $("style-preview").className="style-preview "+$("subtitle-style").value;
+}
+$("subtitle-style").onchange=updateStylePreview;
 $("settings-save-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/settings","PUT",{
     queue_policy:$("queue-policy").value,
-    allow_unsubtitled:$("allow-unsubtitled").checked
+    allow_unsubtitled:$("allow-unsubtitled").checked,
+    subtitle_style:$("subtitle-style").value
   });
   adminStateKey=null;
   listKeys.clear();

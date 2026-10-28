@@ -189,3 +189,28 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
   .hero h1 { font-size: 25px; }
   .song-item { gap: 8px; padding: 10px; }
 }
+
+/* Administrator-only illustrative subtitle preset preview, not a media editor. */
+.style-preview {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 3px;
+  min-height: 126px;
+  margin: 8px 0 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #17243d;
+  color: #fff;
+  text-align: center;
+  overflow: hidden;
+  font-weight: 700;
+  font-size: 19px;
+  text-shadow: 0 1px 3px #000, 0 -1px 3px #000;
+}
+.style-preview > span:first-child { color: #ffd53d; }
+.style-preview.large { font-size: 25px; text-shadow: 0 2px 5px #000, 0 -2px 5px #000; }
+.style-preview.large > span:first-child { color: #ffe45e; }
+.style-preview.compact { font-size: 16px; }
+.style-preview.compact .style-preview-second { display: none; }

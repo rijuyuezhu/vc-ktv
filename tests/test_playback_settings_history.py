@@ -72,6 +72,7 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
         assert admin.get("/api/admin/settings").json() == {
             "queue_policy": "fair",
             "allow_unsubtitled": False,
+            "subtitle_style": "classic",
         }
         store = app.state.store
         original = add_song(store, "A", 1, "downloaded")
@@ -169,8 +170,19 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         admin_login(admin)
         admin.put(
             "/api/admin/settings",
-            json={"queue_policy": "fcfs", "allow_unsubtitled": True},
+            json={
+                "queue_policy": "fcfs",
+                "allow_unsubtitled": True,
+                "subtitle_style": "large",
+            },
         )
+        assert admin.get("/api/admin/settings").json()["subtitle_style"] == "large"
+        # Legacy settings clients do not reset the configured subtitle style.
+        admin.put(
+            "/api/admin/settings",
+            json={"queue_policy": "fair", "allow_unsubtitled": True},
+        )
+        assert admin.get("/api/admin/settings").json()["subtitle_style"] == "large"
         assert admin.post("/api/admin/events/close").status_code == 200
         second = admin.post(
             "/api/admin/events", json={"name": "第二场", "code": "000002"}
@@ -179,6 +191,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         assert admin.get("/api/admin/settings").json() == {
             "queue_policy": "fair",
             "allow_unsubtitled": False,
+            "subtitle_style": "classic",
         }
     reopened = create_app(
         root=root,
@@ -190,6 +203,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
     assert reopened.state.store.settings() == {
         "queue_policy": "fair",
         "allow_unsubtitled": False,
+        "subtitle_style": "classic",
     }
     with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
         assert dict(
@@ -197,7 +211,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
                 "SELECT name,value FROM room_state WHERE name IN "
                 "('queue_policy','allow_unsubtitled')"
             )
-        ) == {"queue_policy": "fcfs", "allow_unsubtitled": "1"}
+        ) == {"queue_policy": "fair", "allow_unsubtitled": "1"}
 
 
 def test_export_archives_unicode_repeats_and_legacy(tmp_path):

@@ -33,6 +33,7 @@ from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
 from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
+from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
@@ -81,6 +82,8 @@ class Login(BaseModel):
 class PlaybackSettings(BaseModel):
     queue_policy: Literal["fair", "fcfs"]
     allow_unsubtitled: bool
+    # Old clients that omit the new field must not reset the chosen preset.
+    subtitle_style: StylePreset | None = None
 
 
 class EventCreate(BaseModel):
@@ -258,15 +261,21 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style')"
             )
         }
         return {
             "queue_policy": values.get("queue_policy", "fair"),
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
+            "subtitle_style": values.get("subtitle_style", "classic"),
         }
 
-    def save_settings(self, queue_policy: str, allow_unsubtitled: bool):
+    def save_settings(
+        self,
+        queue_policy: str,
+        allow_unsubtitled: bool,
+        subtitle_style: StylePreset | None = None,
+    ):
         with self.lock:
             for key, value in (
                 ("queue_policy", queue_policy),
@@ -276,6 +285,12 @@ class Store:
                     "INSERT INTO room_state(name,value) VALUES(?,?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     (key, value),
+                )
+            if subtitle_style is not None:
+                self.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES('subtitle_style',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    (subtitle_style,),
                 )
             self.db.commit()
             return self.settings()
@@ -730,7 +745,9 @@ def create_app(
     ):
         require_admin(vc_admin)
         with store.lock:
-            return store.save_settings(body.queue_policy, body.allow_unsubtitled)
+            return store.save_settings(
+                body.queue_policy, body.allow_unsubtitled, body.subtitle_style
+            )
 
     @app.get("/api/admin/events")
     def list_events(vc_admin: str | None = Cookie(default=None)):
@@ -1037,8 +1054,11 @@ def create_app(
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
-            if row["status"] != "ready" or row["prep_state"] != "original":
-                bail(409, "仅可重试尚未播放且字幕失败的歌曲")
+            if row["status"] != "ready" or row["prep_state"] not in (
+                "original",
+                "done",
+            ):
+                bail(409, "仅可重制尚未播放且字幕已完成或失败的歌曲")
             if not row["lyric_choice"] or not row["source_file"]:
                 bail(409, "歌曲缺少已选歌词或原始视频")
             if not (store.media / Path(row["source_file"]).name).is_file():
