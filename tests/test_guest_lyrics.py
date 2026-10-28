@@ -2,6 +2,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register
 from vc_ktv import lyric_selection
 from vc_ktv.app import create_app
 
@@ -52,6 +53,8 @@ def app_for_lyrics(tmp_path):
 def test_guest_chooses_and_searches_with_custom_query(tmp_path):
     app, queries = app_for_lyrics(tmp_path)
     with TestClient(app) as own, TestClient(app) as other:
+        join_and_register(other, "其他用户")
+        join_and_register(own, "自己")
         created = own.post("/api/songs", json={"bvid": "BV0000000002"})
         assert created.status_code == 200
         assert "测试歌曲" in created.json()["title"]
@@ -102,6 +105,7 @@ def test_guest_chooses_and_searches_with_custom_query(tmp_path):
 def test_guest_cannot_change_after_playing(tmp_path):
     app, _ = app_for_lyrics(tmp_path)
     with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "访客")
         sid = guest.post("/api/songs", json={"bvid": "BV0000000002"}).json()["id"]
         candidate = guest.get(f"/api/songs/{sid}/lyrics/candidates").json()[
             "candidates"
@@ -178,6 +182,7 @@ def test_select_after_original_video_ready_starts_enhancement(tmp_path):
     app.state.autoprep.start()
     try:
         with TestClient(app) as guest:
+            join_and_register(guest, "访客")
             song = guest.post("/api/songs", json={"bvid": "BV0000000002"}).json()["id"]
             for _ in range(90):
                 state = guest.get("/api/state").json()

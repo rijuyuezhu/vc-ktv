@@ -23,14 +23,49 @@
     </section>
     <div id="toast" role="status" aria-live="polite"></div>
     <div id="guest-view" class="dashboard">
-      <section class="panel form-panel">
-        <div class="section-head"><div><div class="kicker">01 · 点歌</div><h2>输入 BV 号即可</h2></div><span class="small-tag">无需注册</span></div>
+      <section class="panel full-width" id="guest-access">
+        <div class="section-head"><div><div class="kicker">加入 KTV</div><h2>进入本场点歌房间</h2></div></div>
+        <p class="muted" id="guest-entry-description">正在加载场次信息……</p>
+        <div id="entry-code" class="hidden">
+          <label for="join-code">六位加入密码</label>
+          <div class="input-row">
+            <input id="join-code" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="例如 000012">
+            <button id="join-btn" class="btn primary" type="button">加入</button>
+          </div>
+        </div>
+        <div id="entry-account" class="hidden">
+          <div class="auth-grid">
+            <div>
+              <h3>创建本场用户</h3>
+              <label for="register-name">用户名</label>
+              <input id="register-name" maxlength="24" autocomplete="username" placeholder="本场显示的名字">
+              <label for="register-password">密码</label>
+              <input id="register-password" type="password" autocomplete="new-password" placeholder="至少 6 个字符">
+              <label for="register-confirm">重复密码</label>
+              <input id="register-confirm" type="password" autocomplete="new-password">
+              <button id="register-btn" type="button" class="btn primary wide">创建并登录</button>
+            </div>
+            <div>
+              <h3>已有本场账号</h3>
+              <label for="user-login-name">用户名</label>
+              <input id="user-login-name" maxlength="24" autocomplete="username">
+              <label for="user-login-password">密码</label>
+              <input id="user-login-password" type="password" autocomplete="current-password">
+              <button id="user-login-btn" type="button" class="btn neutral wide">登录</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="panel full-width hidden" id="guest-profile">
+        <span id="guest-greeting"></span>
+        <button id="user-logout-btn" class="btn subtle" type="button">退出本场</button>
+      </section>
+      <section class="panel form-panel hidden" id="request-panel">
+        <div class="section-head"><div><div class="kicker">01 · 点歌</div><h2>输入 BV 号即可</h2></div><span class="small-tag">本场用户</span></div>
         <label for="bvid">B 站视频 BV 号或链接</label>
         <div class="input-row"><input id="bvid" placeholder="BVxxxxxxxxxx / B站链接" spellcheck="false"><button id="quick-submit-btn" class="btn primary">点歌</button></div>
         <p class="muted" style="margin-top:12px">点击点歌后会自动弹出歌词候选。没找到的话可以自己修改歌名关键词再搜索。</p>
         <details class="advanced"><summary>可选：昵称与视频预览</summary>
-          <label for="nickname">显示昵称（可留空）</label>
-          <input id="nickname" maxlength="24" placeholder="默认自动生成游客昵称" autocomplete="nickname">
           <button id="preview-btn" class="btn neutral" type="button" style="margin-top:10px">查看 B 站视频详情</button>
         <div id="preview" class="preview hidden">
           <div class="song-preview"><img id="preview-cover" alt="视频封面"><div class="preview-info"><strong id="preview-title"></strong><span id="preview-owner"></span><span id="preview-duration"></span></div></div>
@@ -42,7 +77,7 @@
         </details>
         <div class="tip"><strong>制作流程</strong> · 视频自动下载；你选好歌词后再自动对齐。无法对齐时保留原视频，不需要管理员操作。</div>
       </section>
-      <section class="panel queue-panel">
+      <section class="panel queue-panel hidden" id="queue-panel">
         <div class="section-head"><div><div class="kicker">02 · 播放计划</div><h2>点歌队列</h2></div><span id="queue-count" class="small-tag">0 首可播</span></div>
         <div id="current-guest" class="current-card"><span class="current-label">正在播放</span><p>尚未开始播放</p></div>
         <h3>已经准备好的歌曲 <span class="subtext">· 按公平调度排序</span></h3>

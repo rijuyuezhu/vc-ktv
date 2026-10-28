@@ -3,6 +3,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register
 from vc_ktv.app import create_app
 from vc_ktv.autoprep import title_key
 
@@ -74,6 +75,7 @@ def test_auto_bv_only_then_karaoke(tmp_path):
     app.state.probe = lambda path: 8.0
     app.state.autoprep.probe = lambda path: 8.0
     with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "访客")
         r = guest.post("/api/songs", json={"bvid": "BV0000000001"})
         assert r.status_code == 200, r.text
         song = r.json()["id"]
@@ -97,7 +99,7 @@ def test_auto_bv_only_then_karaoke(tmp_path):
             time.sleep(0.05)
         assert len(data["queue"]) == 1, data
         assert data["queue"][0]["prep_state"] == "done"
-        assert data["queue"][0]["nickname"].startswith("听众-")
+        assert data["queue"][0]["nickname"] == "访客"
         assert data["queue"][0]["has_lyrics"]
         assert (
             admin.post("/api/admin/login", json={"password": "test"}).status_code == 200
@@ -144,6 +146,7 @@ def test_autoprep_failed_subtitle_keeps_source(tmp_path):
     app.state.autoprep.download = download
     app.state.autoprep.probe = lambda path: 8
     with TestClient(app) as client:
+        join_and_register(client, "客户端")
         song_id = client.post("/api/songs", json={"bvid": "BV0000000001"}).json()["id"]
         c = client.get(f"/api/songs/{song_id}/lyrics/candidates").json()["candidates"][
             0
@@ -180,6 +183,7 @@ def test_auto_download_failure_does_not_block_other_songs(tmp_path):
     app.state.autoprep.download = download
     app.state.autoprep.probe = lambda path: 8.0
     with TestClient(app) as client:
+        join_and_register(client, "客户端")
         client.post("/api/songs", json={"bvid": "BV0000000001", "page": 1})
         client.post("/api/songs", json={"bvid": "BV0000000001", "page": 2})
         for _ in range(100):
@@ -211,6 +215,7 @@ def test_failed_download_retries_after_backoff(tmp_path):
     app.state.autoprep.download = download
     app.state.autoprep.probe = lambda path: 8
     with TestClient(app) as client:
+        join_and_register(client, "客户端")
         song = client.post("/api/songs", json={"bvid": "BV0000000001"}).json()["id"]
         for _ in range(80):
             state = client.get("/api/state").json()

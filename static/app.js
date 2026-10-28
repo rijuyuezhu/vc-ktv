@@ -9,12 +9,13 @@ let refreshing = false;
 let refreshQueued = false;
 let refreshFailed = false;
 let guestStateKey = null;
-const listKeys = new Map();
 let adminStateKey = null;
+const listKeys = new Map();
 let selectingSongId = null;
 let selectionRequest = 0;
+let currentEventId = null;
 const player = $("player");
-$("nickname").value = localStorage.getItem("vc-ktv-nick") || "";
+
 
 function toast(message, error=false) {
   clearTimeout(toastTimer);
@@ -194,9 +195,7 @@ $("guest-lyrics-query").addEventListener("keydown",(e)=>{if(e.key==="Enter"){$("
 $("quick-submit-btn").onclick=()=>guarded(async()=>{
   const bvid=$("bvid").value.trim();
   if(!bvid)throw new Error("请输入 BV 号");
-  const nickname=$("nickname").value.trim();
-  if(nickname)localStorage.setItem("vc-ktv-nick",nickname);
-  const result=await api("/api/songs","POST",{bvid,nickname,page:1});
+  const result=await api("/api/songs","POST",{bvid,page:1});
   $("bvid").value="";
   $("preview").classList.add("hidden");
   preview=null;
@@ -214,10 +213,8 @@ $("watch-btn").onclick=()=>{
 };
 $("submit-btn").onclick=()=>guarded(async()=>{
   if(!preview)throw new Error("先查询视频");
-  const nickname=$("nickname").value.trim();
-  if(nickname)localStorage.setItem("vc-ktv-nick",nickname);
   const title=preview.title;
-  const result=await api("/api/songs","POST",{bvid:preview.bvid,page:preview.page,nickname});
+  const result=await api("/api/songs","POST",{bvid:preview.bvid,page:preview.page});
   toast("点歌成功，接下来请选择歌词");$("preview").classList.add("hidden");
   preview=null;await refresh();
   await openLyricPicker(result.id,title);
@@ -355,27 +352,80 @@ $("event-close-btn").onclick=()=>guarded(async()=>{
   await refresh();
 },$("event-close-btn"));
 
+function renderEntry(entry){
+  if(entry.event?.id!==currentEventId){
+    currentEventId=entry.event?.id||null;
+    $("join-code").value="";
+  }
+  $("guest-entry-description").textContent=!entry.event
+    ?"当前没有活动场次，请等待管理员创建 KTV。"
+    :entry.joined
+      ?"当前场次："+entry.event.name+"。请注册本场用户或登录。"
+      :"当前场次："+entry.event.name+"。请输入管理员提供的六位加入密码。";
+  $("entry-code").classList.toggle("hidden",!entry.event||entry.joined);
+  $("entry-account").classList.toggle("hidden",!entry.event||!entry.joined||entry.authenticated);
+  $("guest-access").classList.toggle("hidden",entry.authenticated);
+  $("guest-profile").classList.toggle("hidden",!entry.authenticated);
+  $("request-panel").classList.toggle("hidden",!entry.authenticated);
+  $("queue-panel").classList.toggle("hidden",!entry.authenticated);
+  $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+" · "+entry.event.name:"";
+}
+$("join-btn").onclick=()=>guarded(async()=>{
+  await api("/api/join","POST",{code:$("join-code").value.trim()});
+  $("join-code").value="";
+  await refresh();
+},$("join-btn"));
+$("register-btn").onclick=()=>guarded(async()=>{
+  await api("/api/users/register","POST",{
+    username:$("register-name").value.trim(),
+    password:$("register-password").value,
+    confirm_password:$("register-confirm").value
+  });
+  $("register-password").value="";$("register-confirm").value="";
+  toast("注册成功，已自动登录");
+  await refresh();
+},$("register-btn"));
+$("user-login-btn").onclick=()=>guarded(async()=>{
+  await api("/api/users/login","POST",{
+    username:$("user-login-name").value.trim(),
+    password:$("user-login-password").value
+  });
+  $("user-login-password").value="";
+  toast("登录成功");await refresh();
+},$("user-login-btn"));
+$("user-logout-btn").onclick=()=>guarded(async()=>{
+  await api("/api/users/logout","POST");
+  await refresh();
+},$("user-logout-btn"));
+
 async function refresh(){
   if(refreshing){refreshQueued=true;return;}
   refreshing=true;
   try{
-    const state=await api("/api/state");
-    // Ignore server_time: no visible UI change should replace an unchanged list.
-    const guestKey=JSON.stringify([state.current,state.queue,state.waiting]);
-    if(guestKey!==guestStateKey){
-      guestStateKey=guestKey;
-      $("queue-count").textContent=`${state.queue.length} 首可播`;
-      fillList("queue-ready",state.queue);
-      fillList("queue-waiting",state.waiting);
-      const current=$("current-guest");current.replaceChildren();
-      appendText(current,"span","正在播放","current-label");
-      if(state.current){
-        appendText(current,"strong",state.current.title);
-        appendText(current,"small",`点歌者：${state.current.nickname}`);
-      }else appendText(current,"p","当前空闲，等待管理员开始播放");
+    const isGuest=!$("guest-view").classList.contains("hidden");
+    if(isGuest){
+      const entry=await api("/api/entry");
+      renderEntry(entry);
+      if(entry.authenticated){
+        const state=await api("/api/state");
+        const stateKey=JSON.stringify([entry.event?.id,state.current,state.queue,state.waiting]);
+        if(guestStateKey!==stateKey){
+          guestStateKey=stateKey;
+          $("queue-count").textContent=state.queue.length+" 首可播";
+          fillList("queue-ready",state.queue);
+          fillList("queue-waiting",state.waiting);
+          const current=$("current-guest");current.replaceChildren();
+          appendText(current,"span","正在播放","current-label");
+          if(state.current){
+            appendText(current,"strong",state.current.title);
+            appendText(current,"small","点歌者："+state.current.nickname);
+          }else appendText(current,"p","当前空闲，等待管理员开始播放");
+        }
+      }else{
+        guestStateKey=null;
+      }
     }
-    const tabVisible=!$("admin-view").classList.contains("hidden");
-    if(tabVisible){
+    if(!$("admin-view").classList.contains("hidden")){
       let adm;
       try{adm=await api("/api/admin/state");admin=true;}
       catch(e){if(e.message.includes("管理员"))admin=false;else throw e;}
@@ -383,11 +433,10 @@ async function refresh(){
       $("admin-panel").classList.toggle("hidden",!admin);
       if(admin){
         await refreshEvents();
-        // The active media URL is time-signed; only compare visible state.
         const activeState=adm.active?{...adm.active,media_url:null}:null;
-        const adminKey=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState]);
-        if(adminKey!==adminStateKey){
-          adminStateKey=adminKey;
+        const key=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState]);
+        if(key!==adminStateKey){
+          adminStateKey=key;
           const pending=[...adm.waiting,...adm.queue];
           fillList("manage-status",pending,"status");
           if($("admin-advanced").open)fillList("manage-list",pending,"admin");
@@ -396,11 +445,11 @@ async function refresh(){
           adm.guests.forEach(u=>{
             const c=document.createElement("div");c.className="stat";
             appendText(c,"strong",u.name);
-            appendText(c,"small",`${u.plays} 首 · ${duration(u.seconds)}`);stats.append(c);
+            appendText(c,"small",u.plays+" 首 · "+duration(u.seconds));stats.append(c);
           });
           if(adm.active){
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
-            $("playing-title").textContent=`正在播放：${adm.active.title} · ${adm.active.nickname}`;
+            $("playing-title").textContent="正在播放："+adm.active.title+" · "+adm.active.nickname;
           }else if(currentMediaId!==null){
             currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
             $("player-empty").classList.remove("hidden");

@@ -30,10 +30,31 @@ def test_ui_uses_light_indigo_palette():
     assert "focus-visible" in css
 
 
+def test_event_entry_has_join_register_login_and_logout_controls():
+    html = (Path(__file__).resolve().parents[1] / "static/index.html").read_text()
+    script = (Path(__file__).resolve().parents[1] / "static/app.js").read_text()
+    for control in (
+        "join-code",
+        "join-btn",
+        "register-name",
+        "register-password",
+        "register-confirm",
+        "register-btn",
+        "user-login-name",
+        "user-login-password",
+        "user-login-btn",
+        "user-logout-btn",
+    ):
+        assert ('id="' + control + '"') in html
+    assert 'api("/api/entry")' in script
+    assert 'api("/api/join","POST"' in script
+    assert 'api("/api/users/register","POST"' in script
+    assert 'api("/api/users/logout","POST")' in script
+
+
 def test_state_refresh_preserves_unchanged_song_list_and_recovers():
     script = (Path(__file__).resolve().parents[1] / "static/app.js").read_text()
     assert "if(listKeys.get(id)===key)return;" in script
-    assert "JSON.stringify([state.current,state.queue,state.waiting])" in script
     assert 'document.addEventListener("visibilitychange"' in script
     assert 'window.addEventListener("online"' in script
     assert "if(refreshQueued){refreshQueued=false;refresh();}" in script

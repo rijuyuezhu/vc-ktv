@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register
 from vc_ktv.app import create_app
 
 
@@ -25,6 +26,7 @@ def test_tv_token_can_only_be_issued_by_admin(tmp_path):
     app.state.lookup = lookup
     app.state.probe = lambda source: 4
     with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "访客")
         assert guest.get("/api/admin/tv-link").status_code == 401
         assert guest.get("/api/tv/state", params={"token": "bad"}).status_code == 401
         assert guest.post("/api/tv/next", params={"token": "bad"}).status_code == 401

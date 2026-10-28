@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register
 from vc_ktv.app import create_app, get_bvid
 
 
@@ -55,6 +56,7 @@ def upload(client, song_id, body=b"test-media-content"):
 
 def test_security_and_metadata(room):
     with TestClient(room) as c:
+        join_and_register(c, "客户")
         assert c.get("/api/health").json()["ok"]
         assert c.get("/").status_code == 200
         assert c.get("/api/preview", params={"bvid": "not valid"}).status_code == 400
@@ -86,6 +88,8 @@ def test_security_and_metadata(room):
 
 def test_queue_is_ready_gated_and_fair(room):
     with TestClient(room) as admin, TestClient(room) as a, TestClient(room) as b:
+        join_and_register(a, "A")
+        join_and_register(b, "B")
         login(admin)
         a1 = post_song(a, nick="A", page=1)
         a2 = post_song(a, nick="A", page=2)
@@ -117,6 +121,7 @@ def test_queue_is_ready_gated_and_fair(room):
 
 def test_signed_media_and_range(room):
     with TestClient(room) as admin, TestClient(room) as guest:
+        join_and_register(guest, "访客")
         login(admin)
         song = post_song(guest)
         assert upload(guest, song).status_code == 401
@@ -133,6 +138,7 @@ def test_signed_media_and_range(room):
 
 def test_limits_and_permissions(room):
     with TestClient(room) as admin, TestClient(room) as guest:
+        join_and_register(guest, "访客")
         login(admin)
         songs = [post_song(guest, page=1) for i in range(3)]
         fourth = guest.post(

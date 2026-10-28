@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register
 from vc_ktv.app import Store, create_app
 
 
@@ -35,7 +36,7 @@ def test_session_lifecycle_isolates_cookie_tv_media_and_song_files(tmp_path):
     app = make_app(root)
     with TestClient(app) as admin, TestClient(app) as user:
         assert admin.get("/api/event").json()["event"] is None
-        assert user.post("/api/songs", json={"bvid": "BV0000000001"}).status_code == 409
+        assert user.post("/api/songs", json={"bvid": "BV0000000001"}).status_code == 401
         assert user.post("/api/admin/events", json={"name": "非法"}).status_code == 401
         admin_login(admin)
         created = admin.post(
@@ -49,6 +50,7 @@ def test_session_lifecycle_isolates_cookie_tv_media_and_song_files(tmp_path):
         assert admin.get("/api/event").json()["event"]["name"] == "第一场"
         assert admin.post("/api/admin/events", json={"name": "重复"}).status_code == 409
 
+        join_and_register(user, "第一场用户", "000012")
         first_song = user.post("/api/songs", json={"bvid": "BV0000000001"})
         assert first_song.status_code == 200
         song_id = first_song.json()["id"]
@@ -78,6 +80,7 @@ def test_session_lifecycle_isolates_cookie_tv_media_and_song_files(tmp_path):
         assert second.status_code == 200, second.text
         assert second.json()["id"] != first["id"]
         assert len(second.json()["code"]) == 6
+        assert user.get("/api/state").status_code == 401
         assert admin.get("/api/state").json()["queue"] == []
         assert admin.get("/api/state").json()["guests"] == []
         assert user.get("/api/tv/state", params={"token": token}).status_code == 401

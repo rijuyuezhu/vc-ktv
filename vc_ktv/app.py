@@ -25,6 +25,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .accounts import password_hash, verify_password
 from .autoprep import AutoPrep, title_key
 from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
@@ -78,6 +79,21 @@ class Login(BaseModel):
 class EventCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     code: str | None = None
+
+
+class JoinEvent(BaseModel):
+    code: str = Field(min_length=6, max_length=6)
+
+
+class RegisterUser(BaseModel):
+    username: str = Field(min_length=1, max_length=24)
+    password: str = Field(min_length=1, max_length=72)
+    confirm_password: str = Field(min_length=1, max_length=72)
+
+
+class UserLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=24)
+    password: str = Field(min_length=1, max_length=72)
 
 
 class Finish(BaseModel):
@@ -150,6 +166,10 @@ class Store:
                 id TEXT PRIMARY KEY, name TEXT NOT NULL,
                 plays INTEGER NOT NULL DEFAULT 0,
                 seconds INTEGER NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS users(
+                id TEXT PRIMARY KEY REFERENCES guests(id),
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS songs(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 bvid TEXT NOT NULL, page INTEGER NOT NULL,
@@ -397,6 +417,8 @@ def create_app(
     app.state.candidate_search = search_lyric_candidates
     lyric_search_times = {}
     failed_login = {}
+    failed_invites = {}
+    failed_users = {}
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
     rendering = threading.Event()
@@ -428,6 +450,38 @@ def create_app(
         raw = read_signed(token, "guest")
         prefix = events.active_id + ":" if events.active_id else ""
         return raw[len(prefix) :] if raw and prefix and raw.startswith(prefix) else None
+
+    def current_user(token):
+        guest = require_guest(token)
+        if not guest or not events.active_id:
+            return None
+        with store.lock:
+            row = store.db.execute(
+                "SELECT g.id,g.name FROM users u JOIN guests g ON g.id=u.id WHERE u.id=?",
+                (guest,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def require_user(token):
+        user = current_user(token)
+        if not user:
+            bail(401, "请先加入本场 KTV 并登录")
+        return user
+
+    def require_entry(token):
+        if not events.active_id or read_signed(token, "entry") != events.active_id:
+            bail(401, "请先输入本场六位加入码")
+
+    def user_cookie(response, user_id, event_id):
+        ttl = 7 * 86400
+        response.set_cookie(
+            "vc_guest",
+            sign("guest", f"{event_id}:{user_id}", ttl),
+            max_age=ttl,
+            httponly=True,
+            samesite="strict",
+            path="/",
+        )
 
     def require_admin(token):
         if read_signed(token, "admin") != "yes":
@@ -469,6 +523,128 @@ def create_app(
         meta = events.metadata()
         return {"event": {"id": meta["id"], "name": meta["name"]} if meta else None}
 
+    @app.get("/api/entry")
+    def entry(
+        vc_join: str | None = Cookie(default=None),
+        vc_guest: str | None = Cookie(default=None),
+    ):
+        event = events.metadata()
+        if not event:
+            return {
+                "event": None,
+                "joined": False,
+                "authenticated": False,
+                "username": None,
+            }
+        user = current_user(vc_guest)
+        joined = bool(user or read_signed(vc_join, "entry") == events.active_id)
+        return {
+            "event": {"id": event["id"], "name": event["name"]},
+            "joined": joined,
+            "authenticated": bool(user),
+            "username": user["name"] if user else None,
+        }
+
+    @app.post("/api/join")
+    def join_event(body: JoinEvent, request: Request, response: Response):
+        info = events.metadata()
+        if not info or info.get("legacy") or not info.get("code"):
+            bail(409, "请等待管理员创建新 KTV 场次")
+        ip = request.client.host if request.client else "unknown"
+        recent = [t for t in failed_invites.get(ip, []) if t > time_now() - 300]
+        if len(recent) >= 10:
+            bail(429, "尝试过于频繁，请稍后重试")
+        if (
+            not body.code.isascii()
+            or not body.code.isdecimal()
+            or not hmac.compare_digest(body.code, info["code"])
+        ):
+            recent.append(time_now())
+            failed_invites[ip] = recent
+            bail(401, "加入码错误")
+        failed_invites.pop(ip, None)
+        event_id = info["id"]
+        if events.active_id != event_id:
+            bail(409, "场次已变化，请重新输入加入码")
+        response.set_cookie(
+            "vc_join",
+            sign("entry", event_id, 3600),
+            max_age=3600,
+            httponly=True,
+            samesite="strict",
+            path="/",
+        )
+        return {"ok": True, "event": {"id": info["id"], "name": info["name"]}}
+
+    @app.post("/api/users/register")
+    def register_user(
+        body: RegisterUser,
+        response: Response,
+        vc_join: str | None = Cookie(default=None),
+    ):
+        require_entry(vc_join)
+        name = body.username.strip()
+        if not 1 <= len(name) <= 24:
+            bail(400, "用户名长度须为 1–24 字")
+        if body.password != body.confirm_password:
+            bail(400, "两次密码输入不一致")
+        try:
+            encoded = password_hash(body.password)
+        except ValueError as error:
+            bail(400, str(error))
+        user_id = secrets.token_hex(12)
+        with store.lock:
+            require_entry(vc_join)
+            event_id = events.active_id
+            try:
+                store.db.execute(
+                    "INSERT INTO guests(id,name) VALUES (?,?)", (user_id, name)
+                )
+                store.db.execute(
+                    "INSERT INTO users(id,username,password_hash) VALUES (?,?,?)",
+                    (user_id, name, encoded),
+                )
+                store.db.commit()
+            except sqlite3.IntegrityError:
+                store.db.rollback()
+                bail(409, "此用户名已被本场其他用户使用")
+        user_cookie(response, user_id, event_id)
+        return {"ok": True, "username": name}
+
+    @app.post("/api/users/login")
+    def login_user(
+        body: UserLogin,
+        request: Request,
+        response: Response,
+        vc_join: str | None = Cookie(default=None),
+    ):
+        require_entry(vc_join)
+        ip = request.client.host if request.client else "unknown"
+        key = (events.active_id, ip)
+        recent = [t for t in failed_users.get(key, []) if t > time_now() - 300]
+        if len(recent) >= 10:
+            bail(429, "尝试过于频繁，请稍后重试")
+        with store.lock:
+            require_entry(vc_join)
+            event_id = events.active_id
+            row = store.db.execute(
+                "SELECT id,username,password_hash FROM users WHERE username=?",
+                (body.username.strip(),),
+            ).fetchone()
+        if not row or not verify_password(body.password, row["password_hash"]):
+            recent.append(time_now())
+            failed_users[key] = recent
+            bail(401, "用户名或密码错误")
+        failed_users.pop(key, None)
+        user_cookie(response, row["id"], event_id)
+        return {"ok": True, "username": row["username"]}
+
+    @app.post("/api/users/logout")
+    def logout_user(response: Response):
+        response.delete_cookie("vc_guest", path="/")
+        response.delete_cookie("vc_join", path="/")
+        return {"ok": True}
+
     @app.get("/api/admin/events")
     def list_events(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
@@ -502,7 +678,10 @@ def create_app(
         return {"ok": True, "version": "0.5.0", "auto_prepare": auto_prepare}
 
     @app.get("/api/state")
-    def state(vc_guest: str | None = Cookie(default=None)):
+    def state(
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
         if not events.active_id:
             return {
                 "current": None,
@@ -511,8 +690,10 @@ def create_app(
                 "guests": [],
                 "server_time": time_now(),
             }
+        guest = None
+        if read_signed(vc_admin, "admin") != "yes":
+            guest = require_user(vc_guest)["id"]
         snapshot = store.state()
-        guest = require_guest(vc_guest)
         for song in [*snapshot["queue"], *snapshot["waiting"]]:
             song["mine"] = bool(guest and song["requester_id"] == guest)
         if snapshot["current"]:
@@ -522,11 +703,15 @@ def create_app(
         return snapshot
 
     @app.get("/api/preview")
-    async def preview(bvid: str, page: int = 1):
+    async def preview(
+        bvid: str, page: int = 1, vc_guest: str | None = Cookie(default=None)
+    ):
+        require_user(vc_guest)
         return await app.state.lookup(get_bvid(bvid), page)
 
     @app.get("/api/lyrics/search")
-    async def lyrics_search(query: str):
+    async def lyrics_search(query: str, vc_guest: str | None = Cookie(default=None)):
+        require_user(vc_guest)
         return {"candidates": await app.state.lyrics_lookup(query)}
 
     @app.get("/api/admin/lyrics/vcpedia")
@@ -549,11 +734,13 @@ def create_app(
         response: Response,
         vc_guest: str | None = Cookie(default=None),
     ):
-        events.active()
+        user = require_user(vc_guest)
+        guest = user["id"]
+        event_id = events.active_id
         info = await app.state.lookup(get_bvid(body.bvid), body.page)
-        guest = require_guest(vc_guest) or secrets.token_hex(12)
-        nickname = body.nickname.strip() or f"听众-{guest[:4].upper()}"
         with store.lock:
+            if events.active_id != event_id:
+                bail(409, "场次已变化，请在新场次重新点歌")
             # Prevent a single person from flooding an active room.
             n = store.db.execute(
                 "SELECT COUNT(*) FROM songs WHERE requester=? AND status IN ('ready','waiting','rendering','playing')",
@@ -561,10 +748,6 @@ def create_app(
             ).fetchone()[0]
             if n >= 3:
                 bail(409, "每人最多保留三首待唱歌曲")
-            store.db.execute(
-                "INSERT INTO guests(id,name) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name",
-                (guest, nickname),
-            )
             cur = store.db.execute(
                 """
                 INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at)
@@ -581,20 +764,10 @@ def create_app(
                 ),
             )
             store.db.commit()
-        response.set_cookie(
-            "vc_guest",
-            sign("guest", f"{events.active_id}:{guest}", 90 * 86400),
-            max_age=90 * 86400,
-            httponly=True,
-            samesite="strict",
-            path="/",
-        )
         return {"id": cur.lastrowid, "status": "waiting", "title": info["title"]}
 
     def own_song(song_id: int, guest_token: str | None):
-        guest = require_guest(guest_token)
-        if not guest:
-            bail(401, "请从点歌时使用的浏览器操作")
+        guest = require_user(guest_token)["id"]
         with store.lock:
             song = store.db.execute(
                 "SELECT * FROM songs WHERE id=? AND requester=?", (song_id, guest)
