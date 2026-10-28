@@ -98,7 +98,7 @@ def test_guest_chooses_and_searches_with_custom_query(tmp_path):
                 "SELECT lyric_choice,lyric_source FROM songs WHERE id=?", (sid,)
             ).fetchone()
             assert stored["lyric_choice"] == ticket["text"]
-        for _ in range(12):
+        for _ in range(30):
             own.get(url)
         assert own.get(url).status_code == 429
 

@@ -103,11 +103,27 @@ def _external_candidates(records: list[dict], query: str) -> list[dict]:
     return result
 
 
-async def search_lyric_candidates(query: str) -> list[dict]:
+async def search_lyric_candidates(query: str, phase: str = "all") -> list[dict]:
+    """Primary providers are independently available without slow fallbacks."""
+
     """Retrieve diverse, source-labeled candidates; never select for a guest."""
     query = query.strip()
     if not 2 <= len(query) <= 60:
         return []
+    if phase == "vcpedia":
+        try:
+            return (await vcpedia_lyric_candidates(query))[:6]
+        except Exception:
+            return []
+    if phase == "lrclib":
+        try:
+            return (await _lrclib(query))[:6]
+        except Exception:
+            return []
+    if phase == "more":
+        return await _more_candidates(query)
+    if phase != "all":
+        raise ValueError("unsupported lyric search phase")
     sources = await asyncio.gather(
         _wiki_titles(query), _lrclib(query), return_exceptions=True
     )
@@ -202,3 +218,60 @@ async def search_lyric_candidates(query: str) -> list[dict]:
                 break
             add(candidate)
     return results[:6]
+
+
+async def _more_candidates(query: str) -> list[dict]:
+    """Optional wider searches; never delay the first two source results."""
+    try:
+        titles = (await _wiki_titles(query))[:4]
+    except Exception:
+        titles = []
+    titles = [t for t in dict.fromkeys(titles) if t != query][:3]
+    variants = title_variants(query)[:2]
+    tasks = [
+        *(vcpedia_lyric_candidates(title) for title in titles),
+        *(_lrclib(title) for title in variants),
+        asyncio.to_thread(lookup_netease, query, "", 0),
+        asyncio.to_thread(lookup_sites, query, "", search_web),
+    ]
+    batches = await asyncio.gather(*tasks, return_exceptions=True)
+    groups: dict[str, list[dict]] = {}
+    for batch in batches[: len(titles) + len(variants)]:
+        if isinstance(batch, list):
+            for c in batch:
+                if isinstance(c, dict) and isinstance(c.get("source"), str):
+                    groups.setdefault(c["source"], []).append(c)
+    for output in batches[len(titles) + len(variants) :]:
+        if isinstance(output, tuple):
+            for c in _external_candidates(output[0], query):
+                if c["source"] in ("网易云音乐", "UtaTen", "J-Lyric"):
+                    groups.setdefault(c["source"], []).append(c)
+    result = []
+    seen = set()
+    for group in groups.values():
+        for c in group:
+            text = c.get("text", "") if isinstance(c, dict) else ""
+            title = c.get("title", "") if isinstance(c, dict) else ""
+            if not isinstance(text, str) or not isinstance(title, str):
+                continue
+            if len(text.splitlines()) < 2:
+                continue
+            key = (title, text)
+            if key not in seen:
+                result.append(c)
+                seen.add(key)
+                break
+    for group in groups.values():
+        for c in group:
+            if len(result) >= 6:
+                break
+            if not isinstance(c, dict):
+                continue
+            text, title = c.get("text"), c.get("title")
+            if not isinstance(text, str) or not isinstance(title, str):
+                continue
+            key = (title, text)
+            if len(text.splitlines()) >= 2 and key not in seen:
+                result.append(c)
+                seen.add(key)
+    return result[:6]
