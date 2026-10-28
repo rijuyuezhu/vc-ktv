@@ -1,10 +1,12 @@
 """Single-call adapter from VC KTV media/lyrics to the vendored upstream engine.
 
 This module deliberately contains no own alignment, timing or subtitle algorithm.
-Heavy-model setup is separate (#28); live queue integration is separate (#29).
+Heavy-model setup is performed once outside the request path; AutoPrep owns
+the event lifecycle and final media commit.
 """
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -18,6 +20,29 @@ from ktv_app.rendering import RenderOptions, render
 from ktv_app.separation import prepare_alignment_audio
 from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Style
+
+
+def spark_settings(root: Path | None = None, tifa_root: Path | None = None) -> Settings:
+    """One set of model paths for CLI smoke runs and the AutoPrep worker."""
+    root = Path(
+        root
+        or os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv-pipeline-staging")
+    ).expanduser()
+    tifa_root = Path(
+        tifa_root or os.getenv("VC_KTV_TIFA_ROOT", Path(__file__).resolve().parents[1])
+    ).expanduser()
+    models = root / "models"
+    runtime = root / "runtime"
+    return Settings(
+        tifa_source=tifa_root / ".runtime/TIFA",
+        tifa_python=tifa_root / ".runtime/tifa-env/bin/python",
+        tifa_model=tifa_root / ".runtime/models/TIFA-1.0-ST/model.pt",
+        kim_source=models / "separation/sources/Kim",
+        kim_model=models / "separation/Kim/MelBandRoformer.ckpt",
+        separation_python=runtime / "kim/bin/python",
+        asr_model=models / "Qwen3-ASR-1.7B",
+        locator_python=runtime / "qwen/bin/python",
+    )
 
 
 @dataclass(frozen=True)
@@ -45,8 +70,8 @@ def make_karaoke_video(
     """Use the full upstream Kim → Qwen ASR → bounded TIFA → ASS/MP4 pipeline.
 
     The work directory MUST be new and local to this song/attempt. In particular,
-    no live event DB state is touched; the later AutoPrep adapter owns the final
-    atomic commit and cancellation semantics.
+    no live event DB state is touched; AutoPrep owns the final
+    media commit and event lifecycle.
     """
     source = Path(source).resolve(strict=True)
     if not source.is_file() or not confirmed_lyrics.strip():

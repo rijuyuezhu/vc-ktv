@@ -4,7 +4,7 @@
 
 Source: [Volta233/AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) at **39cedb317c9e11add83e9a72c31368cabd8416d4**, Apache-2.0. The upstream attribution and full license are in [third_party/autoassrenderer](../third_party/autoassrenderer/README.md). The model checkpoints and Python environments are **not bundled**; their licensing and Linux ARM64/CUDA setup are handled separately in #28.
 
-**#27 only ports the processing engine and its entry point. The deployed AutoPrep still uses its existing pipeline.** #28 runs real Kim/Qwen/TIFA on Spark-WSL; #29 connects this adapter to the queue and removes the superseded implementation. No user-facing pipeline switch is added yet.
+**#27 ported the engine, #28 validated real Kim/Qwen/TIFA on Spark-WSL, and #29 switches AutoPrep to this pipeline.** The active production service is *not* changed by Git merging: deploying must be separately approved. Manual TextGrid import and administrator-triggered render use their explicit legacy manual code, not an automatic fallback.
 
 ## Files and interface
 
@@ -20,7 +20,7 @@ The copied upstream modules are grouped in top-level `ktv_app/` with original im
 6. upstream `write_bundle` to make ASS, LRC, JSON timeline and report;
 7. upstream `render` using the **original video's audio**, preserving audio streams.
 
-The caller must pass a brand-new attempt directory and explicit `ktv_app.config.Settings`; the adapter returns `PipelineResult` paths for the output MP4, ASS, timeline, report and run metadata. Attempts write `run.json` on success and failure. It does not know the VC KTV database or event IDs. #29 will own event-store pinning, cancellation, download retries, readiness gating and atomic final-media commit.
+The caller must pass a brand-new attempt directory and explicit `ktv_app.config.Settings`; the adapter returns `PipelineResult` paths for the output MP4, ASS, timeline, report and run metadata. Attempts write `run.json` on success and failure. It does not know the VC KTV database or event IDs. #29 owns event-store pinning, download retries, readiness gating and final-media commit. While a model job is active, event close refuses to switch stores; the worker never touches the next event's data.
 
 `ktv_app/config.py` still has **upstream default model paths**. #28 should create Settings with real Spark-WSL paths and package-specific Python environments instead of modifying vendored algorithms or using Windows binaries. No CUDA library import or model download occurs when importing this engine.
 
