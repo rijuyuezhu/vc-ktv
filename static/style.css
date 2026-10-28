@@ -165,3 +165,27 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .archive-list { display: flex; flex-direction: column; gap: 8px; }
 .archive-item { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .archive-item span { overflow-wrap: anywhere; }
+
+/* Simple surfaces and calm typography: keep the primary action obvious. */
+.hero { margin: 8px 0 21px; }
+.hero h1 { font-size: clamp(23px,3vw,32px); letter-spacing: -.7px; }
+.hero p { font-size: 13px; }
+.dashboard, .admin-layout { gap: 15px; }
+.panel { padding: 19px; }
+.section-head { margin-bottom: 12px; }
+.ui-icon { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; margin-right: 5px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 17px; vertical-align: baseline; }
+.fold-panel > summary { cursor: pointer; font-size: 17px; font-weight: 700; list-style-position: inside; }
+.fold-panel[open] > summary { margin-bottom: 15px; }
+#guest-profile { padding-block: 12px; }
+#guest-access { max-width: 760px; }
+#request-panel > .advanced { margin-top: 14px; }
+.status { white-space: normal; }
+.archive-list { padding-top: 8px; }
+@media (max-width: 760px) {
+  .dashboard, .admin-layout { grid-template-columns: 1fr; }
+  .panel { padding: 16px; }
+  .layout { padding: 15px 13px 28px; }
+  .hero { margin: 4px 0 14px; }
+  .hero h1 { font-size: 25px; }
+  .song-item { gap: 8px; padding: 10px; }
+}

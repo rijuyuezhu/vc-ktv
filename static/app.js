@@ -61,23 +61,25 @@ function makeSong(song, order, mode="guest") {
   appendText(outer,"span",String(order),"ordinal");
   const copy = document.createElement("div");copy.className="song-copy";outer.append(copy);
   appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:""));
-  appendText(copy,"small",`${song.nickname} · ${duration(song.duration)} · ${song.uploader}`);
+  appendText(copy,"small",`${song.nickname}  ${duration(song.duration)}  ${song.uploader}`);
   if(mode==="guest" && song.mine && ["ready","waiting"].includes(song.status) &&
      song.prep_state!=="aligning"){
-    const pick=appendText(outer,"button",song.lyric_selected?"更换歌词":"选择歌词","mini lyric-pick");
+    const pick=appendText(outer,"button",song.lyric_selected?"♫ 换歌词":"♫ 选歌词","mini lyric-pick");
     pick.onclick=()=>guarded(()=>openLyricPicker(song.id,song.title),pick);
   }
   if(mode==="status"){
-    const states={pending:"等待自动准备",downloading:"下载视频中",downloaded:"原视频已就绪",
-      aligning:"字幕生成中",done:"KTV 字幕已完成",original:"字幕制作失败 · 原视频已保留",
-      unavailable:song.prep_retry_at>Date.now()/1000?"暂不可获取 · 将自动重试":"暂不可获取",manual:"手动素材"};
-    const pendingSong=song.awaiting_subtitles
-      ? (song.prep_state==="original"?"字幕失败 · 请重新选择歌词":
-         !song.lyric_selected?"等待选择歌词":"等待字幕完成")
-      : (states[song.prep_state]||"排队中");
-    appendText(outer,"span",pendingSong,"status"+(song.prep_state==="unavailable"?" wait":""));
+    const states={
+      pending:"◷ 等待下载",downloading:"↓ 下载中",
+      downloaded:"◷ 等待歌词",aligning:"◷ 字幕制作中",done:"✓ 已准备",
+      original:"! 字幕失败",unavailable:"! 下载失败",manual:"✓ 已准备"
+    };
+    const status=song.awaiting_subtitles
+      ? (song.prep_state==="original"?"! 字幕失败":
+         !song.lyric_selected?"◷ 等待歌词":"◷ 等待字幕")
+      : (states[song.prep_state]||"◷ 准备中");
+    appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
     if(song.prep_state==="unavailable"){
-      const a=appendText(outer,"a","B站查看");a.href="https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;a.target="_blank";a.rel="noopener noreferrer";
+      const a=appendText(outer,"a","↗ B站");a.href="https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;a.target="_blank";a.rel="noopener noreferrer";
     }
   }else if(mode==="admin"){
     const actions=document.createElement("div");actions.className="song-actions";outer.append(actions);
@@ -89,7 +91,7 @@ function makeSong(song, order, mode="guest") {
         guarded(async()=>{
           const fd=new FormData();fd.append("file",file.files[0]);
           await api(`/api/admin/songs/${song.id}/media`,"POST",fd);
-          toast("媒体上传成功，可以排队播放"); await refresh();
+          toast("✓ 已上传"); await refresh();
         },upload);
       });
     }
@@ -98,7 +100,7 @@ function makeSong(song, order, mode="guest") {
       const render=appendText(actions,"button","制作 KTV","mini");render.onclick=()=>guarded(async()=>{
         const lead=Number($("lead-seconds").value);
         await api(`/api/admin/songs/${song.id}/render`,"POST",{lead});
-        toast("字幕制作已开始，完成后会自动进入可播队列");await refresh();
+        toast("◷ 正在制作字幕");await refresh();
       },render);
     }else if(song.status==="rendering"){
       appendText(actions,"span","制作中","status wait");
@@ -110,8 +112,12 @@ function makeSong(song, order, mode="guest") {
     },cancel);
     }
   }else{
-    const status=song.status==="ready"?(song.prep_state==="done"?"KTV 字幕已完成":(song.prep_state==="aligning"?"原片可播 · 字幕制作中":(!song.lyric_selected?"原片可播 · 等待选歌词":"可播"))):(song.prep_state==="downloading"?"下载中":song.prep_state==="unavailable"?"视频暂不可用":"准备中");
-    appendText(outer,"span",status,"status"+(song.status==="ready"?"":" wait"));
+    const status=song.awaiting_subtitles
+      ? (song.prep_state==="original"?"! 字幕失败":
+         song.lyric_selected?"◷ 等待字幕":"◷ 请选择歌词")
+      : song.status==="ready"?"✓ 可播放":
+        song.prep_state==="unavailable"?"! 暂不可用":"◷ 准备中";
+    appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
   }
   return outer;
 }
@@ -135,7 +141,7 @@ async function fetchPreview(page=1) {
   $("official-link").href=info.official_url;
   $("embed-container").classList.add("hidden");$("embed").removeAttribute("src");
   $("page-select").replaceChildren();
-  info.pages.forEach(p=>{const opt=document.createElement("option");opt.value=p.page;opt.textContent=`P${p.page} · ${p.part}`;$("page-select").append(opt);});
+  info.pages.forEach(p=>{const opt=document.createElement("option");opt.value=p.page;opt.textContent=`P${p.page}  ${p.part}`;$("page-select").append(opt);});
   $("page-select").value=String(info.page);
   $("multi-page").classList.toggle("hidden",info.pages.length<2);
 }
@@ -168,7 +174,7 @@ async function searchGuestLyrics(){
       const card=document.createElement("div");card.className="lyric-option";
       const heading=document.createElement("div");heading.className="lyric-option-header";
       appendText(heading,"strong",candidate.title);
-      appendText(heading,"span",candidate.source+" · "+candidate.text.split("\n").length+" 行");
+      appendText(heading,"span",candidate.source);
       card.append(heading);
       const lines=candidate.text.split("\n");
       appendText(card,"div",lines.slice(0,3).join(" / ").slice(0,155),"muted");
@@ -184,7 +190,7 @@ async function searchGuestLyrics(){
         selectionRequest++;
         selectingSongId=null;
         $("guest-lyrics-dialog").close();
-        toast("歌词已选定！后台会自动对齐并制作 KTV 字幕");
+        toast("✓ 歌词已选择");
         await refresh();
       },button);
       panel.append(card);
@@ -205,7 +211,7 @@ $("quick-submit-btn").onclick=()=>guarded(async()=>{
   $("bvid").value="";
   $("preview").classList.add("hidden");
   preview=null;
-  toast("已点歌！请选择对应的歌词版本；视频会同时准备");
+  toast("已点歌，请选歌词");
   await refresh();
   await openLyricPicker(result.id,result.title);
 },$("quick-submit-btn"));
@@ -221,7 +227,7 @@ $("submit-btn").onclick=()=>guarded(async()=>{
   if(!preview)throw new Error("先查询视频");
   const title=preview.title;
   const result=await api("/api/songs","POST",{bvid:preview.bvid,page:preview.page});
-  toast("点歌成功，接下来请选择歌词");$("preview").classList.add("hidden");
+  toast("已点歌，请选歌词");$("preview").classList.add("hidden");
   preview=null;await refresh();
   await openLyricPicker(result.id,title);
 },$("submit-btn"));
@@ -233,11 +239,11 @@ function showPage(){
   $("tab-admin").classList.toggle("selected",isAdmin);
   $("tab-guest").setAttribute("aria-current",isAdmin?"false":"page");
   $("tab-admin").setAttribute("aria-current",isAdmin?"page":"false");
-  $("hero-title").textContent=isAdmin?"管理员控制台":"下一首，轮到谁？";
+  $("hero-title").textContent=isAdmin?"管理 KTV":"想唱什么？";
   $("hero-desc").textContent=isAdmin
-    ?"登录后管理点歌队列、歌词与自动连播。刷新页面会保留在此控制台。"
-    :"输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；默认须等字幕完成后才能播放。";
-  document.title=isAdmin?"VC KTV · 管理员":"VC KTV · 点歌房间";
+    ?"控制播放与场次设置"
+    :"输入视频链接，选好歌词就可以排队";
+  document.title=isAdmin?"VC KTV | 管理":"VC KTV | 点歌";
 }
 $("admin-advanced").addEventListener("toggle",()=>{
   if($("admin-advanced").open){adminStateKey=null;refresh();}
@@ -277,7 +283,7 @@ async function assignPlayer(active, start){
     player.load();
     $("player-empty").classList.add("hidden");
   }
-  $("playing-title").textContent=`正在播放：${active.title} · ${active.nickname}`;
+  $("playing-title").textContent=`正在播放：${active.title}  ${active.nickname}`;
   if(start){
     try{await player.play();}catch{toast("浏览器阻止自动播放，请手动点击播放器的播放按钮",true);}
   }
@@ -312,7 +318,7 @@ $("lyric-source-btn").onclick=()=>guarded(async()=>{
   const results=$("lyric-source-results");results.replaceChildren();
   if(!data.candidates.length)appendText(results,"div","未找到歌词区块，请手动导入","empty");
   data.candidates.forEach((c,i)=>{
-    const btn=appendText(results,"button",`使用候选 ${i+1} · ${c.text.split("\n").length} 行 · 需确认版本`,"mini");
+    const btn=appendText(results,"button",`使用候选 ${i+1}  ${c.text.split("\n").length} 行  需确认版本`,"mini");
     btn.onclick=()=>{if($("lyrics-textarea").value.trim()&&!confirm("替换现有编辑框内容？"))return;
       $("lyrics-textarea").value=c.text;toast("已填入候选，请核对并保存。纯文本不能直接制作 KTV 字幕");};
   });
@@ -336,8 +342,8 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
 async function refreshEvents(){
   const data=await api("/api/admin/events");
   const active=data.events.find(e=>e.id===data.active);
-  $("event-status").textContent=active?"当前："+active.name:"暂无活动场次";
-  $("event-join-code").textContent=active&&!active.legacy?"加入密码："+active.code:"";
+  $("event-status").textContent=active?"♫ "+active.name:"尚未创建场次";
+  $("event-join-code").textContent=active&&!active.legacy?"加入码  "+active.code:"";
   $("event-create-fields").classList.toggle("hidden",!!active);
   $("event-close-btn").classList.toggle("hidden",!active);
   $("event-settings-panel").classList.toggle("hidden",!active);
@@ -349,8 +355,8 @@ async function refreshEvents(){
     if(!data.events.length)appendText(target,"p","暂无历史场次","muted");
     data.events.forEach(event=>{
       const item=document.createElement("div");item.className="archive-item";
-      appendText(item,"span",event.name+" · "+(event.id===data.active?"进行中":"已归档"));
-      const link=appendText(item,"a","导出点歌 CSV","btn neutral");
+      appendText(item,"span",event.name+"  "+(event.id===data.active?"进行中":"已归档"));
+      const link=appendText(item,"a","↓ 导出 CSV","btn neutral");
       link.href="/api/admin/events/"+encodeURIComponent(event.id)+"/songs.csv";
       item.append(link);target.append(item);
     });
@@ -375,7 +381,7 @@ $("settings-save-btn").onclick=()=>guarded(async()=>{
   });
   adminStateKey=null;
   listKeys.clear();
-  toast("本场设置已保存");
+  toast("✓ 已保存");
   await refresh();
 },$("settings-save-btn"));
 $("event-create-btn").onclick=()=>guarded(async()=>{
@@ -390,7 +396,7 @@ $("event-create-btn").onclick=()=>guarded(async()=>{
 $("event-close-btn").onclick=()=>guarded(async()=>{
   if(!confirm("结束本场 KTV 并保留全部记录？正在播放或制作时不能结束。"))return;
   await api("/api/admin/events/close","POST");
-  toast("场次已归档，可以创建下一场");
+  toast("✓ 已归档");
   await refresh();
 },$("event-close-btn"));
 
@@ -400,17 +406,17 @@ function renderEntry(entry){
     $("join-code").value="";
   }
   $("guest-entry-description").textContent=!entry.event
-    ?"当前没有活动场次，请等待管理员创建 KTV。"
+    ?"暂无活动场次"
     :entry.joined
-      ?"当前场次："+entry.event.name+"。请注册本场用户或登录。"
-      :"当前场次："+entry.event.name+"。请输入管理员提供的六位加入密码。";
+      ?entry.event.name+"  选择注册或登录"
+      :entry.event.name+"  输入六位加入码";
   $("entry-code").classList.toggle("hidden",!entry.event||entry.joined);
   $("entry-account").classList.toggle("hidden",!entry.event||!entry.joined||entry.authenticated);
   $("guest-access").classList.toggle("hidden",entry.authenticated);
   $("guest-profile").classList.toggle("hidden",!entry.authenticated);
   $("request-panel").classList.toggle("hidden",!entry.authenticated);
   $("queue-panel").classList.toggle("hidden",!entry.authenticated);
-  $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+" · "+entry.event.name:"";
+  $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+"  "+entry.event.name:"";
 }
 $("join-btn").onclick=()=>guarded(async()=>{
   await api("/api/join","POST",{code:$("join-code").value.trim()});
@@ -424,7 +430,7 @@ $("register-btn").onclick=()=>guarded(async()=>{
     confirm_password:$("register-confirm").value
   });
   $("register-password").value="";$("register-confirm").value="";
-  toast("注册成功，已自动登录");
+  toast("✓ 已进入");
   await refresh();
 },$("register-btn"));
 $("user-login-btn").onclick=()=>guarded(async()=>{
@@ -457,7 +463,7 @@ async function refresh(){
           fillList("queue-ready",state.queue);
           fillList("queue-waiting",state.waiting);
           const current=$("current-guest");current.replaceChildren();
-          appendText(current,"span","正在播放","current-label");
+          appendText(current,"span","▶ 正在播放","current-label");
           if(state.current){
             appendText(current,"strong",state.current.title);
             appendText(current,"small","点歌者："+state.current.nickname);
@@ -487,11 +493,11 @@ async function refresh(){
           adm.guests.forEach(u=>{
             const c=document.createElement("div");c.className="stat";
             appendText(c,"strong",u.name);
-            appendText(c,"small",u.plays+" 首 · "+duration(u.seconds));stats.append(c);
+            appendText(c,"small",u.plays+" 首  "+duration(u.seconds));stats.append(c);
           });
           if(adm.active){
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
-            $("playing-title").textContent="正在播放："+adm.active.title+" · "+adm.active.nickname;
+            $("playing-title").textContent="正在播放："+adm.active.title+"  "+adm.active.nickname;
           }else if(currentMediaId!==null){
             currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
             $("player-empty").classList.remove("hidden");

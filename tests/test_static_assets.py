@@ -76,3 +76,35 @@ def test_admin_policy_and_archive_panel_elements():
     assert 'api("/api/admin/settings")' in js
     assert 'api("/api/admin/settings","PUT"' in js
     assert '"/songs.csv"' in js
+
+
+def test_ui_never_uses_middle_dot_separator():
+    static = Path(__file__).resolve().parents[1] / "static"
+    for name in ("index.html", "app.js", "tv.html", "tv.js"):
+        assert "·" not in (static / name).read_text(), name
+
+
+def test_essentials_remain_accessible_after_ui_cleanup():
+    static = Path(__file__).resolve().parents[1] / "static"
+    html = (static / "index.html").read_text()
+    for identifier in (
+        "guest-access",
+        "request-panel",
+        "queue-panel",
+        "guest-lyrics-dialog",
+        "queue-policy",
+        "allow-unsubtitled",
+        "settings-save-btn",
+        "event-history",
+        "player",
+        "admin-advanced",
+        "manage-list",
+        "stats",
+    ):
+        assert f'id="{identifier}"' in html
+    assert (
+        '<details class="panel full-width fold-panel" id="event-archive-panel">' in html
+    )
+    assert (
+        '<details class="panel full-width fold-panel" id="performance-panel">' in html
+    )

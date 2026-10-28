@@ -27,7 +27,7 @@ async function next(){
     if(!answer.active){status.textContent="正在等待下一首歌……";cover.classList.remove("hidden");return;}
     activeId=answer.active.id;
     video.src=answer.active.media_url;
-    status.textContent=answer.active.title+" · "+answer.active.nickname;
+    status.textContent=answer.active.title+"  "+answer.active.nickname;
     cover.classList.add("hidden");
     try{await video.play();}catch(e){
       status.textContent="请点击画面以允许播放声音";
