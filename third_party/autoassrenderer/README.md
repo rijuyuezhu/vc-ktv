@@ -15,3 +15,9 @@ Upstream is credited as the author of the processing code. New VC KTV-specific
 glue goes in `vc_ktv/upstream_pipeline.py`; avoid editing original algorithm
 modules without a documented ARM64/integration reason. Model/weight and
 third-party package licensing is **separate** from this source license.
+
+For automated upstream checks, the machine-readable source reference is
+[UPSTREAM.json](UPSTREAM.json). Keep its `commit` value synchronized when
+rebasing the vendored files to a new upstream revision. The accompanying
+`assets.lock.json` is a **snapshot** of the upstream pinned model inputs;
+do not equate an upstream source commit update with a model upgrade.

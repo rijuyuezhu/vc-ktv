@@ -75,7 +75,8 @@ def probe_device(python, requested="cuda", event=lambda message: None):
     expired check fails explicitly; it never starts CPU inference.
     """
     require_cuda(requested)
-    python = Path(python).resolve()
+    # Retain the venv entrypoint: resolving a symlink bypasses uv venv site-packages.
+    python = Path(python).absolute()
     label = python.parent.parent.name
     phases = {"import": "加载 PyTorch", "cuda": "初始化 CUDA 并检查显卡计算"}
     phase = "import"
@@ -119,7 +120,7 @@ def probe_device(python, requested="cuda", event=lambda message: None):
                             ):
                                 raise RuntimeError(
                                     f"{label} 无法完成 CUDA 计算检查；请确认 NVIDIA 驱动正常，"
-                                    "并运行 install.cmd 安装或修复 CUDA 依赖。"
+                                    "请检查模型 Python 环境与 CUDA 依赖。"
                                 )
                             event(f"{label} 显卡环境就绪（{now - started:.1f} 秒）")
                             return {
@@ -129,7 +130,7 @@ def probe_device(python, requested="cuda", event=lambda message: None):
                         if now >= deadline:
                             raise RuntimeError(
                                 f"{label} 显卡环境检查超时，停在“{phases[phase]}”。"
-                                "请重试；若再次超时，运行 check.cmd 检查环境与驱动。"
+                                "请检查 Python 模型环境与驱动后重试。"
                             )
                         if now >= next_notice:
                             event(
@@ -142,5 +143,5 @@ def probe_device(python, requested="cuda", event=lambda message: None):
                     _stop_probe(process)
     except OSError as error:
         raise RuntimeError(
-            f"无法启动 {label} 模型环境，请运行 install.cmd 修复"
+            f"无法启动 {label} 模型环境，请检查 Python 模型环境"
         ) from error

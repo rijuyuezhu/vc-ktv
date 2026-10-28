@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/Volta233/AutoASSrenderer4karaOK",
+  "ref": "main",
+  "commit": "39cedb317c9e11add83e9a72c31368cabd8416d4",
+  "source_license": "Apache-2.0",
+  "vendor_package": "ktv_app/",
+  "vendor_notes": "third_party/autoassrenderer/README.md",
+  "model_assets_lock": "third_party/autoassrenderer/assets.lock.json",
+  "integration_issues": [26, 27, 28, 29]
+}
