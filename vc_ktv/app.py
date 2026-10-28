@@ -964,7 +964,7 @@ def create_app(
             != f"{events.active_id}:{song_id}:{body.source}:{digest}"
         ):
             bail(403, "歌词候选已失效，请重新搜索")
-        if body.source not in ("VCPedia", "LRCLIB"):
+        if body.source not in ("VCPedia", "LRCLIB", "网易云音乐", "UtaTen", "J-Lyric"):
             bail(400, "歌词来源不受支持")
         if len(body.text.splitlines()) < 2:
             bail(400, "歌词候选无效")

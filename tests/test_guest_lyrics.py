@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
@@ -150,6 +151,8 @@ def test_multiple_wiki_sources_and_manual_query(monkeypatch):
     async def lrclib(query):
         return []
 
+    monkeypatch.setattr(lyric_selection, "lookup_netease", lambda *args: ([], []))
+    monkeypatch.setattr(lyric_selection, "lookup_sites", lambda *args: ([], []))
     monkeypatch.setattr(lyric_selection, "_wiki_titles", pages)
     monkeypatch.setattr(lyric_selection, "_lrclib", lrclib)
     monkeypatch.setattr(lyric_selection, "vcpedia_lyric_candidates", lyric)
@@ -215,3 +218,50 @@ def test_select_after_original_video_ready_starts_enhancement(tmp_path):
             assert state["queue"][0]["has_lyrics"]
     finally:
         app.state.autoprep.stop()
+
+
+@pytest.mark.parametrize("source", ["网易云音乐", "UtaTen", "J-Lyric"])
+def test_new_source_requires_original_guest_and_signed_ticket(tmp_path, source):
+    app, _ = app_for_lyrics(tmp_path)
+
+    async def candidate_search(query):
+        return [
+            {
+                "title": query,
+                "artist": "初音ミク",
+                "source": source,
+                "url": "https://example.invalid",
+                "text": "保留原文的第一行\n原文第二行不更改",
+            }
+        ]
+
+    app.state.candidate_search = candidate_search
+    with TestClient(app) as owner, TestClient(app) as other:
+        join_and_register(owner, "点歌者")
+        join_and_register(other, "其他用户")
+        sid = owner.post("/api/songs", json={"bvid": "BV0000000002"}).json()["id"]
+        url = f"/api/songs/{sid}/lyrics/candidates"
+        assert other.get(url).status_code in (401, 404)
+        candidate = owner.get(url).json()["candidates"][0]
+        payload = {
+            "source": candidate["source"],
+            "text": candidate["text"],
+            "ticket": candidate["ticket"],
+        }
+        assert other.post(
+            f"/api/songs/{sid}/lyrics/select", json=payload
+        ).status_code in (401, 404)
+        assert (
+            owner.post(
+                f"/api/songs/{sid}/lyrics/select",
+                json={**payload, "source": "LRCLIB"},
+            ).status_code
+            == 403
+        )
+        ok = owner.post(f"/api/songs/{sid}/lyrics/select", json=payload)
+        assert ok.status_code == 200, ok.text
+        stored = app.state.store.db.execute(
+            "SELECT lyric_choice,lyric_source FROM songs WHERE id=?", (sid,)
+        ).fetchone()
+        assert stored["lyric_source"] == source
+        assert stored["lyric_choice"] == candidate["text"]

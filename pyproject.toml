@@ -14,6 +14,8 @@ dependencies = [
   "numpy>=1.26,<3",
   "soundfile>=0.12,<1",
   "pydantic>=2.9,<3",
+  "opencc-python-reimplemented>=0.1.7,<1",
+  "ddgs>=9,<11",
 ]
 
 [dependency-groups]
