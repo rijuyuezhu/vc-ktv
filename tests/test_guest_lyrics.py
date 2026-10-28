@@ -13,6 +13,7 @@ def app_for_lyrics(tmp_path):
         secret=b"guest-lyric-key",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bvid, page):
         return {

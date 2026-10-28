@@ -187,6 +187,7 @@ class AutoPrep:
         self.enhance = enhance
         self.stop_signal = threading.Event()
         self.worker: threading.Thread | None = None
+        self.busy = threading.Event()
 
     def start(self):
         with self.store.lock:
@@ -236,6 +237,8 @@ class AutoPrep:
                         (row["id"],),
                     )
             self.store.db.commit()
+            if row:
+                self.busy.set()
             return dict(row) if row else None
 
     def loop(self):
@@ -282,6 +285,8 @@ class AutoPrep:
                             (row["id"],),
                         )
                     self.store.db.commit()
+            finally:
+                self.busy.clear()
 
     def prepare_source(self, row):
         song_id = row["id"]

@@ -60,6 +60,18 @@
         <div class="input-row"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"><button id="login-btn" class="btn primary">登录</button></div>
       </div>
       <div id="admin-panel" class="hidden admin-layout">
+        <section class="panel full-width" id="event-management">
+          <div class="section-head"><div><div class="kicker">KTV 场次</div><h2>本次聚会</h2></div></div>
+          <p id="event-status" class="muted">正在获取当前场次……</p>
+          <p id="event-join-code" class="muted"></p>
+          <div class="input-row" id="event-create-fields">
+            <input id="event-name" maxlength="60" placeholder="场次名称，如 周末 KTV" aria-label="场次名称">
+            <input id="event-code" maxlength="6" inputmode="numeric" placeholder="6 位密码（可留空自动生成）" aria-label="六位加入密码">
+            <button id="event-create-btn" class="btn primary" type="button">创建场次</button>
+          </div>
+          <button id="event-close-btn" class="btn neutral hidden" type="button">结束并归档本场</button>
+          <p id="event-history" class="muted"></p>
+        </section>
         <section class="panel">
           <div class="section-head"><div><div class="kicker">播放控制台</div><h2>本地连播</h2></div><button id="logout-btn" class="btn subtle">退出登录</button></div>
           <div class="player-shell">

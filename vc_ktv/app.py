@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .autoprep import AutoPrep, title_key
+from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
 from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
@@ -72,6 +73,11 @@ class GuestLyricChoice(BaseModel):
 
 class Login(BaseModel):
     password: str
+
+
+class EventCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    code: str | None = None
 
 
 class Finish(BaseModel):
@@ -362,24 +368,30 @@ def create_app(
         if not f.exists():
             raise RuntimeError(f"Missing {f}; run scripts/setup.sh first")
         secret = bytes.fromhex(f.read_text().strip())
-    store = Store(root)
+    events = Events(root, Store)
+    store = CurrentStore(events)
     if auto_prepare is None:
         auto_prepare = os.getenv("VC_KTV_AUTOPREPARE", "1") != "0"
     worker = AutoPrep(store, probe_media)
+    running = False
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        if auto_prepare:
+        nonlocal running
+        running = True
+        if auto_prepare and events.active_id:
             worker.start()
         try:
             yield
         finally:
-            if auto_prepare:
+            running = False
+            if auto_prepare and worker.worker:
                 worker.stop()
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.autoprep = worker
     app.state.store = store
+    app.state.events = events
     app.state.lookup = bilibili_lookup
     app.state.lyrics_lookup = vcpedia_find
     app.state.candidate_search = search_lyric_candidates
@@ -387,6 +399,7 @@ def create_app(
     failed_login = {}
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
+    rendering = threading.Event()
 
     def sign(kind: str, value: str, ttl: int) -> str:
         expiry = str(time_now() + ttl)
@@ -411,12 +424,17 @@ def create_app(
             pass
         return None
 
+    def require_guest(token):
+        raw = read_signed(token, "guest")
+        prefix = events.active_id + ":" if events.active_id else ""
+        return raw[len(prefix) :] if raw and prefix and raw.startswith(prefix) else None
+
     def require_admin(token):
         if read_signed(token, "admin") != "yes":
             bail(401, "需要管理员登录")
 
     def signed_media(song: dict) -> str:
-        return f"/media/{song['id']}?token={quote(sign('media', str(song['id']), 8 * 3600))}"
+        return f"/media/{song['id']}?token={quote(sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
 
     def active_view():
         song = store.current()
@@ -446,14 +464,55 @@ def create_app(
                     )
         return await call_next(request)
 
+    @app.get("/api/event")
+    def current_event():
+        meta = events.metadata()
+        return {"event": {"id": meta["id"], "name": meta["name"]} if meta else None}
+
+    @app.get("/api/admin/events")
+    def list_events(vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        return {"active": events.active_id, "events": events.list()}
+
+    @app.post("/api/admin/events")
+    def create_event(body: EventCreate, vc_admin: str | None = Cookie(default=None)):
+        nonlocal worker
+        require_admin(vc_admin)
+        with events.lock:
+            entry = events.create(body.name, body.code)
+            worker = AutoPrep(store, probe_media)
+            app.state.autoprep = worker
+            if running and auto_prepare:
+                worker.start()
+        return entry
+
+    @app.post("/api/admin/events/close")
+    def close_event(vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with events.lock:
+            if events.active_id and store.current():
+                bail(409, "请先结束正在播放的歌曲")
+            if worker.busy.is_set() or rendering.is_set():
+                bail(409, "请等待当前媒体制作任务完成")
+            worker.stop_signal.set()
+            return events.close()
+
     @app.get("/api/health")
     def health():
         return {"ok": True, "version": "0.5.0", "auto_prepare": auto_prepare}
 
     @app.get("/api/state")
     def state(vc_guest: str | None = Cookie(default=None)):
+        if not events.active_id:
+            return {
+                "current": None,
+                "queue": [],
+                "waiting": [],
+                "guests": [],
+                "server_time": time_now(),
+            }
         snapshot = store.state()
-        guest = read_signed(vc_guest, "guest")
+        guest = require_guest(vc_guest)
         for song in [*snapshot["queue"], *snapshot["waiting"]]:
             song["mine"] = bool(guest and song["requester_id"] == guest)
         if snapshot["current"]:
@@ -490,8 +549,9 @@ def create_app(
         response: Response,
         vc_guest: str | None = Cookie(default=None),
     ):
+        events.active()
         info = await app.state.lookup(get_bvid(body.bvid), body.page)
-        guest = read_signed(vc_guest, "guest") or secrets.token_hex(12)
+        guest = require_guest(vc_guest) or secrets.token_hex(12)
         nickname = body.nickname.strip() or f"听众-{guest[:4].upper()}"
         with store.lock:
             # Prevent a single person from flooding an active room.
@@ -523,7 +583,7 @@ def create_app(
             store.db.commit()
         response.set_cookie(
             "vc_guest",
-            sign("guest", guest, 90 * 86400),
+            sign("guest", f"{events.active_id}:{guest}", 90 * 86400),
             max_age=90 * 86400,
             httponly=True,
             samesite="strict",
@@ -532,7 +592,7 @@ def create_app(
         return {"id": cur.lastrowid, "status": "waiting", "title": info["title"]}
 
     def own_song(song_id: int, guest_token: str | None):
-        guest = read_signed(guest_token, "guest")
+        guest = require_guest(guest_token)
         if not guest:
             bail(401, "请从点歌时使用的浏览器操作")
         with store.lock:
@@ -565,7 +625,9 @@ def create_app(
         for candidate in candidates:
             digest = hashlib.sha256(candidate["text"].encode()).hexdigest()
             candidate["ticket"] = sign(
-                "lyric", f"{song_id}:{candidate['source']}:{digest}", 30 * 60
+                "lyric",
+                f"{events.active_id}:{song_id}:{candidate['source']}:{digest}",
+                30 * 60,
             )
         return {"query": term, "candidates": candidates}
 
@@ -577,7 +639,10 @@ def create_app(
     ):
         song = own_song(song_id, vc_guest)
         digest = hashlib.sha256(body.text.encode()).hexdigest()
-        if read_signed(body.ticket, "lyric") != f"{song_id}:{body.source}:{digest}":
+        if (
+            read_signed(body.ticket, "lyric")
+            != f"{events.active_id}:{song_id}:{body.source}:{digest}"
+        ):
             bail(403, "歌词候选已失效，请重新搜索")
         if body.source not in ("VCPedia", "LRCLIB"):
             bail(400, "歌词来源不受支持")
@@ -632,6 +697,14 @@ def create_app(
     @app.get("/api/admin/state")
     def admin_state(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
+        if not events.active_id:
+            return {
+                "current": None,
+                "queue": [],
+                "waiting": [],
+                "guests": [],
+                "active": None,
+            }
         return {**store.state(), "active": active_view()}
 
     @app.post("/api/admin/songs/{song_id}/media")
@@ -755,6 +828,7 @@ def create_app(
                 )
                 store.db.commit()
         finally:
+            rendering.clear()
             render_slot.release()
 
     @app.post("/api/admin/songs/{song_id}/alignment/import")
@@ -852,12 +926,13 @@ def create_app(
                     (song_id,),
                 )
                 store.db.commit()
-                worker = threading.Thread(
+                rendering.set()
+                render_thread = threading.Thread(
                     target=render_worker,
                     args=(song_id, source, row["lyrics"], row["duration"], body.lead),
                     daemon=True,
                 )
-                worker.start()
+                render_thread.start()
                 return {"id": song_id, "status": "rendering", "lead": body.lead}
         except BaseException:
             render_slot.release()
@@ -913,13 +988,14 @@ def create_app(
         return finish_impl(body)
 
     def require_tv(token: str):
-        if read_signed(token, "tv") != "yes":
+        if read_signed(token, "tv") != events.active_id or not events.active_id:
             bail(401, "电视端链接已过期，请管理员重新打开")
 
     @app.get("/api/admin/tv-link")
     def tv_link(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
-        return {"url": "/tv.html?token=" + sign("tv", "yes", 8 * 3600)}
+        events.active()
+        return {"url": "/tv.html?token=" + sign("tv", events.active_id, 8 * 3600)}
 
     @app.get("/api/tv/state")
     def tv_state(token: str):
@@ -951,7 +1027,10 @@ def create_app(
 
     @app.get("/media/{song_id}")
     def serve_media(song_id: int, token: str = ""):
-        if read_signed(token, "media") != str(song_id):
+        if (
+            read_signed(token, "media") != f"{events.active_id}:{song_id}"
+            or not events.active_id
+        ):
             bail(403, "媒体链接无效或已过期")
         row = store.db.execute(
             "SELECT media_file FROM songs WHERE id=?", (song_id,)

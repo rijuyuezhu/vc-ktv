@@ -12,6 +12,7 @@ def room(tmp_path):
         secret=b"test-hmac-secret",
         auto_prepare=False,
     )
+    app.state.events.create("测试场次", "123456")
 
     async def lookup(bvid, page):
         return {
