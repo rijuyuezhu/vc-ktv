@@ -102,16 +102,16 @@ def render_upstream_video(
     duration: float,
     *,
     preset: StylePreset = DEFAULT_PRESET,
+    progress=None,
 ) -> dict:
     """Run the copied upstream pipeline; no legacy automatic TIFA fallback."""
     # AutoPrep owns a new attempt directory; the pipeline owns its own
     # isolated child directory and does not mutate the original source.
+    options = {"style": preset_style(preset)}
+    if progress is not None:
+        options["progress"] = progress
     result = make_karaoke_video(
-        source,
-        lyrics,
-        archive / "pipeline",
-        spark_settings(),
-        style=preset_style(preset),
+        source, lyrics, archive / "pipeline", spark_settings(), **options
     )
     shutil.copyfile(result.video, destination)
     shutil.copyfile(result.ass.parent / "lyrics.lrc", archive / "aligned.lrc")
@@ -138,10 +138,10 @@ class AutoPrep:
         with self.store.lock:
             # Recover unfinished tasks after a process restart.
             self.store.db.execute(
-                "UPDATE songs SET prep_state='pending' WHERE prep_state='downloading' AND status='waiting'"
+                "UPDATE songs SET prep_state='pending',prep_stage='' WHERE prep_state='downloading' AND status='waiting'"
             )
             self.store.db.execute(
-                "UPDATE songs SET prep_state='downloaded' WHERE prep_state='aligning' AND status='ready'"
+                "UPDATE songs SET prep_state='downloaded',prep_stage='queued' WHERE prep_state='aligning' AND status='ready'"
             )
             self.store.db.commit()
         self.worker = threading.Thread(
@@ -172,8 +172,8 @@ class AutoPrep:
             if row:
                 self.store.db.execute(
                     "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
-                    "prep_error='' WHERE id=?",
-                    (row["id"],),
+                    "prep_error='',prep_stage='download',prep_stage_at=? WHERE id=?",
+                    (int(time.time()), row["id"]),
                 )
             else:
                 row = self.store.db.execute(
@@ -183,8 +183,9 @@ class AutoPrep:
                 ).fetchone()
                 if row:
                     self.store.db.execute(
-                        "UPDATE songs SET prep_state='aligning' WHERE id=?",
-                        (row["id"],),
+                        "UPDATE songs SET prep_state='aligning',"
+                        "prep_stage='queued',prep_stage_at=? WHERE id=?",
+                        (int(time.time()), row["id"]),
                     )
             self.store.db.commit()
             if row:
@@ -269,8 +270,15 @@ class AutoPrep:
                     return
                 self.store.db.execute(
                     """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
-                       prep_state='downloaded',prep_error='',prep_retry_at=0 WHERE id=?""",
-                    (target.name, target.name, round(actual_duration), song_id),
+                       prep_state='downloaded',prep_stage='downloaded',
+                       prep_stage_at=?,prep_error='',prep_retry_at=0 WHERE id=?""",
+                    (
+                        target.name,
+                        target.name,
+                        round(actual_duration),
+                        int(time.time()),
+                        song_id,
+                    ),
                 )
                 self.store.db.commit()
         log.info("Song #%s original available, subtitle enhancement follows", song_id)
@@ -301,13 +309,34 @@ class AutoPrep:
             "outcome": "running",
         }
         try:
+            options = {"preset": preset}
+            if self.enhance is render_upstream_video:
+                stage_names = {
+                    "读取原视频并提取音频": "extract",
+                    "Kim 分离用于推理的人声": "kim",
+                    "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐": "align",
+                    "生成 ASS、LRC 与时间轴记录": "subtitles",
+                    "将字幕烧录到保留原始音轨的 MP4": "render",
+                }
+
+                def progress(message):
+                    stage = stage_names.get(message)
+                    if stage is None:
+                        return
+                    # No polling: five DB writes for five real stage changes.
+                    with self.store.lock:
+                        cur = self.store.db.execute(
+                            "UPDATE songs SET prep_stage=?,prep_stage_at=? "
+                            "WHERE id=? AND status='ready' AND prep_state='aligning' "
+                            "AND prep_stage!=?",
+                            (stage, int(time.time()), song_id, stage),
+                        )
+                        if cur.rowcount:
+                            self.store.db.commit()
+
+                options["progress"] = progress
             report = self.enhance(
-                source,
-                lyrics,
-                target,
-                archive,
-                float(row["duration"]),
-                preset=preset,
+                source, lyrics, target, archive, float(row["duration"]), **options
             )
             metadata["outcome"] = "rendered"
             metadata["report"] = report
@@ -324,8 +353,14 @@ class AutoPrep:
                     and latest["lyric_choice"] == lyrics
                 ):
                     self.store.db.execute(
-                        "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',prep_error='' WHERE id=?",
-                        (target.name, (archive / "aligned.lrc").read_text(), song_id),
+                        "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
+                        "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
+                        (
+                            target.name,
+                            (archive / "aligned.lrc").read_text(),
+                            int(time.time()),
+                            song_id,
+                        ),
                     )
                     self.store.db.commit()
                     if latest["media_file"] != row["source_file"]:
