@@ -6,6 +6,11 @@ let currentMediaId = null;
 let popupSongId = null;
 let toastTimer = null;
 let refreshing = false;
+let refreshQueued = false;
+let refreshFailed = false;
+let guestStateKey = null;
+const listKeys = new Map();
+let adminStateKey = null;
 let selectingSongId = null;
 let selectionRequest = 0;
 const player = $("player");
@@ -104,6 +109,9 @@ function makeSong(song, order, mode="guest") {
   return outer;
 }
 function fillList(id, songs, mode="guest") {
+  const key=JSON.stringify([mode,songs]);
+  if(listKeys.get(id)===key)return;
+  listKeys.set(id,key);
   const target=$(id);target.replaceChildren();
   if(!songs.length){ appendText(target,"div",mode==="admin"?"当前没有待处理的歌曲":"暂无歌曲","empty"); return; }
   songs.forEach((s,i)=>target.append(makeSong(s,i+1,mode)));
@@ -229,15 +237,15 @@ function showPage(){
   document.title=isAdmin?"VC KTV · 管理员":"VC KTV · 点歌房间";
 }
 $("admin-advanced").addEventListener("toggle",()=>{
-  if($("admin-advanced").open)refresh();
+  if($("admin-advanced").open){adminStateKey=null;refresh();}
 });
 $("login-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/login","POST",{password:$("password").value});
-  $("password").value="";admin=true;toast("管理员登录成功");await refresh();
+  $("password").value="";admin=true;adminStateKey=null;toast("管理员登录成功");await refresh();
 },$("login-btn"));
 $("password").onkeydown=(e)=>{if(e.key==="Enter")$("login-btn").click();};
 $("logout-btn").onclick=()=>guarded(async()=>{
-  await api("/api/admin/logout","POST");admin=false;currentMediaId=null;
+  await api("/api/admin/logout","POST");admin=false;adminStateKey=null;currentMediaId=null;
   player.pause();player.removeAttribute("src");player.load();await refresh();
 });
 $("tv-link-btn").onclick=()=>{
@@ -323,19 +331,24 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
   $("lyrics-dialog").close();toast("已保存参考歌词");await refresh();
 },$("lyrics-save"));
 async function refresh(){
-  if(refreshing)return;
+  if(refreshing){refreshQueued=true;return;}
   refreshing=true;
   try{
     const state=await api("/api/state");
-    $("queue-count").textContent=`${state.queue.length} 首可播`;
-    fillList("queue-ready",state.queue);
-    fillList("queue-waiting",state.waiting);
-    const current=$("current-guest");current.replaceChildren();
-    appendText(current,"span","正在播放","current-label");
-    if(state.current){
-      appendText(current,"strong",state.current.title);
-      appendText(current,"small",`点歌者：${state.current.nickname}`);
-    }else appendText(current,"p","当前空闲，等待管理员开始播放");
+    // Ignore server_time: no visible UI change should replace an unchanged list.
+    const guestKey=JSON.stringify([state.current,state.queue,state.waiting]);
+    if(guestKey!==guestStateKey){
+      guestStateKey=guestKey;
+      $("queue-count").textContent=`${state.queue.length} 首可播`;
+      fillList("queue-ready",state.queue);
+      fillList("queue-waiting",state.waiting);
+      const current=$("current-guest");current.replaceChildren();
+      appendText(current,"span","正在播放","current-label");
+      if(state.current){
+        appendText(current,"strong",state.current.title);
+        appendText(current,"small",`点歌者：${state.current.nickname}`);
+      }else appendText(current,"p","当前空闲，等待管理员开始播放");
+    }
     const tabVisible=!$("admin-view").classList.contains("hidden");
     if(tabVisible){
       let adm;
@@ -344,28 +357,44 @@ async function refresh(){
       $("login-box").classList.toggle("hidden",admin);
       $("admin-panel").classList.toggle("hidden",!admin);
       if(admin){
-        const pending=[...adm.waiting,...adm.queue];
-        fillList("manage-status",pending,"status");
-        if($("admin-advanced").open)fillList("manage-list",pending,"admin");
-        const stats=$("stats");stats.replaceChildren();
-        if(!adm.guests.length)appendText(stats,"div","暂无演唱记录","empty");
-        adm.guests.forEach(u=>{
-          const c=document.createElement("div");c.className="stat";
-          appendText(c,"strong",u.name);
-          appendText(c,"small",`${u.plays} 首 · ${duration(u.seconds)}`);stats.append(c);
-        });
-        if(adm.active){
-          if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
-          $("playing-title").textContent=`正在播放：${adm.active.title} · ${adm.active.nickname}`;
-        }else if(currentMediaId!==null){
-          currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
-          $("player-empty").classList.remove("hidden");
-          $("playing-title").textContent="当前没有正在播放的歌曲";
+        // The active media URL is time-signed; only compare visible state.
+        const activeState=adm.active?{...adm.active,media_url:null}:null;
+        const adminKey=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState]);
+        if(adminKey!==adminStateKey){
+          adminStateKey=adminKey;
+          const pending=[...adm.waiting,...adm.queue];
+          fillList("manage-status",pending,"status");
+          if($("admin-advanced").open)fillList("manage-list",pending,"admin");
+          const stats=$("stats");stats.replaceChildren();
+          if(!adm.guests.length)appendText(stats,"div","暂无演唱记录","empty");
+          adm.guests.forEach(u=>{
+            const c=document.createElement("div");c.className="stat";
+            appendText(c,"strong",u.name);
+            appendText(c,"small",`${u.plays} 首 · ${duration(u.seconds)}`);stats.append(c);
+          });
+          if(adm.active){
+            if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
+            $("playing-title").textContent=`正在播放：${adm.active.title} · ${adm.active.nickname}`;
+          }else if(currentMediaId!==null){
+            currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
+            $("player-empty").classList.remove("hidden");
+            $("playing-title").textContent="当前没有正在播放的歌曲";
+          }
         }
-      }
+      }else adminStateKey=null;
     }
-  }catch(e){error(e);}finally{refreshing=false;}
+    if(refreshFailed){toast("连接已恢复");refreshFailed=false;}
+  }catch(e){
+    if(!refreshFailed){error(e);refreshFailed=true;}
+  }finally{
+    refreshing=false;
+    if(refreshQueued){refreshQueued=false;refresh();}
+  }
 }
 showPage();
 refresh();
 setInterval(()=>{if(document.visibilityState==="visible")refresh();},3500);
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible")refresh();
+});
+window.addEventListener("online",()=>refresh());
