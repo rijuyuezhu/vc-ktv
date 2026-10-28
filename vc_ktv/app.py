@@ -445,7 +445,7 @@ def create_app(
     store = CurrentStore(events)
     if auto_prepare is None:
         auto_prepare = os.getenv("VC_KTV_AUTOPREPARE", "1") != "0"
-    worker = AutoPrep(store, probe_media)
+    worker = AutoPrep(events.active() if events.active_id else store, probe_media)
     running = False
 
     @asynccontextmanager
@@ -453,6 +453,9 @@ def create_app(
         nonlocal running
         running = True
         if auto_prepare and events.active_id:
+            worker.store = (
+                events.active()
+            )  # Also handle events created before lifespan.
             worker.start()
         try:
             yield
@@ -569,7 +572,24 @@ def create_app(
                     return Response(
                         status_code=403, content="Cross-site request denied"
                     )
-        return await call_next(request)
+        path = request.url.path
+        # Closing/creating the event are writers, not readers. Other API and
+        # media routes cannot switch Store halfway through a response.
+        lifecycle_writer = request.method == "POST" and path in {
+            "/api/admin/events",
+            "/api/admin/events/close",
+        }
+        if (
+            not (path.startswith("/api/") or path.startswith("/media/"))
+            or lifecycle_writer
+        ):
+            return await call_next(request)
+        if not events.begin_request():
+            return Response("场次正在切换，请重试", status_code=409)
+        try:
+            return await call_next(request)
+        finally:
+            events.end_request()
 
     @app.get("/api/event")
     def current_event():
@@ -766,7 +786,7 @@ def create_app(
         require_admin(vc_admin)
         with events.lock:
             entry = events.create(body.name, body.code)
-            worker = AutoPrep(store, probe_media)
+            worker = AutoPrep(events.active(), probe_media)
             app.state.autoprep = worker
             if running and auto_prepare:
                 worker.start()
@@ -776,12 +796,29 @@ def create_app(
     def close_event(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
         with events.lock:
-            if events.active_id and store.current():
+            if not events.active_id:
+                bail(409, "没有活动场次")
+            if store.current():
                 bail(409, "请先结束正在播放的歌曲")
             if worker.busy.is_set() or rendering.is_set():
                 bail(409, "请等待当前媒体制作任务完成")
-            worker.stop_signal.set()
-            return events.close()
+            events.transitioning = True
+            try:
+                # Block new readers before stopping the worker. Bound the wait:
+                # an outstanding slow HTTP request must not freeze close.
+                if not events.idle.wait_for(lambda: events.inflight == 0, timeout=10):
+                    bail(409, "仍有请求正在处理，请稍后重试")
+                # The worker is pinned to this Store, and its store lock makes
+                # the idle/claim check atomic with the stop request.
+                with events.active().lock:
+                    if worker.busy.is_set():
+                        bail(409, "请等待当前媒体制作任务完成")
+                    worker.stop_signal.set()
+                if not worker.stop():
+                    bail(409, "后台任务尚未退出，请稍后再试")
+                return events.close()
+            finally:
+                events.transitioning = False
 
     @app.get("/api/health")
     def health():
@@ -1083,33 +1120,38 @@ def create_app(
         return {"text": row[0]}
 
     def render_worker(
-        song_id: int, source: Path, lyrics: str, duration: float, lead: float
+        target_store: Store,
+        song_id: int,
+        source: Path,
+        lyrics: str,
+        duration: float,
+        lead: float,
     ):
-        destination = store.media / f"{song_id}-ktv-{secrets.token_hex(8)}.mp4"
+        destination = target_store.media / f"{song_id}-ktv-{secrets.token_hex(8)}.mp4"
         try:
             render_video(source, lyrics, destination, duration, lead)
-            with store.lock:
-                row = store.db.execute(
+            with target_store.lock:
+                row = target_store.db.execute(
                     "SELECT media_file,status FROM songs WHERE id=?", (song_id,)
                 ).fetchone()
                 if row and row["status"] == "rendering":
-                    store.db.execute(
+                    target_store.db.execute(
                         "UPDATE songs SET status='ready',media_file=?,render_error='' WHERE id=?",
                         (destination.name, song_id),
                     )
-                    store.db.commit()
+                    target_store.db.commit()
                     if row["media_file"] != source.name:
-                        (store.media / row["media_file"]).unlink(missing_ok=True)
+                        (target_store.media / row["media_file"]).unlink(missing_ok=True)
                 else:
                     destination.unlink(missing_ok=True)
         except Exception as error:
             destination.unlink(missing_ok=True)
-            with store.lock:
-                store.db.execute(
+            with target_store.lock:
+                target_store.db.execute(
                     "UPDATE songs SET status='ready',render_error=? WHERE id=? AND status='rendering'",
                     (f"制作失败：{type(error).__name__}", song_id),
                 )
-                store.db.commit()
+                target_store.db.commit()
         finally:
             rendering.clear()
             render_slot.release()
@@ -1212,7 +1254,14 @@ def create_app(
                 rendering.set()
                 render_thread = threading.Thread(
                     target=render_worker,
-                    args=(song_id, source, row["lyrics"], row["duration"], body.lead),
+                    args=(
+                        events.active(),
+                        song_id,
+                        source,
+                        row["lyrics"],
+                        row["duration"],
+                        body.lead,
+                    ),
                     daemon=True,
                 )
                 render_thread.start()

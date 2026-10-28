@@ -21,6 +21,9 @@ class Events:
         root.mkdir(parents=True, mode=0o700, exist_ok=True)
         self.base.mkdir(mode=0o700, exist_ok=True)
         self.lock = threading.RLock()
+        self.idle = threading.Condition(self.lock)
+        self.inflight = 0
+        self.transitioning = False
         self.store_factory = store_factory
         self.active_id: str | None = None
         self.current_store = None
@@ -39,6 +42,20 @@ class Events:
             # Existing installation: keep old data intact until offline migration.
             self.active_id = "legacy"
             self.current_store = store_factory(root)
+
+    def begin_request(self) -> bool:
+        # A request uses the same event throughout its lifetime. Do not keep
+        # the lock held while it performs IO or awaits external lyric services.
+        with self.lock:
+            if self.transitioning:
+                return False
+            self.inflight += 1
+            return True
+
+    def end_request(self):
+        with self.lock:
+            self.inflight -= 1
+            self.idle.notify_all()
 
     def active(self):
         if not self.current_store:
@@ -108,47 +125,68 @@ class Events:
                 len(code) != 6 or not code.isascii() or not code.isdecimal()
             ):
                 raise HTTPException(400, "加入密码必须是六位数字")
-            event_id = (
-                datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(4)
-            )
-            folder = self.base / event_id
-            folder.mkdir(mode=0o700)
-            entry = {
-                "id": event_id,
-                "name": name.strip(),
-                "code": code or f"{secrets.randbelow(1000000):06d}",
-                "status": "active",
-                "created_at": datetime.now().isoformat(timespec="seconds"),
-            }
-            (folder / "info.json").write_text(
-                json.dumps(entry, ensure_ascii=False, indent=2) + "\n"
-            )
-            (folder / "info.json").chmod(0o600)
-            self.current_store = self.store_factory(folder)
-            self.pointer.write_text(event_id + "\n")
-            self.active_id = event_id
-            return entry
+            self.transitioning = True
+            try:
+                # Even a request admitted with no active event must not
+                # unexpectedly start using the newly created Store.
+                if not self.idle.wait_for(lambda: self.inflight == 0, timeout=10):
+                    raise HTTPException(409, "仍有请求正在处理，请稍后重试")
+                event_id = (
+                    datetime.now().strftime("%Y%m%d-%H%M%S")
+                    + "-"
+                    + secrets.token_hex(4)
+                )
+                folder = self.base / event_id
+                folder.mkdir(mode=0o700)
+                entry = {
+                    "id": event_id,
+                    "name": name.strip(),
+                    "code": code or f"{secrets.randbelow(1000000):06d}",
+                    "status": "active",
+                    "created_at": datetime.now().isoformat(timespec="seconds"),
+                }
+                (folder / "info.json").write_text(
+                    json.dumps(entry, ensure_ascii=False, indent=2) + "\n"
+                )
+                (folder / "info.json").chmod(0o600)
+                self.current_store = self.store_factory(folder)
+                self.pointer.write_text(event_id + "\n")
+                self.active_id = event_id
+                return entry
+            finally:
+                self.transitioning = False
 
     def close(self):
         with self.lock:
             if not self.active_id:
                 raise HTTPException(409, "没有活动场次")
-            current = self.metadata()
-            if self.active_id == "legacy":
-                (self.root / "legacy.closed").write_text("closed\n")
-            else:
-                current["status"] = "closed"
-                current["closed_at"] = datetime.now().isoformat(timespec="seconds")
-                (self.base / self.active_id / "info.json").write_text(
-                    json.dumps(current, ensure_ascii=False, indent=2) + "\n"
-                )
-            if self.current_store:
-                self.current_store.db.commit()
-                self.current_store.db.close()
-            self.current_store = None
-            self.active_id = None
-            self.pointer.unlink(missing_ok=True)
-            return current
+            self.transitioning = True
+            try:
+                # New requests receive 409 while the last old-event reader
+                # finishes. Condition.wait releases the RLock while waiting.
+                if not self.idle.wait_for(lambda: self.inflight == 0, timeout=10):
+                    raise HTTPException(409, "仍有请求正在处理，请稍后重试")
+                return self._finish_close()
+            finally:
+                self.transitioning = False
+
+    def _finish_close(self):
+        current = self.metadata()
+        if self.active_id == "legacy":
+            (self.root / "legacy.closed").write_text("closed\n")
+        else:
+            current["status"] = "closed"
+            current["closed_at"] = datetime.now().isoformat(timespec="seconds")
+            (self.base / self.active_id / "info.json").write_text(
+                json.dumps(current, ensure_ascii=False, indent=2) + "\n"
+            )
+        if self.current_store:
+            self.current_store.db.commit()
+            self.current_store.db.close()
+        self.current_store = None
+        self.active_id = None
+        self.pointer.unlink(missing_ok=True)
+        return current
 
 
 class CurrentStore:
