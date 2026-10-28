@@ -140,12 +140,24 @@
                 <option value="fcfs">先来先唱</option>
               </select>
             </div>
+            <div>
+              <label for="subtitle-style">字幕风格</label>
+              <select id="subtitle-style">
+                <option value="classic">经典双行</option>
+                <option value="large">大屏高对比</option>
+                <option value="compact">简洁单行</option>
+              </select>
+            </div>
             <label class="toggle">
               <input id="allow-unsubtitled" type="checkbox">
               允许播放无字幕歌曲
             </label>
           </div>
-          <p class="muted">公平轮播优先安排唱得少的人。默认等待字幕完成后播放。</p>
+          <div id="style-preview" class="style-preview classic" aria-label="字幕风格示意预览">
+            <span>♫ 示例歌词正在演唱</span>
+            <span class="style-preview-second">下一行歌词也会显示</span>
+          </div>
+          <p class="muted">字幕预览仅供选择风格，成片以实际画面为准。新风格只影响之后开始制作的歌曲，不修改已有成片。默认等待字幕完成后播放。</p>
           <button id="settings-save-btn" class="btn primary" type="button">✓ 保存设置</button>
         </section>
         <details class="panel full-width fold-panel" id="event-archive-panel">

@@ -172,7 +172,7 @@ def test_select_after_original_video_ready_starts_enhancement(tmp_path):
         target.write_bytes(b"original")
         return target
 
-    def enhance(source, lyrics, target, archive, duration):
+    def enhance(source, lyrics, target, archive, duration, *, preset):
         assert "第一句" in lyrics and duration == 281
         archive.mkdir(exist_ok=True)
         (archive / "aligned.lrc").write_text("[00:01.00]第一句")

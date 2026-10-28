@@ -49,7 +49,7 @@ def test_auto_bv_only_then_karaoke(tmp_path):
         assert title == "【虚拟歌手】示例曲目"
         return "唱歌\n完成"
 
-    def enhance(source, text, dest, archive, duration):
+    def enhance(source, text, dest, archive, duration, *, preset):
         assert source.is_file() and "唱歌" in text
         assert duration == 8
         archive.mkdir(exist_ok=True)
@@ -123,7 +123,7 @@ def test_autoprep_failed_subtitle_keeps_source(tmp_path):
     async def lyrics(title):
         return "歌词"
 
-    def fail_enhance(*args):
+    def fail_enhance(*args, **kwargs):
         raise RuntimeError("model failed")
 
     app.state.autoprep.enhance = fail_enhance
@@ -261,7 +261,8 @@ def test_default_auto_renderer_is_only_upstream_pipeline(tmp_path, monkeypatch):
     attempt.mkdir()
     produced = []
 
-    def fake_pipeline(video, lyrics, work, settings):
+    def fake_pipeline(video, lyrics, work, settings, *, style):
+        assert style.size == 48 and style.mode == "double"
         assert video == source
         assert lyrics == "DUDUDU\n你好"
         assert settings.kim_model.name == "MelBandRoformer.ckpt"

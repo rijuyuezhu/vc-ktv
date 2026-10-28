@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 
 from .bilibili_media import public_media_download
+from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .upstream_pipeline import make_karaoke_video, spark_settings
 
 log = logging.getLogger(__name__)
@@ -94,12 +95,24 @@ def media_download(bvid: str, page: int, directory: Path) -> Path:
 
 
 def render_upstream_video(
-    source: Path, lyrics: str, destination: Path, archive: Path, duration: float
+    source: Path,
+    lyrics: str,
+    destination: Path,
+    archive: Path,
+    duration: float,
+    *,
+    preset: StylePreset = DEFAULT_PRESET,
 ) -> dict:
     """Run the copied upstream pipeline; no legacy automatic TIFA fallback."""
     # AutoPrep owns a new attempt directory; the pipeline owns its own
     # isolated child directory and does not mutate the original source.
-    result = make_karaoke_video(source, lyrics, archive / "pipeline", spark_settings())
+    result = make_karaoke_video(
+        source,
+        lyrics,
+        archive / "pipeline",
+        spark_settings(),
+        style=preset_style(preset),
+    )
     shutil.copyfile(result.video, destination)
     shutil.copyfile(result.ass.parent / "lyrics.lrc", archive / "aligned.lrc")
     return json.loads(result.report.read_text(encoding="utf-8"))
@@ -176,7 +189,13 @@ class AutoPrep:
             self.store.db.commit()
             if row:
                 self.busy.set()
-            return dict(row) if row else None
+                claimed = dict(row)
+                if row["status"] == "ready":
+                    # Snapshot under the same Store lock as the claim: changing
+                    # admin settings cannot affect an already running attempt.
+                    claimed["style_preset"] = self.store.settings()["subtitle_style"]
+                return claimed
+            return None
 
     def loop(self):
         while not self.stop_signal.is_set():
@@ -273,7 +292,9 @@ class AutoPrep:
         )
         archive.mkdir(parents=True)
         target = self.store.media / f"{song_id}-auto-{secrets.token_hex(6)}.mp4"
+        preset = row.get("style_preset", DEFAULT_PRESET)
         metadata = {
+            "subtitle_style": preset,
             "song_id": song_id,
             "source_file": row["source_file"],
             "lyric_source": row["lyric_source"],
@@ -281,7 +302,12 @@ class AutoPrep:
         }
         try:
             report = self.enhance(
-                source, lyrics, target, archive, float(row["duration"])
+                source,
+                lyrics,
+                target,
+                archive,
+                float(row["duration"]),
+                preset=preset,
             )
             metadata["outcome"] = "rendered"
             metadata["report"] = report
@@ -325,11 +351,24 @@ class AutoPrep:
                     if isinstance(error, SubtitleError)
                     else "字幕制作失败，请查看日志"
                 )
+                # Explicit style re-render may have a prior finished video.
+                # On failure preserve both its path and completed status.
+                old_video = row["media_file"]
+                keep_done = (
+                    old_video
+                    and old_video != row["source_file"]
+                    and (self.store.media / Path(old_video).name).is_file()
+                )
                 self.store.db.execute(
-                    "UPDATE songs SET prep_state='original',prep_error=? "
+                    "UPDATE songs SET prep_state=?,prep_error=? "
                     "WHERE id=? AND status='ready' AND prep_state='aligning' "
                     "AND source_file=?",
-                    (message, song_id, row["source_file"]),
+                    (
+                        "done" if keep_done else "original",
+                        message,
+                        song_id,
+                        row["source_file"],
+                    ),
                 )
                 self.store.db.commit()
         finally:
