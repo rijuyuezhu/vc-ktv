@@ -96,17 +96,96 @@ def media_download(bvid: str, page: int, directory: Path) -> Path:
     return matches[0]
 
 
-def alignment_lyrics(lyrics: str) -> str:
-    """Omit non-lexical Latin vocalizations that TIFA cannot pronounce.
+SCAT_READINGS = {
+    "du": "嘟",
+    "da": "哒",
+    "la": "啦",
+    "ha": "哈",
+    "aa": "啊",
+    "ah": "啊",
+    "oh": "哦",
+    "na": "呐",
+    "ya": "呀",
+    "wu": "呜",
+    "woo": "呜",
+    "ooh": "呜",
+}
+SCAT_PART = re.compile(
+    "|".join(sorted(SCAT_READINGS, key=len, reverse=True)), re.IGNORECASE
+)
+SCAT_WORD = re.compile(
+    r"(?<![A-Za-z])(?:" + SCAT_PART.pattern + r"){2,}(?![A-Za-z])",
+    re.IGNORECASE,
+)
+SCAT_PREFIX = re.compile(
+    r"^(?:(?:ha|ah|aa|la|oh|woo|ooh|wu|na|ya)\b[\s~]*){1,8}"
+    r"(?=[\u3400-\u9fff])",
+    re.IGNORECASE,
+)
 
-    Only remove short interjections before Chinese lyric lines; retain raw source.
+
+def pronunciation_lyrics(lyrics: str):
+    """Explicit Mandarin pronunciation hints with a source-character mapping.
+
+    Translate only known scat syllables, never ordinary English words. All
+    displayed text remains in its original form, including repeated refrains.
     """
-    prefix = re.compile(
-        r"^(?:(?:ha|ah|aa|la|oh|woo|ooh|wu|na|ya)\b[\s~]*){1,8}(?=[\u3400-\u9fff])",
-        re.I,
-    )
-    lines = [prefix.sub("", line).strip() for line in lyrics.splitlines()]
-    return "\n".join(line for line in lines if line)
+    lines = [line.strip() for line in lyrics.splitlines() if line.strip()]
+    spoken, maps, changes = [], [], []
+    for line_no, display in enumerate(lines):
+        replacements = []
+        # Repeated scat words anywhere in a line: DUDUDU / DaLaDa.
+        for match in SCAT_WORD.finditer(display):
+            parts = SCAT_PART.findall(match.group())
+            if "".join(parts).casefold() == match.group().casefold():
+                replacements.append(
+                    (
+                        match.start(),
+                        match.end(),
+                        "".join(SCAT_READINGS[p.lower()] for p in parts),
+                    )
+                )
+        # Older supported case: short independent vocables before Hanzi.
+        prefix = SCAT_PREFIX.match(display)
+        if prefix:
+            for match in re.finditer(r"[A-Za-z]+", prefix.group()):
+                if SCAT_PART.fullmatch(match.group()) and not any(
+                    start <= match.start() < end for start, end, _ in replacements
+                ):
+                    replacements.append(
+                        (
+                            match.start(),
+                            match.end(),
+                            SCAT_READINGS[match.group().lower()],
+                        )
+                    )
+        replacements.sort()
+        cursor, text, spans = 0, [], []
+        for begin, end, reading in replacements:
+            if begin < cursor:
+                continue
+            for i in range(cursor, begin):
+                text.append(display[i])
+                spans.append((i, i + 1))
+            for syllable in reading:
+                text.append(syllable)
+                spans.append((begin, end))
+            changes.append(
+                {
+                    "line": line_no,
+                    "source_start": begin,
+                    "source_end": end,
+                    "display": display[begin:end],
+                    "pronunciation": reading,
+                }
+            )
+            cursor = end
+        for i in range(cursor, len(display)):
+            text.append(display[i])
+            spans.append((i, i + 1))
+        spoken.append("".join(text))
+        maps.append(spans)
+    return "\n".join(spoken), maps, changes
 
 
 def make_tifa_video(
@@ -144,9 +223,13 @@ def make_tifa_video(
         )
     except (subprocess.SubprocessError, OSError) as error:
         raise SubtitleError("audio_extract", "FFmpeg 音频提取失败") from error
-    normalized = alignment_lyrics(lyrics)
+    pronunciation, spans, changes = pronunciation_lyrics(lyrics)
     (archive / "lyrics.source.txt").write_text(lyrics, encoding="utf-8")
-    (archive / "audio.txt").write_text(normalized, encoding="utf-8")
+    (archive / "audio.txt").write_text(pronunciation, encoding="utf-8")
+    (archive / "pronunciation_trace.json").write_text(
+        json.dumps({"substitutions": changes}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     output = archive / "alignment"
     output.mkdir(exist_ok=True)
     cmd = [
@@ -185,7 +268,10 @@ def make_tifa_video(
             raise SubtitleError("alignment_oov", "TIFA 无法处理部分歌词发音")
         raise SubtitleError("tifa_no_output", "TIFA 未生成 TextGrid 对齐结果")
     try:
-        lrc, report = convert_textgrid(grid, normalized, duration)
+        lrc, report = convert_textgrid(
+            grid, lyrics, duration, pronunciation=pronunciation, source_spans=spans
+        )
+        report["pronunciation_substitutions"] = len(changes)
     except ValueError as error:
         raise SubtitleError(
             "alignment_mismatch", "歌词与 TIFA 对齐结果不匹配"
