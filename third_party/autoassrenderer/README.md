@@ -48,3 +48,11 @@ GITHUB_REPOSITORY=rijuyuezhu/vc-ktv python3 scripts/check_upstream.py
 After manually reviewing a new upstream revision, update `UPSTREAM.json` to
 the adopted commit *in the same PR that updates the copied code*. Review the
 model asset lock separately if upstream changes its model versions.
+
+## Lyrics-source extension
+
+VC KTV issue #36 also vendors the upstream `lyric_names.py`,
+`lyric_netease.py`, `lyric_sources.py`, and `web_search.py` from
+the same pinned source commit in `UPSTREAM.json`. These components only
+fetch **possible source lyrics**; VC KTV's guest explicitly selects the
+version. We keep our own VCPedia retrieval and existing guest ticket logic.

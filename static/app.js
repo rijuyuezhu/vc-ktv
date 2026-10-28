@@ -185,6 +185,7 @@ async function searchGuestLyrics(){
       appendText(heading,"strong",candidate.title);
       appendText(heading,"span",candidate.source);
       card.append(heading);
+      if(candidate.artist)appendText(card,"div",candidate.artist,"muted");
       const lines=candidate.text.split("\n");
       appendText(card,"div",lines.slice(0,3).join(" / ").slice(0,155),"muted");
       const details=document.createElement("details");

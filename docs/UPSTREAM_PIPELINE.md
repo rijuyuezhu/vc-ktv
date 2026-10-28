@@ -8,7 +8,7 @@ Source: [Volta233/AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSren
 
 ## Files and interface
 
-The copied upstream modules are grouped in top-level `ktv_app/` with original imports: separation, independent model workers, ASR location, verified safe block planning, TIFA, seam recovery, source word ownership, estimated completion, ASS subtitles and FFmpeg rendering. Its project manager, web UI, backend, online lyrics search and Windows installer are **not** included. `ktv_app/lyrics.py` contains only the upstream lyric-preprocessing functions, to preserve ordering and original display text while using VC KTV's existing lyric selection.
+The copied upstream modules are grouped in top-level `ktv_app/` with original imports: separation, independent model workers, ASR location, verified safe block planning, TIFA, seam recovery, source word ownership, estimated completion, ASS subtitles and FFmpeg rendering. Its project manager, web UI, backend and Windows installer are **not** included. The #36 lyric-source extension also vendors the upstream's `lyric_names.py`, `lyric_netease.py`, `lyric_sources.py`, and `web_search.py` to supply *candidate lyrics*, while VC KTV still controls user selection. `ktv_app/lyrics.py` contains only the upstream lyric-preprocessing functions, to preserve ordering and original display text while using VC KTV's existing lyric selection.
 
 `vc_ktv/upstream_pipeline.py:make_karaoke_video(source, confirmed_lyrics, work_dir, settings, *, progress=..., style=..., render_options=...)` is the single entry point. It performs:
 
@@ -31,3 +31,5 @@ The caller must pass a brand-new attempt directory and explicit `ktv_app.config.
 - CI and local tests run without GPU or model weights. **Passing these does not mean Kim/Qwen/TIFA have run together on Spark-WSL**; #28 must run the full model chain on a small, authorized input and retain its logs.
 
 Avoid rewriting upstream algorithms unless necessary for ARM64 compatibility or a reproducible issue. Preserve the pinned source commit when comparing future upstream fixes.
+
+Product boundaries, source coverage and deferred admin style presets are recorded in [UPSTREAM_SCOPE_DECISIONS.md](UPSTREAM_SCOPE_DECISIONS.md).

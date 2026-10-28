@@ -33,7 +33,7 @@ pre-commit 执行大型文件限制、私钥检测、冲突标记和 TOML/YAML �
 | 模块 | 职责 |
 | --- | --- |
 | vc_ktv/app.py | HTTP API、Cookie 授权、SQLite、排队、公平播放、媒体签名链接 |
-| vc_ktv/autoprep.py | 非阻塞媒体准备、TIFA 可选增强及失败回退 |
+| vc_ktv/autoprep.py | 非阻塞媒体准备、上游 Kim/Qwen/TIFA 字幕制作及失败回退 |
 | vc_ktv/bilibili_media.py | yt-dlp 页面解析失败时的公开 B 站播放流备用下载 |
 | vc_ktv/lyric_selection.py | 多来源歌词搜索与候选整理 |
 | vc_ktv/lyric_sources.py | VCPedia 歌词正文解析 |
@@ -42,7 +42,7 @@ pre-commit 执行大型文件限制、私钥检测、冲突标记和 TOML/YAML �
 | static/app.js | 点歌者/管理员交互，歌词预览与选择 |
 | static/tv.js | 有声播放初始化、结束回调、下一首自动播放 |
 
-歌词候选由点歌者选择（不会自动猜测正确版本）；候选选择只允许点歌者的原浏览器 Cookie，并绑定 30 分钟签名摘要。视频就绪即进入队列，字幕增强失败不影响原片播放。如果歌曲已开始播放，后续对齐不会中途替换播放流。
+歌词候选来自 VCPedia、LRCLIB、网易云音乐、UtaTen 和 J-Lyric，由点歌者选择（不会自动猜测正确版本）；候选选择只允许点歌者的原浏览器 Cookie，并绑定 30 分钟签名摘要。视频就绪后等待字幕完成才默认可播；失败保留原片，管理员可设置允许无字幕播放。如果歌曲已开始播放，后续对齐不会中途替换播放流。
 
 ## 开发与生产环境隔离
 
