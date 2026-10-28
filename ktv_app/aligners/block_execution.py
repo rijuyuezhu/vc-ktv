@@ -8,7 +8,18 @@ from .common import blank
 
 
 def run_blocks(
-    audio, lines, blocks, first, second, duration, origin, limit, work, settings, event
+    audio,
+    lines,
+    blocks,
+    first,
+    second,
+    duration,
+    origin,
+    limit,
+    work,
+    settings,
+    event,
+    tifa_session=None,
 ):
     results = []
     for index, source in enumerate(blocks):
@@ -39,6 +50,7 @@ def run_blocks(
                 + "："
                 + message.replace("TIFA 全曲对齐", "TIFA 块内对齐")
             ),
+            **({"tifa_session": tifa_session} if tifa_session is not None else {}),
         )
         owned = set(block["line_ids"])
         result.lines = [line for line in result.lines if line.id in owned]

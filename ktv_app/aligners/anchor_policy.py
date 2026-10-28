@@ -243,7 +243,15 @@ def merge_native(base, local, lower, upper):
 
 
 def run_anchor_alignment(
-    audio, lines, duration, origin, work, settings, event, reuse_work=None
+    audio,
+    lines,
+    duration,
+    origin,
+    work,
+    settings,
+    event,
+    reuse_work=None,
+    tifa_session=None,
 ):
     """A new run uses native TIFA first; no Qwen coarse path or mixed global/local words."""
     import soundfile as sf
@@ -256,9 +264,8 @@ def run_anchor_alignment(
     event("第一阶段：TIFA 全曲对齐，按原歌词首词与尾词确定边界")
     try:
         # Normal application runs always perform actual inference.
-        raw = TIFAAdapter(settings).align(
-            audio, blank(lines), duration, origin, work / "global_tifa"
-        )
+        adapter = tifa_session or TIFAAdapter(settings)
+        raw = adapter.align(audio, blank(lines), duration, origin, work / "global_tifa")
     except (RuntimeError, ValueError, OSError, subprocess.TimeoutExpired) as error:
         raw = Timeline(
             duration=duration,
@@ -316,6 +323,8 @@ def run_anchor_alignment(
         )
     event(f"第二阶段：TIFA 重试 {len(jobs)} 个合并或异常块，已确认的原生时间保持固定")
     try:
+        # Local retries are independent batch jobs. They still use the
+        # existing batch adapter; primary blocks share a session.
         recovered = TIFAAdapter(settings).align_many(
             jobs, duration, work / "part_tifa_batch"
         )

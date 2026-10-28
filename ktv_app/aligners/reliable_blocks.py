@@ -28,6 +28,7 @@ from .boundary_matching import (
 )
 from .recognition import japanese_reading_table, locate, match_text
 from .seam_repair import bounded_seam_groups, repair_seams, retry_seam_gaps, seam_groups
+from .tifa import TIFAAdapter, TIFASession
 
 __all__ = [
     "match_boundary_lines",
@@ -75,39 +76,75 @@ def align_reliable_blocks(
     )
     if not recognition:
         raise RuntimeError(warning or "ASR 未完成；正式路线不可跳过识别阶段")
-    readings, reading_support = japanese_reading_table(
-        lines, recognition, settings, work
-    )
-    reading = (lambda text: readings.get(text, text)) if readings else None
     planner = (
         build_adaptive_plan
         if max_input_seconds is None
         else build_duration_limited_plan
     )
-    plan, first, second = planner(
-        lines,
-        recognition.get("tokens", []),
-        recognition.get("verification_tokens", []),
-        origin,
-        limit,
-        reading,
-        event,
-        **(
-            {}
-            if max_input_seconds is None
-            else dict(max_input_seconds=max_input_seconds)
-        ),
-    )
-    plan["reading_support"] = reading_support
-    plan["asr_timestamp_summary"] = dict(
-        sum(
-            (
-                Counter(chunk.get("timestamp_counts", {}))
-                for chunk in recognition.get("chunks", [])
-            ),
-            Counter(),
+
+    def prepare_plan(current):
+        readings, reading_support = japanese_reading_table(
+            lines, current, settings, work
         )
-    )
+        reading = (lambda text: readings.get(text, text)) if readings else None
+        plan, first, second = planner(
+            lines,
+            current.get("tokens", []),
+            current.get("verification_tokens", []),
+            origin,
+            limit,
+            reading,
+            event,
+            **(
+                {}
+                if max_input_seconds is None
+                else dict(max_input_seconds=max_input_seconds)
+            ),
+        )
+        plan["reading_support"] = reading_support
+        plan["asr_timestamp_summary"] = dict(
+            sum(
+                (
+                    Counter(chunk.get("timestamp_counts", {}))
+                    for chunk in current.get("chunks", [])
+                ),
+                Counter(),
+            )
+        )
+        return plan, first, second
+
+    plan, first, second = prepare_plan(recognition)
+    if (
+        recognition.get("tifa_skipped_windows")
+        and not plan["adaptive_relaxation"]["target_met"]
+    ):
+        event("歌词切点证据不足，补齐此前跳过的 TIFA 窗口再完整规划")
+        recognition, warning = locate(
+            audio,
+            lines,
+            settings,
+            work,
+            profile=PROFILE,
+            event=event,
+            full_tifa=True,
+            asr_seed={
+                key: value
+                for key, value in recognition.items()
+                if key
+                not in (
+                    "tokens",
+                    "verification_tokens",
+                    "timestamp_errors",
+                    "tifa_skipped_windows",
+                    "tifa_timing_elapsed",
+                    "elapsed",
+                )
+            },
+        )
+        if not recognition:
+            raise RuntimeError(warning or "完整 TIFA 时间定位未完成")
+        plan, first, second = prepare_plan(recognition)
+
     (work / "block_plan.json").write_text(
         json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -121,54 +158,13 @@ def align_reliable_blocks(
     )
     first_by = {m["line_index"]: m for m in first}
     second_by = {m["line_index"]: m for m in second}
-    results = run_blocks(
-        audio,
-        lines,
-        plan["blocks"],
-        first_by,
-        second_by,
-        duration,
-        origin,
-        limit,
-        work,
-        settings,
-        event,
-    )
-    adjustments = repair_seams(results, plan)
-    if adjustments:
-        event(
-            f"接缝在 TIFA 与双窗口 ASR 共同支持的词间空隙内微调 {len(adjustments)} 处；原生词时间不变"
-        )
-    seam_local_retries = retry_seam_gaps(
-        audio, results, duration, origin, limit, work, settings, event
-    )
-    groups, deferred_seams = bounded_seam_groups(
-        results, lines, first_by, second_by, origin, limit
-    )
-    retries = []
-    final = []
-    for group in groups:
-        if len(group) == 1:
-            final.append(results[group[0]])
-            continue
-        subset = [results[i][0] for i in group]
-        merged = dict(
-            id="join_" + "_".join(str(i) for i in group),
-            indices=[i for block in subset for i in block["indices"]],
-            line_ids=[i for block in subset for i in block["line_ids"]],
-            core_start=subset[0]["core_start"],
-            core_end=subset[-1]["core_end"],
-            reason="seam_conflict_merged_retry",
-            context_limit_seconds=6,
-            max_core_seconds=45,
-        )
-        merged["duration"] = merged["core_end"] - merged["core_start"]
-        merged["over_target"] = merged["duration"] > 45
-        event("接缝有越界候选，合并相邻大块重试 TIFA：" + merged["id"])
-        retried = run_blocks(
+    # The original-lyric blocks and any seam recovery now share one model.
+    # Both source text and the sequential alignment order remain unchanged.
+    with TIFASession(TIFAAdapter(settings), work / "lyric_tifa_session") as session:
+        results = run_blocks(
             audio,
             lines,
-            [merged],
+            plan["blocks"],
             first_by,
             second_by,
             duration,
@@ -177,18 +173,72 @@ def align_reliable_blocks(
             work,
             settings,
             event,
+            tifa_session=session,
         )
-        final.extend(retried)
-        retries.append(
-            {
-                "block_ids": [b["id"] for b in subset],
-                "merged_id": merged["id"],
-                "reason": merged["reason"],
-                "original_boundary_violations": [
-                    v for b in subset for v in b["native_boundary_violations"]
-                ],
-            }
+        adjustments = repair_seams(results, plan)
+        if adjustments:
+            event(
+                f"接缝在 TIFA 与双窗口 ASR 共同支持的词间空隙内微调 {len(adjustments)} 处；原生词时间不变"
+            )
+        seam_local_retries = retry_seam_gaps(
+            audio,
+            results,
+            duration,
+            origin,
+            limit,
+            work,
+            settings,
+            event,
+            tifa_session=session,
         )
+        groups, deferred_seams = bounded_seam_groups(
+            results, lines, first_by, second_by, origin, limit
+        )
+        retries = []
+        final = []
+        for group in groups:
+            if len(group) == 1:
+                final.append(results[group[0]])
+                continue
+            subset = [results[i][0] for i in group]
+            merged = dict(
+                id="join_" + "_".join(str(i) for i in group),
+                indices=[i for block in subset for i in block["indices"]],
+                line_ids=[i for block in subset for i in block["line_ids"]],
+                core_start=subset[0]["core_start"],
+                core_end=subset[-1]["core_end"],
+                reason="seam_conflict_merged_retry",
+                context_limit_seconds=6,
+                max_core_seconds=45,
+            )
+            merged["duration"] = merged["core_end"] - merged["core_start"]
+            merged["over_target"] = merged["duration"] > 45
+            event("接缝有越界候选，合并相邻大块重试 TIFA：" + merged["id"])
+            retried = run_blocks(
+                audio,
+                lines,
+                [merged],
+                first_by,
+                second_by,
+                duration,
+                origin,
+                limit,
+                work,
+                settings,
+                event,
+                tifa_session=session,
+            )
+            final.extend(retried)
+            retries.append(
+                {
+                    "block_ids": [b["id"] for b in subset],
+                    "merged_id": merged["id"],
+                    "reason": merged["reason"],
+                    "original_boundary_violations": [
+                        v for b in subset for v in b["native_boundary_violations"]
+                    ],
+                }
+            )
     diag = {
         "pipeline": "verified_asr_blocks_tifa",
         "boundary_policy": POLICY,
@@ -212,6 +262,7 @@ def align_reliable_blocks(
                 "peak_gpu_gib",
                 "chunk_seconds",
                 "overlap_seconds",
+                "tifa_skipped_windows",
             )
         },
         "warnings": [warning] if warning else [],

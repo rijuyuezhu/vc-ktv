@@ -34,6 +34,7 @@ def main():
         f"TIFA runtime: device={device}, precision=fp32, threads={torch.get_num_threads()}",
         flush=True,
     )
+    load_started = time.monotonic()
     model_path = pathlib.Path(request["model"])
     backend, vocabulary, config = load_inference_model(
         model_path, scope=ConfigurationScope.FA
@@ -44,6 +45,10 @@ def main():
         raise ValueError("模型缺少 G2P 配置；请设置 TIFA_G2P")
     pipeline = build_pipeline_from_config(g2p_config, root_path=model_path.parent)
     started = time.monotonic()
+    print(
+        f"TIFA model+G2P initialization: {started - load_started:.3f}s",
+        flush=True,
+    )
     if root_request.get("stream"):
         # Sequential requests share one loaded model. Completion is signalled
         # through a file, leaving upstream progress output in the inference log.
@@ -110,6 +115,7 @@ def process(request, backend, vocabulary, g2p_config, pipeline, model_path):
     from ktv_app.model_runtime import resolve_device
     from ktv_app.text_normalization import normalize_lyrics
 
+    started = time.monotonic()
     device = resolve_device(torch, request.get("device", "cuda"))
     words, trace = [], []
     languages = []
@@ -168,6 +174,7 @@ def process(request, backend, vocabulary, g2p_config, pipeline, model_path):
             except G2PEncodingError as error:
                 item.update(omitted=True, reason=str(error))
             trace.append(item)
+    g2p_elapsed = time.monotonic() - started
     folder = pathlib.Path(request["work"])
     audio = pathlib.Path(request["audio"])
     audio.with_suffix(".pfml").write_text(to_pfml(words), encoding="utf-8")
@@ -209,6 +216,7 @@ def process(request, backend, vocabulary, g2p_config, pipeline, model_path):
         language=list(dict.fromkeys(languages)),
         oov_handling="raise",
     )
+    dataset_elapsed = time.monotonic() - started - g2p_elapsed
     grid_callback = SaveTextGridCallback(
         folder, language=None, timestep=backend.timestep, skip_handling="omit"
     )
@@ -256,6 +264,17 @@ def process(request, backend, vocabulary, g2p_config, pipeline, model_path):
         dataset,
         [grid_callback, StatisticsCallback(folder / "statistics")],
         device=device,
+    )
+    inference_elapsed = time.monotonic() - started - g2p_elapsed - dataset_elapsed
+    (folder / "timing.json").write_text(
+        json.dumps(
+            {
+                "g2p_seconds": round(g2p_elapsed, 3),
+                "dataset_seconds": round(dataset_elapsed, 3),
+                "inference_seconds": round(inference_elapsed, 3),
+            }
+        ),
+        encoding="utf-8",
     )
     if not (folder / (audio.stem + ".TextGrid")).exists():
         raise RuntimeError(
