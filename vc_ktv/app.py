@@ -245,7 +245,7 @@ class Store:
         return rows[0] if rows else None
 
     def songs(self):
-        return self.rows("""
+        rows = self.rows("""
             SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.cover,s.duration,
                    s.requested_at,s.status,s.media_file IS NOT NULL AS has_media,s.render_error,
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
@@ -255,6 +255,7 @@ class Store:
             WHERE s.status IN ('waiting','rendering','ready','playing')
             ORDER BY s.requested_at,s.id
         """)
+        return [{**song, "lyric_query": title_key(song["title"])} for song in rows]
 
     def settings(self):
         values = {
@@ -928,7 +929,12 @@ def create_app(
                 ),
             )
             store.db.commit()
-        return {"id": cur.lastrowid, "status": "waiting", "title": info["title"]}
+        return {
+            "id": cur.lastrowid,
+            "status": "waiting",
+            "title": info["title"],
+            "lyric_query": title_key(info["title"]),
+        }
 
     def own_song(song_id: int, guest_token: str | None):
         guest = require_user(guest_token)["id"]
@@ -944,6 +950,7 @@ def create_app(
     async def guest_lyric_candidates(
         song_id: int,
         query: str = "",
+        phase: Literal["all", "vcpedia", "lrclib", "more"] = "all",
         vc_guest: str | None = Cookie(default=None),
     ):
         song = own_song(song_id, vc_guest)
@@ -954,11 +961,15 @@ def create_app(
             bail(400, "请使用 2–60 字的歌名关键词")
         key = (song["requester"], song_id)
         recent = [t for t in lyric_search_times.get(key, []) if t > time_now() - 300]
-        if len(recent) >= 12:
+        if len(recent) >= 30:
             bail(429, "搜索太频繁，请五分钟后重试")
         recent.append(time_now())
         lyric_search_times[key] = recent
-        candidates = await app.state.candidate_search(term)
+        candidates = (
+            await app.state.candidate_search(term)
+            if phase == "all"
+            else await search_lyric_candidates(term, phase)
+        )
         for candidate in candidates:
             digest = hashlib.sha256(candidate["text"].encode()).hexdigest()
             candidate["ticket"] = sign(

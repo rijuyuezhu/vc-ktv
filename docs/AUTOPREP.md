@@ -40,3 +40,7 @@ Ready/playing/played/skipped 是独立于准备阶段的播放状态；只有 Re
 ## 来源与媒体权利
 
 VCPedia、LRCLIB 与 B 站各有独立的访问及版权条件。可获取内容不等于可以公开再分发。TIFA、Kim、Qwen3-ASR 均使用本地模型，权重不放入 Git。处理流水线已从 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) 复制/适配，原作者许可见 [third_party/autoassrenderer](../third_party/autoassrenderer/README.md)，各模型另有独立条款；未复制上游的 GUI、Windows 安装器或数据库。
+
+### 歌词候选响应优先级
+
+普通访客打开选词弹窗时，搜索框立即填入从已提交歌曲标题提取的歌名，便于人工纠错。VCPedia 与 LRCLIB 各自独立查询：**先返回的候选立即显示且可直接选定**，不等待另一个来源。慢速的其他来源只在用户点击「更多歌词来源」时访问；已选歌词后立即终止前端等待，并忽略旧搜索结果。签名候选、单曲归属和频率限制仍在后端执行；页面不会自动决定歌词版本。
