@@ -33,7 +33,7 @@ uv sync --locked --group dev
 uv run python -m vc_ktv
 ~~~
 
-访问 http://127.0.0.1:8778 。管理员密码保存在 **~/.config/vc-ktv/admin-password**；签名密钥保存在 **~/.config/vc-ktv/token-secret**。请勿提交、分享或复制到代码仓库。
+点歌首页为 http://127.0.0.1:8778/ ，管理员控制台为 http://127.0.0.1:8778/admin/ （可直接刷新并保留页面位置）。管理员密码保存在 **~/.config/vc-ktv/admin-password**；签名密钥保存在 **~/.config/vc-ktv/token-secret**。请勿提交、分享或复制到代码仓库。
 
 可使用环境变量设置运行参数：
 

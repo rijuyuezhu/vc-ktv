@@ -214,19 +214,23 @@ $("submit-btn").onclick=()=>guarded(async()=>{
   preview=null;await refresh();
   await openLyricPicker(result.id,title);
 },$("submit-btn"));
-function showTab(tab){
-  const isAdmin=tab==="admin";
+function showPage(){
+  const isAdmin=window.location.pathname.replace(/\/$/, "")==="/admin";
   $("guest-view").classList.toggle("hidden",isAdmin);
   $("admin-view").classList.toggle("hidden",!isAdmin);
   $("tab-guest").classList.toggle("selected",!isAdmin);
   $("tab-admin").classList.toggle("selected",isAdmin);
-  if(isAdmin)refresh();
+  $("tab-guest").setAttribute("aria-current",isAdmin?"false":"page");
+  $("tab-admin").setAttribute("aria-current",isAdmin?"page":"false");
+  $("hero-title").textContent=isAdmin?"管理员控制台":"下一首，轮到谁？";
+  $("hero-desc").textContent=isAdmin
+    ?"登录后管理点歌队列、歌词与自动连播。刷新页面会保留在此控制台。"
+    :"输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；即使没选歌词也可播放原视频。";
+  document.title=isAdmin?"VC KTV · 管理员":"VC KTV · 点歌房间";
 }
 $("admin-advanced").addEventListener("toggle",()=>{
   if($("admin-advanced").open)refresh();
 });
-$("tab-guest").onclick=()=>showTab("guest");
-$("tab-admin").onclick=()=>showTab("admin");
 $("login-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/login","POST",{password:$("password").value});
   $("password").value="";admin=true;toast("管理员登录成功");await refresh();
@@ -362,5 +366,6 @@ async function refresh(){
     }
   }catch(e){error(e);}finally{refreshing=false;}
 }
+showPage();
 refresh();
 setInterval(()=>{if(document.visibilityState==="visible")refresh();},3500);

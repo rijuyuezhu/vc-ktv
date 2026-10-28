@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#10151d">
+  <meta name="theme-color" content="#f6f7f9">
   <title>VC KTV · 点歌房间</title>
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
@@ -12,14 +12,14 @@
   <header class="topbar">
     <div class="topinner">
       <div class="brand"><div class="brandicon">♪</div><div><strong>VC KTV</strong><small>自动点歌 · 本地处理</small></div></div>
-      <div class="tabs" role="tablist"><button id="tab-guest" class="selected" type="button">点歌大厅</button><button id="tab-admin" type="button">管理员</button></div>
+      <nav class="tabs" aria-label="页面导航"><a id="tab-guest" class="selected" href="/">点歌大厅</a><a id="tab-admin" href="/admin/">管理员</a></nav>
     </div>
   </header>
   <main class="layout">
     <section class="hero">
-      <span class="eyebrow"><span class="dot"></span> 自托管 · 自托管</span>
-      <h1>下一首，轮到谁？</h1>
-      <p>输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；即使没选歌词也可播放原视频。</p>
+      <span class="eyebrow"><span class="dot"></span> 自托管 · 自动点歌</span>
+      <h1 id="hero-title">下一首，轮到谁？</h1>
+      <p id="hero-desc">输入 BV 号后，系统自动搜索歌词候选，你选择对应版本。后台独立下载视频并制作 KTV 字幕；即使没选歌词也可播放原视频。</p>
     </section>
     <div id="toast" role="status" aria-live="polite"></div>
     <div id="guest-view" class="dashboard">

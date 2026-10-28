@@ -155,3 +155,18 @@ def test_limits_and_permissions(room):
         assert guest.get(f"/api/admin/songs/{songs[0]}/lyrics").status_code == 401
         assert admin.post(f"/api/admin/songs/{songs[0]}/cancel").status_code == 200
         assert len(admin.get("/api/state").json()["waiting"]) == 2
+
+
+def test_admin_subpage_and_existing_cookie_auth(room):
+    with TestClient(room) as client:
+        for path in ("/admin", "/admin/"):
+            page = client.get(path)
+            assert page.status_code == 200
+            assert 'href="/admin/"' in page.text
+            assert 'id="admin-view"' in page.text
+            assert 'id="guest-view"' in page.text
+        assert client.get("/").status_code == 200
+        assert client.get("/api/admin/state").status_code == 401
+        login(client)
+        assert client.get("/admin/").status_code == 200
+        assert client.get("/api/admin/state").status_code == 200
