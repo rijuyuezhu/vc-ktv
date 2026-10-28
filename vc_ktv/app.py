@@ -969,5 +969,10 @@ def create_app(
             content_disposition_type="inline",
         )
 
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/", include_in_schema=False)
+    def admin_page():
+        return FileResponse(STATIC / "index.html")
+
     app.mount("/", StaticFiles(directory=str(STATIC), html=True), name="static")
     return app
