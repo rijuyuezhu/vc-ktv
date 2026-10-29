@@ -35,6 +35,9 @@ def main():
         json.dumps(runtime, indent=2), encoding="utf-8"
     )
     torch.cuda.reset_peak_memory_stats()
+    batch_size = int(req.get("asr_batch_size", 1))
+    if not 1 <= batch_size <= 4:
+        raise ValueError("ASR batch size must be 1..4")
     model = Qwen3ASRModel.from_pretrained(
         req["asr_model"],
         dtype={"fp32": torch.float32, "bf16": torch.bfloat16, "fp16": torch.float16}[
@@ -43,7 +46,7 @@ def main():
         device_map="cuda:0",
         attn_implementation="sdpa",
         local_files_only=True,
-        max_inference_batch_size=1,
+        max_inference_batch_size=batch_size,
         max_new_tokens=512,
     )
     audio, sr = sf.read(req["audio"], dtype="float32")
@@ -56,6 +59,7 @@ def main():
     chunks = []
     size, overlap = req.get("chunk_seconds", 12), req.get("overlap_seconds", 2)
     shifts = [0, -size / 2] if req.get("verification_pass") else [0]
+    windows = []
     for pass_index, shift in enumerate(shifts):
         for offset in np.arange(shift, duration, size):
             left, right = (
@@ -64,43 +68,53 @@ def main():
             )
             if right <= left:
                 continue
-            result = model.transcribe(
-                audio=(audio[round(left * sr) : round(right * sr)], sr),
-                context="",
-                language=language,
-                return_time_stamps=False,
-            )[0]
-            chunks.append(
-                dict(
-                    start=float(left),
-                    end=float(right),
-                    text=result.text,
-                    language=result.language,
-                    pass_index=pass_index,
-                    core_start=float(max(0, offset)),
-                    core_end=float(min(duration, offset + size)),
+            windows.append(
+                (
+                    dict(
+                        start=float(left),
+                        end=float(right),
+                        pass_index=pass_index,
+                        core_start=float(max(0, offset)),
+                        core_end=float(min(duration, offset + size)),
+                    ),
+                    (audio[round(left * sr) : round(right * sr)], sr),
                 )
             )
-            Path(req["work"], "progress.json").write_text(
-                json.dumps(
-                    dict(
-                        seconds_processed=min(duration, float(offset) + size),
-                        duration=duration,
-                        chunks=len(chunks),
-                        phase="asr_text",
-                        pass_index=pass_index + 1,
-                        passes=len(shifts),
-                        **runtime,
-                    )
-                ),
-                encoding="utf-8",
-            )
+    for start in range(0, len(windows), batch_size):
+        group = windows[start : start + batch_size]
+        inputs = [waveform for _, waveform in group]
+        results = model.transcribe(
+            audio=inputs[0] if len(inputs) == 1 else inputs,
+            context="",
+            language=language,
+            return_time_stamps=False,
+        )
+        if len(results) != len(group):
+            raise RuntimeError("Qwen output count differs from window count")
+        for (window, _), result in zip(group, results):
+            chunks.append(dict(window, text=result.text, language=result.language))
+        last = group[-1][0]
+        Path(req["work"], "progress.json").write_text(
+            json.dumps(
+                dict(
+                    seconds_processed=last["core_end"],
+                    duration=duration,
+                    chunks=len(chunks),
+                    phase="asr_text",
+                    pass_index=last["pass_index"] + 1,
+                    passes=len(shifts),
+                    **runtime,
+                )
+            ),
+            encoding="utf-8",
+        )
     output = dict(
         chunks=chunks,
         chunk_seconds=size,
         overlap_seconds=overlap,
         duration=duration,
         asr_elapsed=round(time.monotonic() - started, 3),
+        asr_batch_size=batch_size,
         peak_gpu_gib=round(torch.cuda.max_memory_allocated() / 1024**3, 3),
         model="Qwen3-ASR-1.7B",
         runtime=runtime,

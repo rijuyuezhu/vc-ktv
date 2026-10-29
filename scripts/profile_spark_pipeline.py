@@ -86,6 +86,7 @@ def run_profile(
     *,
     interval: float = 5.0,
     tifa_root: Path | None = None,
+    mode: str = "quality",
 ) -> dict:
     if target.exists():
         raise FileExistsError(f"Refusing to overwrite existing run {target}")
@@ -156,6 +157,7 @@ def run_profile(
             target / "work",
             upstream.spark_settings(tifa_root=tifa_root),
             progress=lambda msg: record("event: " + msg),
+            **({"mode": mode} if mode != "quality" else {}),
         )
         status = "done"
         record("complete")
@@ -188,6 +190,7 @@ def main():
     parser.add_argument("--lyrics", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--name", default="cold")
+    parser.add_argument("--mode", choices=("quality", "fast"), default="quality")
     parser.add_argument(
         "--tifa-root",
         type=Path,
@@ -204,6 +207,7 @@ def main():
         lyrics,
         args.out / args.name,
         tifa_root=args.tifa_root.expanduser().resolve(strict=True),
+        mode=args.mode,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
 
