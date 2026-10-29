@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 let preview = null;
 let admin = false;
 let currentMediaId = null;
+let manualMode = false;
 let popupSongId = null;
 let toastTimer = null;
 let refreshing = false;
@@ -83,12 +84,22 @@ function makeSong(song, order, mode="guest") {
   const outer = document.createElement("div");outer.className="song-item";
   appendText(outer,"span",String(order),"ordinal");
   const copy = document.createElement("div");copy.className="song-copy";outer.append(copy);
-  appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:""));
+  appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:"")+
+    (song.priority_next?"  ↻ 下一首重唱":""));
   appendText(copy,"small",`${song.nickname}  ${duration(song.duration)}  ${song.uploader}`);
   if(mode==="guest" && song.mine && ["ready","waiting"].includes(song.status) &&
      song.prep_state!=="aligning"){
     const pick=appendText(outer,"button",song.lyric_selected?"♫ 换歌词":"♫ 选歌词","mini lyric-pick");
     pick.onclick=()=>guarded(()=>openLyricPicker(song.id,song.title,song.lyric_query),pick);
+  }
+  if(mode==="guest" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
+    const cancel=appendText(outer,"button","✕ 取消","mini");
+    cancel.title="仅取消自己尚未开唱的歌曲";
+    cancel.onclick=()=>guarded(async()=>{
+      if(!confirm("取消自己点的这首歌？"))return;
+      await api("/api/songs/"+song.id+"/cancel","POST");
+      toast("✓ 已取消点歌");await refresh();
+    },cancel);
   }
   if(mode==="status"){
     const status=preparationStatus(song);
@@ -378,17 +389,79 @@ $("tv-link-btn").onclick=()=>{
   });
 };
 $("start-btn").onclick=()=>guarded(async()=>{await playNext();},$("start-btn"));
-$("finish-btn").onclick=()=>guarded(async()=>{await finishActive("completed",false);},$("finish-btn"));
-$("skip-btn").onclick=()=>guarded(async()=>{await finishActive("skip",false);},$("skip-btn"));
+$("finish-btn").onclick=()=>guarded(async()=>{
+  const wasManual=manualMode;
+  const finished=await finishActive("completed",false);
+  if(wasManual&&finished)await playNext();
+},$("finish-btn"));
+$("skip-btn").onclick=()=>guarded(async()=>{
+  const wasManual=manualMode;
+  const finished=await finishActive("skip",false);
+  if(wasManual&&finished)await playNext();
+},$("skip-btn"));
+
+function updatePlaybackUI(){
+  $("playback-mode").value=manualMode?"manual":"browser";
+  $("browser-player").classList.toggle("hidden",manualMode);
+  $("tv-link-btn").classList.toggle("hidden",manualMode);
+  $("autoplay-label").classList.toggle("hidden",manualMode);
+  $("manual-controls").classList.toggle("hidden",!manualMode);
+  $("start-btn").textContent=manualMode?"▶ 领取下一首":"▶ 开始播放";
+  $("finish-btn").textContent=manualMode?"✓ 唱完并切下一首":"✓ 唱完";
+  $("skip-btn").textContent=manualMode?"跳过并切下一首":"跳过";
+  $("manual-download").classList.toggle("hidden",!manualMode||!currentMediaId);
+}
+$("playback-mode").onchange=()=>guarded(async()=>{
+  const mode=$("playback-mode").value;
+  try{
+    await api("/api/admin/playback-mode","PUT",{mode});
+    manualMode=mode==="manual";
+    currentMediaId=null;
+    player.pause();player.removeAttribute("src");player.load();
+    adminStateKey=null;updatePlaybackUI();await refresh();
+  }catch(e){
+    updatePlaybackUI();throw e;
+  }
+},$("playback-mode"));
+
+async function refreshPlayed(){
+  if(!$("played-panel").open)return;
+  const data=await api("/api/admin/played");
+  const panel=$("played-list");panel.replaceChildren();
+  if(!data.songs.length){appendText(panel,"div","本场还没有唱完的歌曲","empty");return;}
+  for(const song of data.songs){
+    const item=document.createElement("div");item.className="song-item";
+    const copy=document.createElement("div");copy.className="song-copy";
+    appendText(copy,"strong",song.title);
+    appendText(copy,"small",song.nickname+"  "+new Date(song.played_at*1000).toLocaleTimeString());
+    const button=appendText(item,"button","↻ 下一首重唱","mini");
+    button.onclick=()=>guarded(async()=>{
+      if(!confirm("把这首已唱歌曲安排为下一首？"))return;
+      await api("/api/admin/songs/"+song.id+"/replay","POST");
+      toast("✓ 已加入队列，将优先播放");
+      await refresh();await refreshPlayed();
+    },button);
+    item.prepend(copy);panel.append(item);
+  }
+}
+$("played-panel").addEventListener("toggle",()=>guarded(refreshPlayed));
 
 async function playNext(){
   const data=await api("/api/admin/next","POST");
   if(!data.active){ toast("当前没有已准备好的歌曲");await refresh();return; }
   await assignPlayer(data.active,true);
+  if(manualMode)toast("已领取当前歌曲，请下载后手动投屏");
   await refresh();
 }
 async function assignPlayer(active, start){
   if(!active || !active.media_url)return;
+  if(manualMode){
+    currentMediaId=active.id;
+    $("playing-title").textContent="当前歌曲："+active.title+"  "+active.nickname;
+    $("manual-download").href="/api/songs/"+active.id+"/download";
+    updatePlaybackUI();
+    return;
+  }
   if(currentMediaId!==active.id){
     currentMediaId=active.id;
     player.src=active.media_url;
@@ -402,16 +475,20 @@ async function assignPlayer(active, start){
 }
 async function finishActive(reason, auto){
   const songId=currentMediaId;
-  if(!songId) {toast("没有正在播放的歌曲");return;}
+  if(!songId) {toast("没有正在播放的歌曲");return false;}
   if(reason!=="completed")player.pause();
   await api("/api/admin/finish","POST",{song_id:songId,reason:reason==="skip"?"skip":""});
   currentMediaId=null;
   player.removeAttribute("src");player.load();
   $("player-empty").classList.remove("hidden");
   $("playing-title").textContent="当前没有正在播放的歌曲";
-  if(auto && $("autoplay").checked)await playNext(); else await refresh();
+  updatePlaybackUI();
+  if(auto && $("autoplay").checked && !manualMode)await playNext();
+  else await refresh();
+  if($("played-panel").open)await refreshPlayed();
+  return true;
 }
-player.addEventListener("ended",()=>guarded(()=>finishActive("completed",true)));
+player.addEventListener("ended",()=>{if(!manualMode)guarded(()=>finishActive("completed",true));});
 player.addEventListener("error",()=>{if(player.currentSrc)toast("媒体播放失败，请检查编码或网络连接",true);});
 async function editLyrics(songId, songTitle){
   popupSongId=songId;
@@ -584,7 +661,8 @@ async function refresh(){
           fillList("queue-ready",state.queue);
           fillList("queue-waiting",state.waiting);
           const current=$("current-guest");current.replaceChildren();
-          appendText(current,"span","▶ 正在播放","current-label");
+          appendText(current,"span",state.playback_mode==="manual"?
+            "◷ 手动投屏中":"▶ 正在播放","current-label");
           if(state.current){
             appendText(current,"strong",state.current.title);
             appendText(current,"small","点歌者："+state.current.nickname);
@@ -604,7 +682,10 @@ async function refresh(){
       if(admin){
         await refreshEvents();
         const activeState=adm.active?{...adm.active,media_url:null}:null;
-        const key=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState]);
+        manualMode=adm.playback_mode==="manual";
+        $("playback-mode").disabled=Boolean(adm.active);
+        const key=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState,adm.playback_mode]);
+        updatePlaybackUI();
         if(key!==adminStateKey){
           adminStateKey=key;
           const pending=[...adm.waiting,...adm.queue];
@@ -619,13 +700,16 @@ async function refresh(){
           });
           if(adm.active){
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
-            $("playing-title").textContent="正在播放："+adm.active.title+"  "+adm.active.nickname;
+            $("playing-title").textContent=(manualMode?"当前歌曲：":"正在播放：")+
+              adm.active.title+"  "+adm.active.nickname;
           }else if(currentMediaId!==null){
             currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
             $("player-empty").classList.remove("hidden");
             $("playing-title").textContent="当前没有正在播放的歌曲";
+            updatePlaybackUI();
           }
         }
+        if($("played-panel").open)await refreshPlayed();
       }else adminStateKey=null;
     }
     if(refreshFailed){toast("连接已恢复");refreshFailed=false;}
@@ -637,6 +721,7 @@ async function refresh(){
   }
 }
 showPage();
+updatePlaybackUI();
 refresh();
 setInterval(()=>{if(document.visibilityState==="visible")refresh();},3500);
 document.addEventListener("visibilitychange",()=>{

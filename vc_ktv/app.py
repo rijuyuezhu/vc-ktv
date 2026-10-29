@@ -111,6 +111,10 @@ class Finish(BaseModel):
     reason: str = ""
 
 
+class PlaybackMode(BaseModel):
+    mode: Literal["browser", "manual"]
+
+
 class Lyrics(BaseModel):
     text: str = Field(max_length=30000)
 
@@ -237,6 +241,8 @@ class Store:
             ("skip_subtitles", "INTEGER NOT NULL DEFAULT 0"),
             ("prep_stage", "TEXT NOT NULL DEFAULT ''"),
             ("prep_stage_at", "INTEGER NOT NULL DEFAULT 0"),
+            ("priority_next", "INTEGER NOT NULL DEFAULT 0"),
+            ("replay_of", "INTEGER"),
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
@@ -256,7 +262,7 @@ class Store:
             SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.cover,s.duration,
                    s.requested_at,s.status,s.media_file IS NOT NULL AS has_media,s.render_error,
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
-                   s.skip_subtitles,s.prep_stage,s.prep_stage_at,
+                   s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.replay_of,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
                    g.name AS nickname,g.id AS requester_id,s.lyrics != '' AS has_lyrics
             FROM songs s JOIN guests g ON g.id=s.requester
@@ -278,6 +284,12 @@ class Store:
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
             "subtitle_style": values.get("subtitle_style", "classic"),
         }
+
+    def playback_mode(self):
+        row = self.db.execute(
+            "SELECT value FROM room_state WHERE name='playback_mode'"
+        ).fetchone()
+        return row[0] if row and row[0] == "manual" else "browser"
 
     def save_settings(
         self,
@@ -323,8 +335,11 @@ class Store:
         if settings is None:
             settings = self.settings()
         ready = [s for s in pool if self.playable(s, settings)]
+        # Admin priority replay always goes immediately next, in request order.
+        priority = [s for s in ready if s["priority_next"]]
+        ready = [s for s in ready if not s["priority_next"]]
         if settings["queue_policy"] == "fcfs":
-            return ready  # songs() is already ordered by requested_at, id.
+            return priority + ready  # songs() already orders by requested_at/id.
         users = {x["id"]: x for x in self.rows("SELECT * FROM guests")}
         # Simulate future turns so the displayed order reflects selection policy.
         tally = {k: (u["plays"], u["seconds"]) for k, u in users.items()}
@@ -332,6 +347,11 @@ class Store:
             "SELECT value FROM room_state WHERE name='last_requester'"
         ).fetchone()
         previous = last[0] if last else ""
+        for song in priority:
+            user = song["requester_id"]
+            plays, seconds = tally[user]
+            tally[user] = (plays + 1, seconds + song["duration"])
+            previous = user
         output = []
         while ready:
             head = {}
@@ -352,7 +372,7 @@ class Store:
             tally[chosen["requester_id"]] = (a + 1, b + chosen["duration"])
             previous = chosen["requester_id"]
             ready.remove(chosen)
-        return output
+        return priority + output
 
     @staticmethod
     def downloadable(song):
@@ -380,6 +400,7 @@ class Store:
                 "guests": self.rows(
                     "SELECT name,plays,seconds FROM guests ORDER BY name"
                 ),
+                "playback_mode": self.playback_mode(),
                 "server_time": time_now(),
             }
 
@@ -1385,7 +1406,8 @@ def create_app(
                 if queue:
                     song = queue[0]
                     store.db.execute(
-                        "UPDATE songs SET status='playing' WHERE id=?", (song["id"],)
+                        "UPDATE songs SET status='playing',priority_next=0 WHERE id=?",
+                        (song["id"],),
                     )
                     store.db.commit()
             return {"active": active_view()}
@@ -1417,6 +1439,110 @@ def create_app(
                 "next_ready": len(store.fair_queue()),
             }
 
+    @app.put("/api/admin/playback-mode")
+    def change_playback_mode(
+        body: PlaybackMode, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_admin(vc_admin)
+        with store.lock:
+            if store.playback_mode() != body.mode and store.current():
+                bail(409, "请先唱完或跳过当前歌曲，再切换播放模式")
+            store.db.execute(
+                "INSERT INTO room_state(name,value) VALUES('playback_mode',?) "
+                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                (body.mode,),
+            )
+            store.db.commit()
+        return {"mode": body.mode}
+
+    @app.get("/api/admin/played")
+    def recently_played(vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            return {
+                "songs": store.rows(
+                    """SELECT s.id,s.title,s.duration,s.page,s.played_at,s.replay_of,
+                          g.name AS nickname
+                   FROM songs s JOIN guests g ON g.id=s.requester
+                   WHERE s.status='played' ORDER BY s.played_at DESC,s.id DESC
+                   LIMIT 50"""
+                )
+            }
+
+    @app.post("/api/admin/songs/{song_id}/replay")
+    def replay_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            if (
+                row["status"] != "played"
+                or row["prep_state"] not in ("done", "manual", "original")
+                or not row["media_file"]
+            ):
+                bail(409, "只能重唱本场已唱完且有成片的歌曲")
+            media = store.media / Path(row["media_file"]).name
+            if not media.is_file():
+                bail(404, "成片已丢失")
+            source = store.media / Path(row["source_file"] or "").name
+            if not source.is_file():
+                source = media
+            # Unique hard links isolate later per-song edits without copying MP4 bytes.
+            links = []
+            try:
+                cur = store.db.execute(
+                    """INSERT INTO songs(
+                        bvid,page,title,uploader,cover,duration,requester,requested_at,
+                        status,lyrics,lyric_choice,lyric_source,prep_state,
+                        skip_subtitles,priority_next,replay_of
+                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,1,?)""",
+                    (
+                        row["bvid"],
+                        row["page"],
+                        row["title"],
+                        row["uploader"],
+                        row["cover"],
+                        row["duration"],
+                        row["requester"],
+                        time_now(),
+                        row["lyrics"],
+                        row["lyric_choice"],
+                        row["lyric_source"],
+                        row["prep_state"],
+                        int(
+                            bool(
+                                row["skip_subtitles"] or row["prep_state"] == "original"
+                            )
+                        ),
+                        song_id,
+                    ),
+                )
+                new_id = cur.lastrowid
+                for label, old in (("video", media), ("source", source)):
+                    if label == "source" and old == media:
+                        continue
+                    new_path = store.media / (
+                        f"{new_id}-replay-{secrets.token_hex(5)}-{label}{old.suffix}"
+                    )
+                    os.link(old, new_path)
+                    links.append(new_path)
+                new_media = links[0].name
+                new_source = links[-1].name if source != media else new_media
+                store.db.execute(
+                    "UPDATE songs SET media_file=?,source_file=? WHERE id=?",
+                    (new_media, new_source, new_id),
+                )
+                store.db.commit()
+            except BaseException:
+                store.db.rollback()
+                for link in links:
+                    link.unlink(missing_ok=True)
+                raise
+        return {"id": new_id, "status": "ready", "priority_next": True}
+
     @app.post("/api/admin/next")
     def next_song(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
@@ -1445,12 +1571,39 @@ def create_app(
     @app.post("/api/tv/next")
     def tv_next(token: str):
         require_tv(token)
-        return next_impl()
+        with store.lock:
+            if store.playback_mode() == "manual":
+                bail(409, "当前使用手动投屏，请在管理后台操作")
+            return next_impl()
 
     @app.post("/api/tv/finish")
     def tv_finish(body: Finish, token: str):
         require_tv(token)
-        return finish_impl(body)
+        with store.lock:
+            if store.playback_mode() == "manual":
+                bail(409, "当前使用手动投屏，请在管理后台操作")
+            return finish_impl(body)
+
+    @app.post("/api/songs/{song_id}/cancel")
+    def cancel_own_song(song_id: int, vc_guest: str | None = Cookie(default=None)):
+        user = require_user(vc_guest)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT requester,status FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            if row["requester"] != user["id"]:
+                bail(403, "只能取消自己点的歌曲")
+            cur = store.db.execute(
+                "UPDATE songs SET status='cancelled' WHERE id=? "
+                "AND status IN ('waiting','ready','rendering')",
+                (song_id,),
+            )
+            if cur.rowcount == 0:
+                bail(409, "歌曲已经开始播放，无法取消")
+            store.db.commit()
+        return {"ok": True}
 
     @app.post("/api/admin/songs/{song_id}/cancel")
     def cancel(song_id: int, vc_admin: str | None = Cookie(default=None)):

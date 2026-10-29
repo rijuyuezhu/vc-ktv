@@ -109,15 +109,26 @@
         </section>
         <section class="panel">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">▶</span> 播放控制</h2><button id="logout-btn" class="btn subtle">↪ 退出</button></div>
-          <div class="player-shell">
+          <div class="mode-select-row">
+            <label for="playback-mode">播放方式</label>
+            <select id="playback-mode">
+              <option value="browser">浏览器播放</option>
+              <option value="manual">手动投屏（乐播相册）</option>
+            </select>
+          </div>
+          <div class="player-shell" id="browser-player">
             <video id="player" playsinline controls preload="metadata"></video>
             <div id="player-empty">等待下一首</div>
           </div>
           <p id="playing-title" class="muted">当前没有正在播放的歌曲。</p>
+          <div id="manual-controls" class="hidden">
+            <p id="manual-instruction" class="muted">领取下一首后下载 MP4，在乐播的相册或本地视频里播放；播放结束后手动确认唱完或跳过。</p>
+            <a id="manual-download" class="btn primary wide hidden" href="#" download>↓ 下载当前歌曲</a>
+          </div>
           <button id="tv-link-btn" class="btn neutral wide" type="button">▣ 打开电视播放页</button>
 
           <div class="control-row"><button id="start-btn" class="btn primary">▶ 开始播放</button><button id="finish-btn" class="btn neutral">✓ 唱完</button><button id="skip-btn" class="btn neutral">跳过</button></div>
-          <label class="toggle"><input id="autoplay" type="checkbox" checked> 播放完毕自动切到下一首</label>
+          <label class="toggle" id="autoplay-label"><input id="autoplay" type="checkbox" checked> 播放完毕自动切到下一首</label>
 
         </section>
         <section class="panel">
@@ -129,6 +140,10 @@
             <label for="lead-seconds">字幕提前显示（秒）</label>
             <input id="lead-seconds" type="number" min="0" max="5" step="0.1" value="1.8">
             <div id="manage-list" class="song-list"></div>
+          </details>
+          <details class="advanced" id="played-panel">
+            <summary>↻ 已唱歌曲（下一首重唱）</summary>
+            <div id="played-list" class="song-list"></div>
           </details>
         </section>
         <section class="panel full-width" id="event-settings-panel">
