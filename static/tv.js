@@ -18,7 +18,13 @@ async function api(path,method="GET",body=null){
   if(!response.ok)throw Error(result.detail||"请求失败");
   return result;
 }
-function fail(e){error.textContent=e.message||String(e);status.textContent="连接异常，正在重试";}
+function fail(e){
+  const message=e.message||String(e);
+  if(message.includes("手动投屏")) {
+    error.textContent="";status.textContent="当前使用手动投屏，请在管理后台切歌";return;
+  }
+  error.textContent=message;status.textContent="连接异常，正在重试";
+}
 async function next(){
   if(inFlight||!started||activeId!==null)return;
   inFlight=true;
