@@ -59,6 +59,26 @@ function appendText(parent, tag, text, cls="") {
   parent.append(el);
   return el;
 }
+function preparationStatus(song) {
+  const stages={
+    queued:"等待字幕制作",extract:"提取音频",kim:"分离人声",
+    align:"语音对齐",subtitles:"生成字幕",render:"烧录字幕"
+  };
+  const states={
+    pending:"◷ 等待下载",downloading:"◷ 下载原片中",
+    downloaded:song.lyric_selected?"◷ 等待字幕制作":"◷ 等待歌词",
+    original:song.skip_subtitles?"✓ 使用原片":"! 字幕失败",
+    unavailable:"! 下载失败",done:"✓ 视频已就绪",manual:"✓ 视频已就绪"
+  };
+  if(song.prep_state==="aligning")return "◷ "+(stages[song.prep_stage]||"制作字幕中");
+  return states[song.prep_state]||"◷ 准备中";
+}
+function addDownload(parent,song) {
+  if(!song.downloadable)return;
+  const link=appendText(parent,"a",song.prep_state==="original"?"↓ 下载原片":"↓ 下载视频","mini download-link");
+  link.href="/api/songs/"+song.id+"/download";
+  link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
+}
 function makeSong(song, order, mode="guest") {
   const outer = document.createElement("div");outer.className="song-item";
   appendText(outer,"span",String(order),"ordinal");
@@ -71,15 +91,7 @@ function makeSong(song, order, mode="guest") {
     pick.onclick=()=>guarded(()=>openLyricPicker(song.id,song.title,song.lyric_query),pick);
   }
   if(mode==="status"){
-    const states={
-      pending:"◷ 等待下载",downloading:"↓ 下载中",
-      downloaded:"◷ 等待歌词",aligning:"◷ 字幕制作中",done:"✓ 已准备",
-      original:"! 字幕失败",unavailable:"! 下载失败",manual:"✓ 已准备"
-    };
-    const status=song.awaiting_subtitles
-      ? (song.prep_state==="original"?"! 字幕失败":
-         !song.lyric_selected?"◷ 等待歌词":"◷ 等待字幕")
-      : (states[song.prep_state]||"◷ 准备中");
+    const status=preparationStatus(song);
     const stateLabel=appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
     if(song.prep_error)stateLabel.title=song.prep_error;
     if(song.prep_state==="unavailable"){
@@ -157,13 +169,11 @@ function makeSong(song, order, mode="guest") {
     },cancel);
     }
   }else{
-    const status=song.awaiting_subtitles
-      ? (song.prep_state==="original"?"! 字幕失败":
-         song.lyric_selected?"◷ 等待字幕":"◷ 请选择歌词")
-      : song.status==="ready"?"✓ 可播放":
-        song.prep_state==="unavailable"?"! 暂不可用":"◷ 准备中";
+    const status=song.status==="ready"&&!song.awaiting_subtitles?
+      "✓ 可播放":preparationStatus(song);
     appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
   }
+  addDownload(outer,song);
   return outer;
 }
 function fillList(id, songs, mode="guest") {
@@ -578,6 +588,7 @@ async function refresh(){
           if(state.current){
             appendText(current,"strong",state.current.title);
             appendText(current,"small","点歌者："+state.current.nickname);
+            addDownload(current,state.current);
           }else appendText(current,"p","当前空闲，等待管理员开始播放");
         }
       }else{

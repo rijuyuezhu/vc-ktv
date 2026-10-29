@@ -354,9 +354,19 @@ class Store:
             ready.remove(chosen)
         return output
 
+    @staticmethod
+    def downloadable(song):
+        return (
+            song["status"] in ("ready", "playing")
+            and song["prep_state"] in ("done", "manual", "original")
+            and bool(song.get("has_media") or song.get("media_file"))
+        )
+
     def state(self):
         with self.lock:
             pool = self.songs()
+            for song in pool:
+                song["downloadable"] = self.downloadable(song)
             settings = self.settings()
             return {
                 "current": next((s for s in pool if s["status"] == "playing"), None),
@@ -1454,6 +1464,38 @@ def create_app(
             if cur.rowcount == 0:
                 bail(409, "只能取消尚未播放的歌曲")
         return {"ok": True}
+
+    @app.get("/api/songs/{song_id}/download")
+    def download_song(
+        song_id: int,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        if not events.active_id:
+            bail(404, "当前没有活动场次")
+        if read_signed(vc_admin, "admin") != "yes":
+            require_user(vc_guest)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT title,status,prep_state,media_file FROM songs WHERE id=?",
+                (song_id,),
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            if not Store.downloadable(dict(row)):
+                bail(409, "视频尚未准备好")
+            file = store.media / Path(row["media_file"]).name
+            if not file.is_file():
+                bail(404, "媒体文件缺失")
+        title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
+        title = title.strip(" ._")[:48] or "video"
+        return FileResponse(
+            file,
+            media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
+            filename=f"vc-ktv-{song_id}-{title}{file.suffix}",
+            content_disposition_type="attachment",
+            headers={"Cache-Control": "private, no-store"},
+        )
 
     @app.get("/media/{song_id}")
     def serve_media(song_id: int, token: str = ""):

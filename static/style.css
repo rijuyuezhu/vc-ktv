@@ -214,3 +214,10 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .style-preview.large > span:first-child { color: #ffe45e; }
 .style-preview.compact { font-size: 16px; }
 .style-preview.compact .style-preview-second { display: none; }
+
+.download-link { display: inline-block; white-space: nowrap; flex-shrink: 0; text-decoration: none; }
+.download-hint { margin: 13px 0 0; font-size: 11px; }
+@media (max-width: 760px) {
+  .song-item { flex-wrap: wrap; }
+  .song-copy { flex-basis: 58%; }
+}
