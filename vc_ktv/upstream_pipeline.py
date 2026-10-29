@@ -7,6 +7,7 @@ the event lifecycle and final media commit.
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -66,6 +67,7 @@ def make_karaoke_video(
     progress: Callable[[str], None] | None = None,
     style: Style | None = None,
     render_options: RenderOptions | None = None,
+    mode: str = "quality",
 ) -> PipelineResult:
     """Use the full upstream Kim → Qwen ASR → bounded TIFA → ASS/MP4 pipeline.
 
@@ -84,9 +86,12 @@ def make_karaoke_video(
     ):
         raise ValueError("制作目录不能覆盖原视频所在路径")
     work_dir.mkdir(parents=True, exist_ok=False)
+    if mode not in ("quality", "fast"):
+        raise ValueError("mode must be quality or fast")
     style = style or Style(font="Noto Sans CJK SC", mode="double", auto_complete=True)
     render_options = render_options or RenderOptions()
     emit = progress or (lambda message: None)
+    started = time.monotonic()
     status = {"status": "running", "stage": "extract"}
     metadata_path = work_dir / "run.json"
 
@@ -105,23 +110,38 @@ def make_karaoke_video(
         (work_dir / "confirmed_lyrics.txt").write_text(
             confirmed_lyrics, encoding="utf-8"
         )
-        stage("kim", "Kim 分离用于推理的人声")
-        audio, evidence = prepare_alignment_audio(
-            source, work_dir / "audio.wav", info, work_dir, "kim", settings, emit
-        )
-        stage("align", "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐")
-        timeline = align_reliable_blocks(
-            audio,
-            lines,
-            info["duration"],
-            info["audio_offset"],
-            work_dir / "alignment",
-            settings,
-            emit,
-            max_input_seconds=90,
-        )
+        if mode == "fast":
+            from ktv_app.aligners.fast import align_fast
+
+            stage("align", "Fast Mode：原音频识别、粗定位与分段 TIFA")
+            timeline = align_fast(
+                work_dir / "audio.wav",
+                lines,
+                info["duration"],
+                info["audio_offset"],
+                work_dir / "alignment",
+                settings,
+                emit,
+            )
+            timeline.diagnostics["alignment_audio"] = {"source": "original_audio"}
+        else:
+            stage("kim", "Kim 分离用于推理的人声")
+            audio, evidence = prepare_alignment_audio(
+                source, work_dir / "audio.wav", info, work_dir, "kim", settings, emit
+            )
+            stage("align", "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐")
+            timeline = align_reliable_blocks(
+                audio,
+                lines,
+                info["duration"],
+                info["audio_offset"],
+                work_dir / "alignment",
+                settings,
+                emit,
+                max_input_seconds=90,
+            )
+            timeline.diagnostics["alignment_audio"] = evidence
         timeline.origin = info["audio_offset"]
-        timeline.diagnostics["alignment_audio"] = evidence
         # Upstream's formal chain discards any old generated estimates before
         # bounded completion and records new estimated provenance explicitly.
         timeline = complete_timeline(remove_estimates(timeline), rolling=True)
@@ -129,7 +149,21 @@ def make_karaoke_video(
         bundle = work_dir / "subtitles"
         write_bundle(timeline, style, bundle)
         stage("render", "将字幕烧录到保留原始音轨的 MP4")
-        final = render(source, bundle, info, settings, render_options, "karaoke.mp4")
+        if mode == "fast" and time.monotonic() - started >= 179:
+            raise TimeoutError("Fast Mode 已耗尽三分钟预算，停止渲染")
+        final = render(
+            source,
+            bundle,
+            info,
+            settings,
+            render_options,
+            "karaoke.mp4",
+            **(
+                {"timeout_s": max(1, 180 - (time.monotonic() - started))}
+                if mode == "fast"
+                else {}
+            ),
+        )
         if not final.is_file() or final.stat().st_size == 0:
             raise RuntimeError("字幕视频未生成")
         result = PipelineResult(

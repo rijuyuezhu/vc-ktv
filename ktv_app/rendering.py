@@ -34,7 +34,7 @@ def video_filename(song, artist, video):
     return name + "_KTV.mp4"
 
 
-def render(video, bundle, info, settings, options, output_name=None):
+def render(video, bundle, info, settings, options, output_name=None, *, timeout_s=1800):
     folder = Path(bundle).resolve()
     target = folder / (output_name or video_filename("", "", video))
     if target.parent != folder or target.suffix.lower() != ".mp4":
@@ -79,5 +79,5 @@ def render(video, bundle, info, settings, options, output_name=None):
         "+faststart",
         target,
     ]
-    run(cmd, log=folder / "render.log", cwd=folder)
+    run(cmd, log=folder / "render.log", cwd=folder, timeout=timeout_s)
     return target

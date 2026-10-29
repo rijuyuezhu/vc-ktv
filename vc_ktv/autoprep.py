@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
@@ -108,6 +109,9 @@ def render_upstream_video(
     # AutoPrep owns a new attempt directory; the pipeline owns its own
     # isolated child directory and does not mutate the original source.
     options = {"style": preset_style(preset)}
+    mode = os.environ.get("VC_KTV_PIPELINE_MODE", "quality")
+    if mode != "quality":
+        options["mode"] = mode
     if progress is not None:
         options["progress"] = progress
     result = make_karaoke_video(
