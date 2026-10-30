@@ -127,6 +127,7 @@ def test_password_reset_and_revocation_invalidate_cookie_and_tv_immediately(tmp_
             ).status_code
             == 409
         )
+        assert event_login(first, password="x" * 1000).status_code == 401
         assert event_login(first).status_code == 200
         tv_old = first.get("/api/admin/tv-link").json()["url"].split("token=")[1]
         assert first.get("/api/tv/state", params={"token": tv_old}).status_code == 200

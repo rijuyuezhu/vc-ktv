@@ -20,6 +20,7 @@ let lyricHits = 0;
 let currentEventId = null;
 let archiveListKey = null;
 let settingsEventId = null;
+let adminAccountsEventId = null;
 const player = $("player");
 
 
@@ -584,7 +585,13 @@ async function refreshEvents(){
   $("event-create-fields").classList.toggle("hidden",!!active||data.role!=="global");
   $("event-close-btn").classList.toggle("hidden",!active);
   $("event-settings-panel").classList.toggle("hidden",!active);
-  $("admin-accounts-panel").classList.toggle("hidden",!active||data.role!=="global");
+  const canManageAccounts=Boolean(active&&data.role==="global");
+  $("admin-accounts-panel").classList.toggle("hidden",!canManageAccounts);
+  if(adminAccountsEventId!==(canManageAccounts?active.id:null)){
+    adminAccountsEventId=canManageAccounts?active.id:null;
+    $("admin-account-list").replaceChildren();
+    if(canManageAccounts&&$("admin-accounts-panel").open)await refreshAdminAccounts();
+  }
   $("admin-role").textContent=data.role==="global"?"全局管理员":
     "本场管理员："+(data.username||"");
 

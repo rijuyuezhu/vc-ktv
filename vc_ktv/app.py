@@ -1205,7 +1205,11 @@ def create_app(
                     "SELECT id,password_hash,revision FROM event_admins WHERE username=?",
                     (body.username.strip(),),
                 ).fetchone()
-                if account and verify_password(body.password, account["password_hash"]):
+                if (
+                    account
+                    and len(body.password) <= 72
+                    and verify_password(body.password, account["password_hash"])
+                ):
                     identity = (
                         f"{events.active_id}:{account['id']}:{account['revision']}"
                     )
