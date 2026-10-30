@@ -113,7 +113,7 @@ function makeSong(song, order, mode="row") {
   appendText(outer,"span",String(order),"ordinal");
   const copy = document.createElement("div");copy.className="song-copy";outer.append(copy);
   appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:"")+
-    (song.priority_next?"  ↻ 下一首重唱":""));
+    (song.priority_next?(song.replay_of?"  ↻ 下一首重唱":"  ↥ 下一首播放"):""));
   appendText(copy,"small",`${song.nickname}  ${duration(song.duration)}  ${song.uploader}`);
   if(mode==="row" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
     const detail=appendText(outer,"button","详情 / 取消","mini");
@@ -198,6 +198,18 @@ function makeSong(song, order, mode="row") {
       },render);
     }else if(song.status==="rendering"){
       appendText(actions,"span","制作中","status wait");
+    }
+    if(song.status==="ready" && song.playable){
+      if(song.priority_next){
+        appendText(actions,"span","✓ 已设为下一首","status");
+      }else{
+        const pin=appendText(actions,"button","↥ 下一首播放","mini");
+        pin.title="当前歌曲播放完后优先播放本首，不会打断当前播放";
+        pin.onclick=()=>guarded(async()=>{
+          await api(`/api/admin/songs/${song.id}/pin-next`,"POST");
+          toast("✓ 已安排为下一首");await refresh();
+        },pin);
+      }
     }
     if(["waiting","ready","rendering"].includes(song.status)){
       const cancel=appendText(actions,"button","✕ 取消点歌","mini");
