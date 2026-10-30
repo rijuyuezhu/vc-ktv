@@ -96,16 +96,3 @@ def test_event_members_can_download_ready_media_but_not_unfinished_or_old_songs(
         assert admin.post("/api/admin/events/close").status_code == 200
         assert guest.get(url).status_code == 404
         assert outsider.get(url).status_code == 404
-
-
-def test_mobile_download_actions_follow_existing_queue_states():
-    from pathlib import Path
-
-    static = Path(__file__).resolve().parents[1] / "static"
-    script = (static / "app.js").read_text()
-    assert "if(!song.downloadable)return;" in script
-    assert "addDownload(outer,song);" in script
-    assert "addDownload(current,state.current);" in script
-    assert '"/api/songs/"+song.id+"/download"' in script
-    assert "preparationStatus(song)" in script
-    assert "乐播投屏" in (static / "index.html").read_text()

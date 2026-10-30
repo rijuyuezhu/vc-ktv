@@ -136,7 +136,6 @@
           <p id="playing-title" class="muted">当前没有正在播放的歌曲。</p>
           <div id="manual-controls" class="hidden">
             <p id="manual-instruction" class="muted">下载视频后投屏，唱完点完成。</p>
-            <a id="manual-download" class="btn primary wide hidden" href="#" download>↓ 下载当前歌曲</a>
           </div>
           <button id="tv-link-btn" class="btn neutral wide" type="button">▣ 打开电视播放页</button>
 
@@ -148,16 +147,6 @@
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">☷</span> 队列管理</h2></div>
 
           <div id="manage-status" class="song-list"></div>
-          <details class="advanced" id="admin-advanced">
-            <summary>⚙ 更多操作</summary>
-            <label for="lead-seconds">字幕提前显示（秒）</label>
-            <input id="lead-seconds" type="number" min="0" max="5" step="0.1" value="1.8">
-            <div id="manage-list" class="song-list"></div>
-          </details>
-          <details class="advanced" id="played-panel">
-            <summary>↻ 已唱歌曲（下一首重唱）</summary>
-            <div id="played-list" class="song-list"></div>
-          </details>
         </section>
         <section class="panel full-width" id="event-settings-panel">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">⚙</span> 本场设置</h2></div>
