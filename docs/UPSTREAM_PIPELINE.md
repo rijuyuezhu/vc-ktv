@@ -1,35 +1,9 @@
-# Upstream karaoke pipeline adoption (#26–#29)
+# 上游字幕引擎
 
-## Source and status
+VC KTV 复用并修改 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) 的模型调用、字幕生成和渲染模块。固定上游版本为 `39cedb317c9e11add83e9a72c31368cabd8416d4`，许可与修改记录见 [third_party/autoassrenderer](../third_party/autoassrenderer/README.md)。请保留该目录及其归属、许可证文件。
 
-Source: [Volta233/AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) at **39cedb317c9e11add83e9a72c31368cabd8416d4**, Apache-2.0. The upstream attribution and full license are in [third_party/autoassrenderer](../third_party/autoassrenderer/README.md). The model checkpoints and Python environments are **not bundled**; their licensing and Linux ARM64/CUDA setup are handled separately in #28.
+`ktv_app/` 存放改造的上游核心代码，`vc_ktv/upstream_pipeline.py` 是 VC KTV 的调用边界。场次、权限、队列、媒体文件持久化仍由 `vc_ktv/` 管理，不能让上游引擎直接修改活动数据库。
 
-**#27 ported the engine, #28 validated real Kim/Qwen/TIFA on Spark-WSL, and #29 switches AutoPrep to this pipeline.** The active production service is *not* changed by Git merging: deploying must be separately approved. Manual TextGrid import and administrator-triggered render use their explicit legacy manual code, not an automatic fallback.
+默认 `global-kim` 模式通过 Kim + 整首 TIFA 生成字幕；`quality` 和 `fast` 是保留的可选对比模式，具体策略见 [AUTOPREP.md](AUTOPREP.md)。模型权重及 CUDA 环境不在仓库中，完整运行需配置 [Spark-WSL](SPARK_WSL_PIPELINE.md)。
 
-## Files and interface
-
-The copied upstream modules are grouped in top-level `ktv_app/` with original imports: separation, independent model workers, ASR location, verified safe block planning, TIFA, seam recovery, source word ownership, estimated completion, ASS subtitles and FFmpeg rendering. Its project manager, web UI, backend and Windows installer are **not** included. The #36 lyric-source extension also vendors the upstream's `lyric_names.py`, `lyric_netease.py`, `lyric_sources.py`, and `web_search.py` to supply *candidate lyrics*, while VC KTV still controls user selection. `ktv_app/lyrics.py` contains only the upstream lyric-preprocessing functions, to preserve ordering and original display text while using VC KTV's existing lyric selection.
-
-`vc_ktv/upstream_pipeline.py:make_karaoke_video(source, confirmed_lyrics, work_dir, settings, *, progress=..., style=..., render_options=...)` is the single entry point. It performs:
-
-1. upstream `media.extract`, including original audio offset and media metadata;
-2. upstream `lyrics.preprocess` on the confirmed user lyrics, keeping original display text and repeated lines;
-3. upstream Kim vocals for **inference**, not for output;
-4. upstream `align_reliable_blocks` (dual ASR, safe **≤90-second** TIFA blocks, local retries);
-5. upstream `complete_timeline` with explicit model/estimated provenance;
-6. upstream `write_bundle` to make ASS, LRC, JSON timeline and report;
-7. upstream `render` using the **original video's audio**, preserving audio streams.
-
-The caller must pass a brand-new attempt directory and explicit `ktv_app.config.Settings`; the adapter returns `PipelineResult` paths for the output MP4, ASS, timeline, report and run metadata. Attempts write `run.json` on success and failure. It does not know the VC KTV database or event IDs. #29 owns event-store pinning, download retries, readiness gating and final-media commit. While a model job is active, event close refuses to switch stores; the worker never touches the next event's data.
-
-`ktv_app/config.py` still has **upstream default model paths**. #28 should create Settings with real Spark-WSL paths and package-specific Python environments instead of modifying vendored algorithms or using Windows binaries. No CUDA library import or model download occurs when importing this engine.
-
-## Tests
-
-- Copied upstream algorithm tests under `tests/upstream/`: safe block planning, repeated choruses, ASR anchoring, normalization/source mapping, partial completion and model diagnostics. Omitted upstream API/project-database tests: they depend on the excluded second web application.
-- VC KTV adapter tests exercise the *real* FFmpeg source-video → subtitle MP4 path with mocked Kim/TIFA workers; assert lyric fidelity, sound-track bitstream preservation, fresh directories and explicit failure metadata.
-- CI and local tests run without GPU or model weights. **Passing these does not mean Kim/Qwen/TIFA have run together on Spark-WSL**; #28 must run the full model chain on a small, authorized input and retain its logs.
-
-Avoid rewriting upstream algorithms unless necessary for ARM64 compatibility or a reproducible issue. Preserve the pinned source commit when comparing future upstream fixes.
-
-Product boundaries, source coverage and deferred admin style presets are recorded in [UPSTREAM_SCOPE_DECISIONS.md](UPSTREAM_SCOPE_DECISIONS.md).
+`tests/upstream/` 主要测试字幕时间轴、归属和多种模型回退边界；这些测试无需 GPU。真实长歌曲、音视频一致性和设备播放仍需实机验收。

@@ -18,6 +18,7 @@ let lyricControllers = [];
 let lyricKeys = new Set();
 let lyricHits = 0;
 let currentEventId = null;
+let leadSeconds = 1.8;
 let archiveListKey = null;
 let settingsEventId = null;
 let adminAccountsEventId = null;
@@ -181,8 +182,7 @@ function makeSong(song, order, mode="row") {
     }
     if(song.status==="ready" && song.prep_state!=="aligning"){
       const render=appendText(actions,"button","手工制作 KTV","mini");render.onclick=()=>guarded(async()=>{
-        const lead=Number($("lead-seconds").value);
-        await api(`/api/admin/songs/${song.id}/render`,"POST",{lead});
+        await api(`/api/admin/songs/${song.id}/render`,"POST",{lead:leadSeconds});
         toast("◷ 正在制作字幕");await refresh();
       },render);
     }else if(song.status==="rendering"){
@@ -295,9 +295,8 @@ async function refreshSongDetail(){
     const lead=document.createElement("input");
     lead.id="detail-lead-seconds";
     lead.type="number";lead.min="0";lead.max="5";lead.step="0.1";
-    lead.value=$("lead-seconds").value;
-    lead.setAttribute("aria-label","提前秒数");
-    lead.oninput=()=>{$("lead-seconds").value=lead.value;};
+    lead.value=String(leadSeconds);
+    lead.oninput=()=>{leadSeconds=Number(lead.value);};
     extras.append(lead);
   }
   if(isAdminPath()&&song.prep_error){
@@ -540,9 +539,6 @@ $("show-user-login").onclick=()=>{
 $("show-user-register").onclick=()=>{
   $("auth-login").classList.add("hidden");$("auth-register").classList.remove("hidden");
 };
-$("admin-advanced").addEventListener("toggle",()=>{
-  if($("admin-advanced").open){adminStateKey=null;refresh();}
-});
 $("login-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/login","POST",{
     username:$("admin-username").value.trim()||null,
@@ -586,8 +582,6 @@ function updatePlaybackUI(){
   $("start-btn").textContent=manualMode?"▶ 领取下一首":"▶ 开始播放";
   $("finish-btn").textContent=manualMode?"✓ 唱完并切下一首":"✓ 唱完";
   $("skip-btn").textContent=manualMode?"跳过并切下一首":"跳过";
-  // The primary top download link serves both playback modes.
-  $("manual-download").classList.add("hidden");
 }
 $("playback-mode").onchange=()=>guarded(async()=>{
   const mode=$("playback-mode").value;
@@ -602,28 +596,6 @@ $("playback-mode").onchange=()=>guarded(async()=>{
   }
 },$("playback-mode"));
 
-async function refreshPlayed(){
-  if(!$("played-panel").open)return;
-  const data=await api("/api/admin/played");
-  const panel=$("played-list");panel.replaceChildren();
-  if(!data.songs.length){appendText(panel,"div","本场还没有唱完的歌曲","empty");return;}
-  for(const song of data.songs){
-    const item=document.createElement("div");item.className="song-item";
-    const copy=document.createElement("div");copy.className="song-copy";
-    appendText(copy,"strong",song.title);
-    appendText(copy,"small",song.nickname+"  "+new Date(song.played_at*1000).toLocaleTimeString());
-    const button=appendText(item,"button","↻ 下一首重唱","mini");
-    button.onclick=()=>guarded(async()=>{
-      if(!confirm("把这首已唱歌曲安排为下一首？"))return;
-      await api("/api/admin/songs/"+song.id+"/replay","POST");
-      toast("✓ 已加入队列，将优先播放");
-      await refresh();await refreshPlayed();
-    },button);
-    item.prepend(copy);panel.append(item);
-  }
-}
-$("played-panel").addEventListener("toggle",()=>guarded(refreshPlayed));
-
 async function playNext(){
   const data=await api("/api/admin/next","POST");
   if(!data.active){ toast("当前没有已准备好的歌曲");await refresh();return; }
@@ -636,7 +608,6 @@ async function assignPlayer(active, start){
   if(manualMode){
     currentMediaId=active.id;
     $("playing-title").textContent="当前歌曲："+active.title+"  "+active.nickname;
-    $("manual-download").href="/api/songs/"+active.id+"/download";
     updatePlaybackUI();
     return;
   }
@@ -663,7 +634,6 @@ async function finishActive(reason, auto){
   updatePlaybackUI();
   if(auto && $("autoplay").checked && !manualMode)await playNext();
   else await refresh();
-  if($("played-panel").open)await refreshPlayed();
   return true;
 }
 player.addEventListener("ended",()=>{if(!manualMode)guarded(()=>finishActive("completed",true));});

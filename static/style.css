@@ -153,11 +153,8 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 #event-create-fields #event-code { flex: 1 1 170px; }
 #event-join-code { color: var(--accent-ink); font-weight: 700; }
 
-.auth-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
-.auth-grid h3 { margin: 6px 0 12px; }
 #guest-profile { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #guest-greeting { font-weight: 650; }
-@media (max-width: 760px) { .auth-grid { grid-template-columns: 1fr; } }
 
 .settings-fields { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; margin-bottom: 12px; }
 .settings-fields > div { flex: 1 1 260px; }
@@ -227,8 +224,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .mode-select-row select { flex: 1; }
 #manual-controls { margin-top: 12px; }
 #manual-instruction { margin-bottom: 7px; }
-#manual-download { display: block; text-align: center; font-size: 16px; text-decoration: none; padding: 15px; }
-#played-list .song-copy strong { white-space: normal; }
 
 /* Per-event admin account controls stay usable on narrow screens. */
 #admin-account-list input { flex: 1 1 200px; width: auto; }
@@ -259,7 +254,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .song-open { cursor: pointer; min-height: 56px; }
 .song-open:hover, .song-open:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
 .song-open .song-copy { overflow: hidden; }
-#admin-advanced, #played-panel { display: none; }
 .song-detail-panel { display: grid; gap: 15px; }
 .detail-download { display: block; padding: 15px; text-align: center; font-size: 17px; font-weight: 700; }
 .song-detail-panel .song-item { flex-wrap: wrap; }
