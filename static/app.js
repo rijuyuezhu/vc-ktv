@@ -556,13 +556,16 @@ async function refreshEvents(){
     settingsEventId=active.id;
     $("queue-policy").value=settings.queue_policy;
     $("subtitle-style").value=settings.subtitle_style;
+    $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
   }else if(document.activeElement!==$("queue-policy")&&
            document.activeElement!==$("allow-unsubtitled")&&
            document.activeElement!==$("subtitle-style")&&
+           document.activeElement!==$("video-quality")&&
            document.activeElement!==$("settings-save-btn")){
     $("queue-policy").value=settings.queue_policy;
     $("subtitle-style").value=settings.subtitle_style;
+    $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
   }
   updateStylePreview();
@@ -575,7 +578,8 @@ $("settings-save-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/settings","PUT",{
     queue_policy:$("queue-policy").value,
     allow_unsubtitled:$("allow-unsubtitled").checked,
-    subtitle_style:$("subtitle-style").value
+    subtitle_style:$("subtitle-style").value,
+    video_quality:Number($("video-quality").value)
   });
   adminStateKey=null;
   listKeys.clear();

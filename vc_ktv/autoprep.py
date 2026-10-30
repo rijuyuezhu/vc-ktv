@@ -20,7 +20,7 @@ import threading
 import time
 from pathlib import Path
 
-from .bilibili_media import public_media_download
+from .bilibili_media import QUALITY_HEIGHTS, public_media_download
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .upstream_pipeline import make_karaoke_video, spark_settings
 
@@ -52,9 +52,13 @@ def title_key(name: str) -> str:
     )[0].strip()
 
 
-def media_download(bvid: str, page: int, directory: Path) -> Path:
+def media_download(
+    bvid: str, page: int, directory: Path, *, max_height: int = 720
+) -> Path:
+    if max_height not in QUALITY_HEIGHTS:
+        raise ValueError("不支持的清晰度")
     output = directory / "source.%(ext)s"
-    cmd = [
+    args = [
         sys.executable,
         "-m",
         "yt_dlp",
@@ -70,29 +74,56 @@ def media_download(bvid: str, page: int, directory: Path) -> Path:
         "2",
         "--max-filesize",
         "512M",
-        "-f",
-        "bv[height<=720][ext=mp4]+ba[ext=m4a]/bv[height<=720]+ba/best[height<=720]/best",
-        "--merge-output-format",
-        "mp4",
-        "-o",
-        str(output),
-        f"https://www.bilibili.com/video/{bvid}/?p={page}",
     ]
-    process = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    if process.returncode != 0:
-        error = (process.stderr[-400:] or process.stdout[-400:]).strip()
-        log.warning(
-            "yt-dlp failed for %s p%s: %s; trying public API", bvid, page, error
+    # Try higher quality first. If the stream itself fails, retry a lower
+    # ceiling, not merely a lower format when a format is unavailable.
+    for height in (height for height in QUALITY_HEIGHTS if height <= max_height):
+        for old in directory.glob("source.*"):
+            old.unlink(missing_ok=True)
+        selection = (
+            f"bv[height<={height}][ext=mp4]+ba[ext=m4a]/"
+            f"bv[height<={height}]+ba/best[height<={height}]"
         )
-        return public_media_download(bvid, page, directory)
-    matches = [
-        p for p in directory.glob("source.*") if p.suffix in (".mp4", ".webm", ".m4v")
-    ]
-    if len(matches) != 1:
-        raise RuntimeError("下载后缺少唯一的视频文件")
-    if matches[0].stat().st_size > 512 * 1024 * 1024:
-        raise RuntimeError("视频超过媒体大小限制")
-    return matches[0]
+        try:
+            result = subprocess.run(
+                [
+                    *args,
+                    "-f",
+                    selection,
+                    "--merge-output-format",
+                    "mp4",
+                    "-o",
+                    str(output),
+                    f"https://www.bilibili.com/video/{bvid}/?p={page}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=1800,  # External download watchdog, not a 3-min quality limit.
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("yt-dlp %sp timed out for %s p%s", height, bvid, page)
+            continue
+        if result.returncode:
+            log.warning(
+                "yt-dlp <=%sp failed for %s p%s: %s",
+                height,
+                bvid,
+                page,
+                (result.stderr[-300:] or result.stdout[-300:]).strip(),
+            )
+            continue
+        matches = [
+            p
+            for p in directory.glob("source.*")
+            if p.suffix in (".mp4", ".webm", ".m4v")
+        ]
+        if len(matches) == 1 and 0 < matches[0].stat().st_size <= 512 * 1024 * 1024:
+            return matches[0]
+        log.warning("yt-dlp <=%sp yielded no valid media for %s", height, bvid)
+    log.warning(
+        "yt-dlp exhausted quality fallbacks for %s p%s; using public API", bvid, page
+    )
+    return public_media_download(bvid, page, directory, max_height=max_height)
 
 
 def render_upstream_video(
@@ -195,6 +226,8 @@ class AutoPrep:
             if row:
                 self.busy.set()
                 claimed = dict(row)
+                if row["status"] == "waiting":
+                    claimed["video_quality"] = self.store.settings()["video_quality"]
                 if row["status"] == "ready":
                     # Snapshot under the same Store lock as the claim: changing
                     # admin settings cannot affect an already running attempt.
@@ -254,7 +287,15 @@ class AutoPrep:
         with tempfile.TemporaryDirectory(
             prefix=f"vc-ktv-{song_id}-", dir=self.store.root
         ) as tmp:
-            path = self.download(row["bvid"], row["page"], Path(tmp))
+            if self.download is media_download:
+                path = self.download(
+                    row["bvid"],
+                    row["page"],
+                    Path(tmp),
+                    max_height=row["video_quality"],
+                )
+            else:
+                path = self.download(row["bvid"], row["page"], Path(tmp))
             actual_duration = self.probe(path)
             target = (
                 self.store.media

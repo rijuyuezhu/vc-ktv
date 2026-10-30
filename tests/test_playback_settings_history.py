@@ -73,6 +73,7 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
             "queue_policy": "fair",
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
+            "video_quality": 720,
         }
         store = app.state.store
         original = add_song(store, "A", 1, "downloaded")
@@ -192,6 +193,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
             "queue_policy": "fair",
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
+            "video_quality": 720,
         }
     reopened = create_app(
         root=root,
@@ -204,6 +206,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         "queue_policy": "fair",
         "allow_unsubtitled": False,
         "subtitle_style": "classic",
+        "video_quality": 720,
     }
     with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
         assert dict(
@@ -274,3 +277,67 @@ def test_export_archives_unicode_repeats_and_legacy(tmp_path):
         exported = admin.get("/api/admin/events/legacy/songs.csv")
         assert exported.status_code == 200
         assert "BV0000000001" in exported.text
+
+
+def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
+    app = app_for_policy(tmp_path)
+    app.state.events.create("first", "000001")
+    with TestClient(app) as admin, TestClient(app) as guest:
+        admin_login(admin)
+        assert admin.get("/api/admin/settings").json()["video_quality"] == 720
+        assert (
+            guest.put(
+                "/api/admin/settings",
+                json={
+                    "queue_policy": "fair",
+                    "allow_unsubtitled": False,
+                    "video_quality": 480,
+                },
+            ).status_code
+            == 401
+        )
+        assert (
+            admin.put(
+                "/api/admin/settings",
+                json={
+                    "queue_policy": "fair",
+                    "allow_unsubtitled": False,
+                    "video_quality": 1080,
+                },
+            ).status_code
+            == 422
+        )
+        result = admin.put(
+            "/api/admin/settings",
+            json={
+                "queue_policy": "fair",
+                "allow_unsubtitled": False,
+                "video_quality": 480,
+            },
+        )
+        assert result.status_code == 200
+        assert result.json()["video_quality"] == 480
+        # Old clients updating unrelated settings must not reset quality.
+        assert (
+            admin.put(
+                "/api/admin/settings",
+                json={
+                    "queue_policy": "fcfs",
+                    "allow_unsubtitled": True,
+                },
+            ).status_code
+            == 200
+        )
+        assert admin.get("/api/admin/settings").json()["video_quality"] == 480
+        assert admin.post("/api/admin/events/close").status_code == 200
+        assert (
+            admin.post(
+                "/api/admin/events",
+                json={
+                    "name": "next",
+                    "code": "000002",
+                },
+            ).status_code
+            == 200
+        )
+        assert admin.get("/api/admin/settings").json()["video_quality"] == 720
