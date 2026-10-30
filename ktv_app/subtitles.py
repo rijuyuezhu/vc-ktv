@@ -306,6 +306,19 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else "未匹配不会阻止输出；完全未定位的行不出现在视频中，部分未定位文字保持未唱颜色。原始时间轴与完整歌词均已保存。"
         ),
     }
+    if source_timeline.diagnostics.get("best_effort"):
+        report["best_effort"] = source_timeline.diagnostics["best_effort"]
+    if source_timeline.diagnostics.get("fallback_attempts"):
+        report["fallback_attempts"] = source_timeline.diagnostics["fallback_attempts"]
+    report["alignment_quality"] = (
+        "rough"
+        if source_timeline.diagnostics.get("pipeline") == "last_resort_rough_timing"
+        else "repaired"
+        if source_timeline.diagnostics.get("best_effort")
+        else "phonetic_approx"
+        if source_timeline.diagnostics.get("approximate_pronunciation")
+        else "model"
+    )
     (folder / "export_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
     )

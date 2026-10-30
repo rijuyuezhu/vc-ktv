@@ -72,3 +72,15 @@ cd /path/to/vc-ktv
 ### 实歌对照（隔离实验，非客观准确率验证）
 
 《霜雪千年》241 秒，34 行/480 字：直接整首 TIFA 对齐约 13.4 秒，第 1 行起点 2.08 秒、第 19 行 43.53 秒；Kim + 整首 TIFA 约 87 秒（包括约 57 秒分离），第 1 行起点 14.90 秒、第 19 行 6.28 秒，但第 22 行仍接近 30 秒、尾段有短句。两种模式均不能仅根据 `TextGrid` 的完整性断言音画准确。A/B 原始数据见 Spark-WSL `~/.local/share/vc-ktv-pipeline-staging/benchmarks/20261030-global-tifa-regression/`。生产试听时须用「重试字幕」重新对齐已完成的歌曲，已生成的旧成片不会自动改动。
+
+### 自动对齐 best effort（Issue #61）
+
+TIFA 默认会略去 zero-width 音素，导致整首歌词偶尔缺少一个或多个字。自动制作在 strict TextGrid 验证失败且属于文字不匹配时，保留原始 `audio.TextGrid`，用确认歌词与 TIFA 输出的有序文本进行局部对照，生成独立 `repaired.TextGrid` 并再次严格验证文字、时长和序列，保留 `best_effort` 差异诊断。缺字依附相邻真实模型时间区间，而不重新推理或重排整首歌；仍继续制作字幕视频。人工导入 TextGrid 的严格校验不改变。不能把缺字当成整首失败；有疑点的字幕可继续试听校正。
+
+针对旧场次 `BV1yVQFBNEPn`《太阳是什么颜色》进行隔离实机回归（2026-10-30）：44 行歌词，9 处 `DUDUDU`/`DUDUDUDU`/`DaLaDa` 发音映射全部保留，Kim+整首 TIFA 约 71.7 秒成功导出全部 44 行时间轴。原生 500 个规范化字中漏了「诺」「恣」2 字，best-effort 仅修补 2 个区间。第 34/36 行有 0.38/31.56 秒时长异常，说明声学精度仍需试听；**但不再将该异常或局部文字遗漏升级为整首字幕失败**。原始音频、TextGrid、修复版和报告保存在 `~/.local/share/vc-ktv-pipeline-staging/benchmarks/20261030-best-effort-scat-BV1yVQFBNEPn/`。
+
+### 自动字幕可用性兜底（Issue #61 扩展）
+
+对生产 `global-kim` 和 `global` 模式贯彻 best effort：首先尝试 Kim（如果选中）和整首 TIFA；Kim 不可用则以原混合音频直接执行 TIFA；文本少量缺漏则利用原始 TextGrid 锚点进行单字/局部修复，并把受影响单元标记为 `estimated`；如果未知拉丁字母拟声词（如 BIBIBI、BAPABAPA）引起 TIFA/G2P 失败，保持**原样展示歌词**，只在对齐输入中采用“啦”音节通用近似后重跑一次。若 TIFA 仍失败，则估计人声音量区间，将完整歌词按顺序、长度权重分配到粗时间轴，继续渲染视频。粗时间轴所有单元标记为 `estimated`，报告的 `alignment_quality` 设置为 `rough`；仅局部修复为 `repaired`，使用通用拟声词的 TIFA 为 `phonetic_approx`，正常完整 TIFA 为 `model`。错误和回退步骤保存 `fallback_report.json`，原片、原始模型输出、诊断文件都保留。
+
+这不是声学准确率保证，尤其整首歌词均匀估算的粗时间轴仅能保证字幕存在、文字完整、顺序正确，无法保证对应演唱秒数。在可播放原视频和确认歌词有效的前提下，优先交付能试听的带字幕 MP4，而不是因不认识拟声词或某个字的漏识别直接宣布失败。人工上传 TextGrid 的严格验证仍不改变。

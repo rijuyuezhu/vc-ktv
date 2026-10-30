@@ -110,35 +110,80 @@ def make_karaoke_video(
         )
         if mode in ("global", "global-kim"):
             from .global_alignment import align_full_song
+            from .rough_timing import approximate_timeline
 
             align_audio = source
+            failures = []
+            timeline_audio = {"source": "original_audio"}
             if mode == "global-kim":
                 stage("kim", "Kim 分离用于推理的人声")
-                align_audio, evidence = prepare_alignment_audio(
-                    source,
-                    work_dir / "audio.wav",
-                    info,
-                    work_dir,
-                    "kim",
+                try:
+                    align_audio, timeline_audio = prepare_alignment_audio(
+                        source,
+                        work_dir / "audio.wav",
+                        info,
+                        work_dir,
+                        "kim",
+                        settings,
+                        lambda message: emit(
+                            message.replace("开始 ASR", "开始整首 TIFA").replace(
+                                "进入歌词识别", "进入整首 TIFA"
+                            )
+                        ),
+                    )
+                except Exception as error:
+                    failures.append({"stage": "kim", "error": str(error)[:350]})
+                    emit("人声分离不可用，尝试直接对原音频做整首歌词对齐")
+            stage("align", "整首 TIFA 对齐完整歌词")
+            try:
+                timeline = align_full_song(
+                    align_audio,
+                    confirmed_lyrics,
+                    info["duration"],
+                    info["audio_offset"],
+                    work_dir / "alignment",
                     settings,
-                    lambda message: emit(
-                        message.replace("开始 ASR", "开始整首 TIFA").replace(
-                            "进入歌词识别", "进入整首 TIFA"
-                        )
-                    ),
                 )
-                timeline_audio = evidence
-            else:
-                timeline_audio = {"source": "original_audio"}
-            stage("align", "整首 TIFA 对齐完整歌词（不分块、不估算）")
-            timeline = align_full_song(
-                align_audio,
-                confirmed_lyrics,
-                info["duration"],
-                info["audio_offset"],
-                work_dir / "alignment",
-                settings,
-            )
+            except Exception as error:
+                failures.append({"stage": "tifa", "error": str(error)[:350]})
+                timeline = None
+                # Keep the original lyrics intact; on unknown Latin syllables
+                # retry TIFA with a safe, approximate Mandarin vocalization.
+                if any(char.isascii() and char.isalpha() for char in confirmed_lyrics):
+                    emit("整首 TIFA 对齐受阻，尝试拟声词通用发音映射")
+                    try:
+                        timeline = align_full_song(
+                            align_audio,
+                            confirmed_lyrics,
+                            info["duration"],
+                            info["audio_offset"],
+                            work_dir / "alignment-vocables",
+                            settings,
+                            unknown_vocables=True,
+                        )
+                    except Exception as retry_error:
+                        failures.append(
+                            {
+                                "stage": "tifa-vocables",
+                                "error": str(retry_error)[:350],
+                            }
+                        )
+                if timeline is None:
+                    emit("TIFA 无法完整对齐，改用粗时间轴保留全部歌词")
+                    timeline = approximate_timeline(
+                        confirmed_lyrics,
+                        info["duration"],
+                        audio=align_audio
+                        if Path(align_audio).suffix.lower() == ".wav"
+                        else work_dir / "audio.wav",
+                        reason=failures[-1]["error"],
+                    )
+            if failures:
+                timeline.diagnostics["fallback_attempts"] = failures
+                (work_dir / "fallback_report.json").write_text(
+                    json.dumps(failures, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
             timeline.diagnostics["alignment_audio"] = timeline_audio
         elif mode == "fast":
             from ktv_app.aligners.fast import align_fast
@@ -177,8 +222,17 @@ def make_karaoke_video(
         if mode not in ("global", "global-kim"):
             timeline = complete_timeline(remove_estimates(timeline), rolling=True)
         else:
-            # No rolled estimates or inferred timings in the restored pipeline.
-            style = style.model_copy(update={"auto_complete": False})
+            # Full-song mode never runs rolling completion. Display original
+            # model timings, with any local best-effort label repair recorded.
+            style = style.model_copy(
+                update={
+                    "auto_complete": bool(
+                        timeline.diagnostics.get("best_effort")
+                        or timeline.diagnostics.get("pipeline")
+                        == "last_resort_rough_timing"
+                    )
+                }
+            )
         stage("subtitles", "生成 ASS、LRC 与时间轴记录")
         bundle = work_dir / "subtitles"
         write_bundle(timeline, style, bundle)
