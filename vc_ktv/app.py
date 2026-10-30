@@ -1162,12 +1162,45 @@ def create_app(
                 "downloaded" if current["status"] == "ready" else current["prep_state"]
             )
             store.db.execute(
-                "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,prep_error='' "
-                "WHERE id=?",
+                "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,"
+                "skip_subtitles=0,prep_stage='queued',prep_error='' WHERE id=?",
                 (lyrics, source, next_state, song_id),
             )
             store.db.commit()
         return {"ok": True, "id": song_id, "status": next_state}
+
+    @app.post("/api/songs/{song_id}/lyrics/skip")
+    def guest_skip_lyrics(song_id: int, vc_guest: str | None = Cookie(default=None)):
+        song = own_song(song_id, vc_guest)
+        with store.lock:
+            current = store.db.execute(
+                "SELECT status,prep_state,prep_stage,source_file FROM songs WHERE id=? AND requester=?",
+                (song_id, song["requester"]),
+            ).fetchone()
+            if not current or current["status"] not in ("waiting", "ready"):
+                bail(409, "只能对尚未播放的歌曲选择原片")
+            ready = current["status"] == "ready"
+            if (
+                ready
+                and not (
+                    store.media / Path(current["source_file"] or "").name
+                ).is_file()
+            ):
+                bail(409, "原视频尚未准备好")
+            store.db.execute(
+                "UPDATE songs SET skip_subtitles=1,lyric_choice='',lyric_source='',"
+                "media_file=CASE WHEN ? THEN source_file ELSE media_file END,"
+                "prep_state=?,prep_stage=?,prep_stage_at=?,prep_error='' WHERE id=?",
+                (
+                    ready,
+                    "original" if ready else current["prep_state"],
+                    "skipped" if ready else current["prep_stage"],
+                    time_now(),
+                    song_id,
+                ),
+            )
+            store.db.commit()
+        return {"ok": True, "id": song_id, "source": "original"}
 
     @app.get("/api/songs/{song_id}/lyrics/candidates")
     async def guest_lyric_candidates(

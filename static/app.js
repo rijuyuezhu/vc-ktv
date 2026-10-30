@@ -122,7 +122,7 @@ function makeSong(song, order, mode="row") {
   }
   if(mode==="guest" && song.mine && ["ready","waiting"].includes(song.status) &&
      song.prep_state!=="aligning"){
-    const pick=appendText(outer,"button",song.lyric_selected?"♫ 换歌词":"♫ 选歌词","mini lyric-pick");
+    const pick=appendText(outer,"button",song.skip_subtitles?"♫ 改选歌词":(song.lyric_selected?"♫ 换歌词":"♫ 选歌词"),"mini lyric-pick");
     pick.onclick=()=>guarded(()=>openLyricPicker(song.id,song.title,song.lyric_query),pick);
   }
   if(mode==="guest" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
@@ -460,6 +460,14 @@ async function searchMoreLyrics(){
 $("guest-lyrics-dialog").addEventListener("close",()=>{
   selectingSongId=null;selectionRequest++;abortLyricRequests();
 });
+$("guest-lyrics-skip").onclick=()=>guarded(async()=>{
+  const songId=selectingSongId;
+  if(songId===null)return;
+  await api(`/api/songs/${songId}/lyrics/skip`,"POST");
+  $("guest-lyrics-dialog").close();
+  toast("✓ 已选择使用原片，不制作字幕");
+  await refresh();
+},$("guest-lyrics-skip"));
 $("guest-lyrics-cancel").onclick=()=>guarded(()=>cancelGuestSong(selectingSongId),$("guest-lyrics-cancel"));
 $("guest-lyrics-upload").onchange=()=>guarded(async()=>{
   const input=$("guest-lyrics-upload"), file=input.files[0], songId=selectingSongId;
