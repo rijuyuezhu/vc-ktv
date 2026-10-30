@@ -765,17 +765,20 @@ async function refreshEvents(){
     $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
     $("compact-video").checked=settings.compact_video;
+    $("pause-orders").checked=settings.orders_paused;
   }else if(document.activeElement!==$("queue-policy")&&
            document.activeElement!==$("allow-unsubtitled")&&
            document.activeElement!==$("subtitle-style")&&
            document.activeElement!==$("video-quality")&&
            document.activeElement!==$("compact-video")&&
+           document.activeElement!==$("pause-orders")&&
            document.activeElement!==$("settings-save-btn")){
     $("queue-policy").value=settings.queue_policy;
     $("subtitle-style").value=settings.subtitle_style;
     $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
     $("compact-video").checked=settings.compact_video;
+    $("pause-orders").checked=settings.orders_paused;
   }
   updateStylePreview();
 }
@@ -789,7 +792,8 @@ $("settings-save-btn").onclick=()=>guarded(async()=>{
     allow_unsubtitled:$("allow-unsubtitled").checked,
     subtitle_style:$("subtitle-style").value,
     video_quality:Number($("video-quality").value),
-    compact_video:$("compact-video").checked
+    compact_video:$("compact-video").checked,
+    orders_paused:$("pause-orders").checked
   });
   adminStateKey=null;
   listKeys.clear();
