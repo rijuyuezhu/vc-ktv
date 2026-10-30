@@ -214,6 +214,14 @@ class Store:
                 password_hash TEXT NOT NULL,
                 revision INTEGER NOT NULL DEFAULT 1);
         """)
+        # Scheduling offsets are deliberately separate from real performance
+        # statistics: late arrivals must not appear to have sung before joining.
+        guest_columns = {row[1] for row in self.db.execute("PRAGMA table_info(guests)")}
+        for name in ("fair_offset", "fair_seconds"):
+            if name not in guest_columns:
+                self.db.execute(
+                    f"ALTER TABLE guests ADD COLUMN {name} INTEGER NOT NULL DEFAULT 0"
+                )
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(songs)")}
         if "source_file" not in columns:
             self.db.execute("ALTER TABLE songs ADD COLUMN source_file TEXT")
@@ -377,7 +385,10 @@ class Store:
             return priority + ready  # songs() already orders by requested_at/id.
         users = {x["id"]: x for x in self.rows("SELECT * FROM guests")}
         # Simulate future turns so the displayed order reflects selection policy.
-        tally = {k: (u["plays"], u["seconds"]) for k, u in users.items()}
+        tally = {
+            k: (u["plays"] + u["fair_offset"], u["seconds"] + u["fair_seconds"])
+            for k, u in users.items()
+        }
         last = self.db.execute(
             "SELECT value FROM room_state WHERE name='last_requester'"
         ).fetchone()
@@ -795,8 +806,23 @@ def create_app(
             require_entry(vc_join)
             event_id = events.active_id
             try:
+                # Give newcomers the highest existing *effective* turn count.
+                # Include the tie-break seconds, otherwise a zero-second new
+                # user would unfairly beat existing guests with equal turns.
+                effective = [
+                    (u["plays"] + u["fair_offset"], u["seconds"] + u["fair_seconds"])
+                    for u in store.rows(
+                        "SELECT plays,seconds,fair_offset,fair_seconds FROM guests"
+                    )
+                ]
+                baseline = max((count for count, _ in effective), default=0)
+                baseline_seconds = max(
+                    (seconds for count, seconds in effective if count == baseline),
+                    default=0,
+                )
                 store.db.execute(
-                    "INSERT INTO guests(id,name) VALUES (?,?)", (user_id, name)
+                    "INSERT INTO guests(id,name,fair_offset,fair_seconds) VALUES (?,?,?,?)",
+                    (user_id, name, baseline, baseline_seconds),
                 )
                 store.db.execute(
                     "INSERT INTO users(id,username,password_hash) VALUES (?,?,?)",
