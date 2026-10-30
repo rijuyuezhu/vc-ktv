@@ -37,3 +37,7 @@
 ## 模型路径
 
 Kim、Qwen 和 TIFA 的权重、源码及运行时统一存放在 `~/.local/share/vc-ktv/pipeline/`，不引用仓库下的 `.runtime` 或早期的 `vc-ktv-pipeline-staging`。环境与权重由独立安装命令准备。生产现有 systemd 配置若显式设置 `VC_KTV_PIPELINE_MODE=global-kim`，合并 PR 后仍需另行审核并切换为 `quality`，不能在开发时重启生产。
+
+## 并行处理（实验性）
+
+`VC_KTV_PREP_WORKERS=2` 可以启用两个 AutoPrep 工作者（默认 `1`，仍是串行）。每个待处理歌曲独立占用一套模型推理进程和中间目录。数据库中的领取与状态更新仍由同一场次锁保护；每首歌会执行完整 Kim、双遍 Qwen3-ASR、全部非空 ASR 窗口 TIFA、分块与接缝修复，不采用跳过窗口或降低精度的捷径。活动任务未结束时仍禁止关闭场次。由于多路 GPU 任务可能争抢 CPU、显存带宽与模型算力，仅在经过原始数据 A/B 并确认吞吐提升、结果完整后启用；此 PR 不修改生产配置。
