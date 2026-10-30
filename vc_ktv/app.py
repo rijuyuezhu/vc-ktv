@@ -395,7 +395,7 @@ class Store:
         if settings is None:
             settings = self.settings()
         ready = [s for s in pool if self.playable(s, settings)]
-        # Admin priority replay always goes immediately next, in request order.
+        # The single admin-selected next song precedes ordinary fair/FCFS ordering.
         priority = [s for s in ready if s["priority_next"]]
         ready = [s for s in ready if not s["priority_next"]]
         if settings["queue_policy"] == "fcfs":
@@ -1746,6 +1746,25 @@ def create_app(
                 )
             }
 
+    @app.post("/api/admin/songs/{song_id}/pin-next")
+    def pin_next_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            song = next((s for s in store.songs() if s["id"] == song_id), None)
+            if not song:
+                if not store.db.execute(
+                    "SELECT 1 FROM songs WHERE id=?", (song_id,)
+                ).fetchone():
+                    bail(404, "歌曲不存在")
+                bail(409, "只能置顶尚未播放且已可播放的歌曲")
+            if not store.playable(song, store.settings()):
+                bail(409, "歌曲尚未准备好，不能安排为下一首")
+            # A single next-song slot: replacing an earlier pin or replay is atomic.
+            store.db.execute("UPDATE songs SET priority_next=0 WHERE priority_next=1")
+            store.db.execute("UPDATE songs SET priority_next=1 WHERE id=?", (song_id,))
+            store.db.commit()
+        return {"ok": True, "id": song_id, "priority_next": True}
+
     @app.post("/api/admin/songs/{song_id}/replay")
     def replay_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
@@ -1773,6 +1792,9 @@ def create_app(
             # Unique hard links isolate later per-song edits without copying MP4 bytes.
             links = []
             try:
+                store.db.execute(
+                    "UPDATE songs SET priority_next=0 WHERE priority_next=1"
+                )
                 cur = store.db.execute(
                     """INSERT INTO songs(
                         bvid,page,title,uploader,cover,duration,requester,requested_at,
@@ -1935,6 +1957,7 @@ def create_app(
                 song["stage_seconds"] = {}
             song["mine"] = bool(guest and guest["id"] == song["requester_id"])
             song["downloadable"] = Store.downloadable(song)
+            song["playable"] = Store.playable(song, store.settings())
             song["lyric_query"] = title_key(song["title"])
             return song
 

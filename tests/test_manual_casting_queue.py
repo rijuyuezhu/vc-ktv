@@ -293,3 +293,130 @@ def test_playback_mode_persists_in_event_and_new_event_defaults_to_browser(tmp_p
         new_event = admin.post("/api/admin/events", json={"name": "新场次"})
         assert new_event.status_code == 200
         assert admin.get("/api/admin/state").json()["playback_mode"] == "browser"
+
+
+def test_admin_pin_next_overrides_fair_and_fcfs_without_interrupting(tmp_path):
+    app = new_app(tmp_path)
+    with TestClient(app) as admin, TestClient(app) as singer:
+        join_and_register(singer, "Singer")
+        assert (
+            admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
+            == 200
+        )
+        user_id = app.state.store.db.execute(
+            "SELECT id FROM users WHERE username='Singer'"
+        ).fetchone()[0]
+        store = app.state.store
+        first = add_song(store, user_id, media="first.mp4", time=1)
+        second = add_song(store, user_id, media="second.mp4", time=2)
+        third = add_song(store, user_id, media="third.mp4", time=3)
+        unfinished = add_song(store, user_id, status="waiting", prep="pending", time=4)
+        no_subtitle = add_song(store, user_id, prep="aligning", media="raw.mp4", time=5)
+        played = add_song(store, user_id, status="played", media="played.mp4", time=6)
+        cancelled = add_song(
+            store, user_id, status="cancelled", media="cancelled.mp4", time=7
+        )
+
+        pin = lambda client, song: client.post(f"/api/admin/songs/{song}/pin-next")
+        assert pin(singer, third).status_code == 401
+        assert pin(admin, 987654).status_code == 404
+        for not_ready in (unfinished, no_subtitle, played, cancelled):
+            assert pin(admin, not_ready).status_code == 409
+        assert admin.get(f"/api/songs/{third}/detail").json()["playable"] is True
+        assert admin.get(f"/api/songs/{unfinished}/detail").json()["playable"] is False
+
+        # The active song remains active, while the chosen song takes the next slot.
+        assert admin.post("/api/admin/next").json()["active"]["id"] == first
+        assert pin(admin, first).status_code == 409
+        assert pin(admin, third).json()["priority_next"] is True
+        assert admin.post("/api/admin/next").json()["active"]["id"] == first
+        assert [r["id"] for r in admin.get("/api/state").json()["queue"]] == [
+            third,
+            second,
+        ]
+        assert pin(admin, second).status_code == 200
+        assert [r["id"] for r in admin.get("/api/state").json()["queue"]] == [
+            second,
+            third,
+        ]
+        assert (
+            store.db.execute(
+                "SELECT COUNT(*) FROM songs WHERE priority_next=1"
+            ).fetchone()[0]
+            == 1
+        )
+        assert pin(admin, second).status_code == 200  # idempotent
+
+        assert (
+            admin.put(
+                "/api/admin/settings",
+                json={"queue_policy": "fcfs", "allow_unsubtitled": False},
+            ).status_code
+            == 200
+        )
+        assert [r["id"] for r in admin.get("/api/state").json()["queue"]] == [
+            second,
+            third,
+        ]
+        assert (
+            admin.post("/api/admin/finish", json={"song_id": first}).status_code == 200
+        )
+        assert admin.post("/api/admin/next").json()["active"]["id"] == second
+        assert (
+            store.db.execute(
+                "SELECT priority_next FROM songs WHERE id=?", (second,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert pin(admin, second).status_code == 409
+
+        # The current room settings can intentionally allow the original video next.
+        assert (
+            admin.put(
+                "/api/admin/settings",
+                json={"queue_policy": "fair", "allow_unsubtitled": True},
+            ).status_code
+            == 200
+        )
+        assert pin(admin, no_subtitle).status_code == 200
+        assert admin.get("/api/state").json()["queue"][0]["id"] == no_subtitle
+
+
+def test_admin_replay_and_pin_share_one_next_slot(tmp_path):
+    app = new_app(tmp_path)
+    with TestClient(app) as admin, TestClient(app) as singer:
+        join_and_register(singer, "Singer")
+        assert (
+            admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
+            == 200
+        )
+        user_id = app.state.store.db.execute(
+            "SELECT id FROM users WHERE username='Singer'"
+        ).fetchone()[0]
+        store = app.state.store
+        already_played = add_song(
+            store, user_id, status="played", media="old.mp4", time=1
+        )
+        first = add_song(store, user_id, media="first.mp4", time=2)
+        second = add_song(store, user_id, media="second.mp4", time=3)
+        assert admin.post(f"/api/admin/songs/{first}/pin-next").status_code == 200
+        replay = admin.post(f"/api/admin/songs/{already_played}/replay")
+        assert replay.status_code == 200
+        replay_id = replay.json()["id"]
+        assert [s["id"] for s in admin.get("/api/state").json()["queue"]] == [
+            replay_id,
+            first,
+            second,
+        ]
+        assert admin.post(f"/api/admin/songs/{second}/pin-next").status_code == 200
+        assert [s["id"] for s in admin.get("/api/state").json()["queue"]] == [
+            second,
+            first,
+            replay_id,
+        ]
+        assert (
+            store.db.execute(
+                "SELECT COUNT(*) FROM songs WHERE priority_next=1"
+            ).fetchone()[0]
+            == 1
+        )
