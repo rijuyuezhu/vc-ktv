@@ -21,6 +21,7 @@ let currentEventId = null;
 let archiveListKey = null;
 let settingsEventId = null;
 let adminAccountsEventId = null;
+let adminCurrentEvent = null;
 let guestAuthenticated = false;
 let detailKey = null;
 let playedKey = null;
@@ -92,6 +93,8 @@ function makeSong(song, order, mode="row") {
     outer.setAttribute("aria-label","详情："+song.title);
     outer.onclick=()=>{window.location.hash="song-"+song.id;};
     outer.onkeydown=(e)=>{
+      // A focused download link retains its own native keyboard action.
+      if(e.target!==outer)return;
       if(e.key==="Enter"||e.key===" "){e.preventDefault();outer.click();}
     };
   }
@@ -239,7 +242,9 @@ async function refreshSongDetail(){
   }
   detailKey=key;
   $("subpage-back").href=song.status==="played"?"#played":"#";
-  const target=$("page-song");target.replaceChildren();
+  const target=$("page-song");
+  const timingWasOpen=Boolean(target.querySelector(".timing-details")?.open);
+  target.replaceChildren();
   const panel=appendText(target,"section","","panel song-detail-panel");
   appendText(panel,"h2",song.title);
   appendText(panel,"small",song.nickname+"  "+duration(song.duration),"muted");
@@ -255,6 +260,8 @@ async function refreshSongDetail(){
     const running=["downloading","aligning"].includes(song.prep_state);
     if(entries.length||running){
       const details=appendText(panel,"details","");
+      details.className="timing-details";
+      details.open=timingWasOpen;
       appendText(details,"summary","处理耗时");
       for(const [key,label] of entries){
         const line=appendText(details,"div","","timing-row");
@@ -283,7 +290,15 @@ async function refreshSongDetail(){
   if(isAdminPath()&&song.status==="ready"){
     const extras=appendText(panel,"details","");
     appendText(extras,"summary","手工字幕参数");
-    extras.append($("lead-seconds"));
+    const label=appendText(extras,"label","提前秒数");
+    label.htmlFor="detail-lead-seconds";
+    const lead=document.createElement("input");
+    lead.id="detail-lead-seconds";
+    lead.type="number";lead.min="0";lead.max="5";lead.step="0.1";
+    lead.value=$("lead-seconds").value;
+    lead.setAttribute("aria-label","提前秒数");
+    lead.oninput=()=>{$("lead-seconds").value=lead.value;};
+    extras.append(lead);
   }
   if(isAdminPath()&&song.prep_error){
     const details=appendText(panel,"details","");
@@ -571,7 +586,8 @@ function updatePlaybackUI(){
   $("start-btn").textContent=manualMode?"▶ 领取下一首":"▶ 开始播放";
   $("finish-btn").textContent=manualMode?"✓ 唱完并切下一首":"✓ 唱完";
   $("skip-btn").textContent=manualMode?"跳过并切下一首":"跳过";
-  $("manual-download").classList.toggle("hidden",!manualMode||!currentMediaId);
+  // The primary top download link serves both playback modes.
+  $("manual-download").classList.add("hidden");
 }
 $("playback-mode").onchange=()=>guarded(async()=>{
   const mode=$("playback-mode").value;
@@ -735,6 +751,10 @@ $("admin-account-create").onclick=()=>guarded(async()=>{
 },$("admin-account-create"));
 async function refreshEvents(){
   const data=await api("/api/admin/events");
+  if(adminCurrentEvent!==data.active){
+    adminCurrentEvent=data.active;
+    detailKey=null;playedKey=null;
+  }
   const active=data.events.find(e=>e.id===data.active);
   $("event-status").textContent=active?"♫ "+active.name:"尚未创建场次";
   $("event-join-code").textContent=active&&!active.legacy?"加入码  "+active.code:"";
@@ -824,6 +844,7 @@ $("event-close-btn").onclick=()=>guarded(async()=>{
 
 function renderEntry(entry){
   if(entry.event?.id!==currentEventId){
+    detailKey=null;playedKey=null;
     currentEventId=entry.event?.id||null;
     $("join-code").value="";
     $("auth-login").classList.add("hidden");
@@ -919,7 +940,7 @@ async function refresh(){
         updatePlaybackUI();
         if(key!==adminStateKey){
           adminStateKey=key;
-          const pending=[...adm.waiting,...adm.queue];
+          const pending=[...adm.queue,...adm.waiting];
           fillList("manage-status",pending,"status");
           // All song operations live in the full-page song detail.
 

@@ -121,6 +121,7 @@
         </section>
         <section class="panel">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">▶</span> 播放控制</h2><button id="logout-btn" class="btn subtle">↪ 退出</button></div>
+          <a id="current-song-download" class="btn primary wide hidden" href="#">↓ 下载当前视频</a>
           <div class="mode-select-row">
             <label for="playback-mode">播放方式</label>
             <select id="playback-mode">
@@ -128,14 +129,13 @@
               <option value="manual">手动投屏（乐播相册）</option>
             </select>
           </div>
-          <a id="current-song-download" class="btn primary wide hidden" href="#">↓ 下载当前视频</a>
           <div class="player-shell" id="browser-player">
             <video id="player" playsinline controls preload="metadata"></video>
             <div id="player-empty">等待下一首</div>
           </div>
           <p id="playing-title" class="muted">当前没有正在播放的歌曲。</p>
           <div id="manual-controls" class="hidden">
-            <p id="manual-instruction" class="muted">领取下一首后下载 MP4，在乐播的相册或本地视频里播放；播放结束后手动确认唱完或跳过。</p>
+            <p id="manual-instruction" class="muted">下载视频后投屏，唱完点完成。</p>
             <a id="manual-download" class="btn primary wide hidden" href="#" download>↓ 下载当前歌曲</a>
           </div>
           <button id="tv-link-btn" class="btn neutral wide" type="button">▣ 打开电视播放页</button>

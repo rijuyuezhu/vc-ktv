@@ -165,3 +165,20 @@ def test_song_rows_open_full_page_detail_and_guest_played_downloads():
     assert "api(`/api/songs/${id}/detail`)" in js
     assert "detail-download" in js
     assert '/api/songs/"+song.id+"/cancel' in js
+
+
+def test_song_detail_cold_review_keeps_keyboard_and_manual_controls_safe():
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parents[1] / "static"
+    html = (static / "index.html").read_text(encoding="utf-8")
+    js = (static / "app.js").read_text(encoding="utf-8")
+    assert "if(e.target!==outer)return;" in js
+    assert 'extras.append($("lead-seconds"))' not in js
+    assert 'lead.oninput=()=>{$("lead-seconds").value=lead.value;}' in js
+    assert "const timingWasOpen=Boolean(" in js
+    assert "details.open=timingWasOpen" in js
+    assert js.count('$("manual-download").classList.add("hidden")') == 1
+    assert html.count('id="current-song-download"') == 1
+    assert html.index('id="current-song-download"') < html.index('id="playback-mode"')
+    assert "const pending=[...adm.queue,...adm.waiting]" in js
