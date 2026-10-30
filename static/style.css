@@ -229,3 +229,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 #manual-instruction { margin-bottom: 7px; }
 #manual-download { display: block; text-align: center; font-size: 16px; text-decoration: none; padding: 15px; }
 #played-list .song-copy strong { white-space: normal; }
+
+/* Per-event admin account controls stay usable on narrow screens. */
+#admin-account-list input { flex: 1 1 200px; width: auto; }

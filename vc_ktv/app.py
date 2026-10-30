@@ -77,6 +77,16 @@ class GuestLyricChoice(BaseModel):
 
 class Login(BaseModel):
     password: str
+    username: str | None = None
+
+
+class EventAdminCredentials(BaseModel):
+    username: str = Field(min_length=1, max_length=24)
+    password: str = Field(min_length=6, max_length=72)
+
+
+class EventAdminPassword(BaseModel):
+    password: str = Field(min_length=6, max_length=72)
 
 
 class PlaybackSettings(BaseModel):
@@ -196,6 +206,11 @@ class Store:
                 played_at INTEGER);
             CREATE TABLE IF NOT EXISTS room_state(
                 name TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS event_admins(
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1);
         """)
         columns = {row[1] for row in self.db.execute("PRAGMA table_info(songs)")}
         if "source_file" not in columns:
@@ -604,9 +619,43 @@ def create_app(
             path="/",
         )
 
+    def admin_principal(token):
+        """Validate scope and current account revision on every request."""
+        identity = read_signed(token, "admin")
+        if identity == "yes":
+            return {"role": "global"}
+        if not identity or not events.active_id:
+            return None
+        parts = identity.split(":")
+        if len(parts) != 3 or parts[0] != events.active_id:
+            return None
+        event_id, account_id, revision = parts
+        with store.lock:
+            row = store.db.execute(
+                "SELECT id,username,revision FROM event_admins WHERE id=?",
+                (account_id,),
+            ).fetchone()
+        if row is None or str(row["revision"]) != revision:
+            return None
+        return {
+            "role": "event",
+            "event_id": event_id,
+            "id": account_id,
+            "username": row["username"],
+            "revision": row["revision"],
+        }
+
     def require_admin(token):
-        if read_signed(token, "admin") != "yes":
+        principal = admin_principal(token)
+        if principal is None:
             bail(401, "需要管理员登录")
+        return principal
+
+    def require_global_admin(token):
+        principal = require_admin(token)
+        if principal["role"] != "global":
+            bail(403, "仅全局管理员可操作")
+        return principal
 
     def signed_media(song: dict) -> str:
         return f"/media/{song['id']}?token={quote(sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
@@ -804,12 +853,21 @@ def create_app(
 
     @app.get("/api/admin/events")
     def list_events(vc_admin: str | None = Cookie(default=None)):
-        require_admin(vc_admin)
-        return {"active": events.active_id, "events": events.list()}
+        principal = require_admin(vc_admin)
+        return {
+            "active": events.active_id,
+            "events": events.list()
+            if principal["role"] == "global"
+            else [events.metadata()],
+            "role": principal["role"],
+            "username": principal.get("username"),
+        }
 
     @app.get("/api/admin/events/{event_id}/songs.csv")
     def export_event_songs(event_id: str, vc_admin: str | None = Cookie(default=None)):
-        require_admin(vc_admin)
+        principal = require_admin(vc_admin)
+        if principal["role"] == "event" and event_id != events.active_id:
+            bail(403, "无权查看其他场次历史")
         with events.lock:
             path = events.database_path(event_id)
             with sqlite3.connect(
@@ -853,7 +911,7 @@ def create_app(
     @app.post("/api/admin/events")
     def create_event(body: EventCreate, vc_admin: str | None = Cookie(default=None)):
         nonlocal worker
-        require_admin(vc_admin)
+        require_global_admin(vc_admin)
         with events.lock:
             entry = events.create(body.name, body.code)
             worker = AutoPrep(events.active(), probe_media)
@@ -908,7 +966,7 @@ def create_app(
                 "server_time": time_now(),
             }
         guest = None
-        if read_signed(vc_admin, "admin") != "yes":
+        if admin_principal(vc_admin) is None:
             guest = require_user(vc_guest)["id"]
         snapshot = store.state()
         for song in [*snapshot["queue"], *snapshot["waiting"]]:
@@ -1068,20 +1126,101 @@ def create_app(
             store.db.commit()
         return {"ok": True, "id": song_id, "status": next_state}
 
+    @app.get("/api/admin/accounts")
+    def list_event_admins(vc_admin: str | None = Cookie(default=None)):
+        require_global_admin(vc_admin)
+        with store.lock:
+            return {
+                "accounts": store.rows(
+                    "SELECT id,username FROM event_admins ORDER BY username COLLATE NOCASE"
+                )
+            }
+
+    @app.post("/api/admin/accounts", status_code=201)
+    def create_event_admin(
+        body: EventAdminCredentials, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_global_admin(vc_admin)
+        username = body.username.strip()
+        if not username:
+            bail(422, "管理员用户名不能为空")
+        hashed = password_hash(body.password)
+        with store.lock:
+            account_id = secrets.token_hex(16)
+            try:
+                store.db.execute(
+                    "INSERT INTO event_admins(id,username,password_hash) VALUES(?,?,?)",
+                    (account_id, username, hashed),
+                )
+                store.db.commit()
+            except sqlite3.IntegrityError:
+                bail(409, "本场管理员用户名已存在")
+        return {"id": account_id, "username": username}
+
+    @app.put("/api/admin/accounts/{account_id}/password")
+    def reset_event_admin_password(
+        account_id: str,
+        body: EventAdminPassword,
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        require_global_admin(vc_admin)
+        hashed = password_hash(body.password)
+        with store.lock:
+            updated = store.db.execute(
+                "UPDATE event_admins SET password_hash=?,revision=revision+1 WHERE id=?",
+                (hashed, account_id),
+            )
+            store.db.commit()
+        if not updated.rowcount:
+            bail(404, "管理员账号不存在")
+        return {"ok": True}
+
+    @app.delete("/api/admin/accounts/{account_id}")
+    def revoke_event_admin(
+        account_id: str, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_global_admin(vc_admin)
+        with store.lock:
+            deleted = store.db.execute(
+                "DELETE FROM event_admins WHERE id=?", (account_id,)
+            )
+            store.db.commit()
+        if not deleted.rowcount:
+            bail(404, "管理员账号不存在")
+        return {"ok": True}
+
     @app.post("/api/admin/login")
     def login(body: Login, request: Request, response: Response):
         ip = request.client.host if request.client else "unknown"
         recent = [t for t in failed_login.get(ip, []) if t > time_now() - 300]
         if len(recent) >= 10:
             bail(429, "登录尝试过于频繁，请稍后重试")
-        if not hmac.compare_digest(body.password, password):
+        identity = None
+        if body.username is None or not body.username.strip():
+            if hmac.compare_digest(body.password, password):
+                identity = "yes"
+        elif events.active_id:
+            with store.lock:
+                account = store.db.execute(
+                    "SELECT id,password_hash,revision FROM event_admins WHERE username=?",
+                    (body.username.strip(),),
+                ).fetchone()
+                if (
+                    account
+                    and len(body.password) <= 72
+                    and verify_password(body.password, account["password_hash"])
+                ):
+                    identity = (
+                        f"{events.active_id}:{account['id']}:{account['revision']}"
+                    )
+        if identity is None:
             recent.append(time_now())
             failed_login[ip] = recent
-            bail(401, "密码错误")
+            bail(401, "用户名或密码错误")
         failed_login.pop(ip, None)
         response.set_cookie(
             "vc_admin",
-            sign("admin", "yes", 7 * 86400),
+            sign("admin", identity, 7 * 86400),
             max_age=7 * 86400,
             httponly=True,
             samesite="strict",
@@ -1566,14 +1705,31 @@ def create_app(
         return finish_impl(body)
 
     def require_tv(token: str):
-        if read_signed(token, "tv") != events.active_id or not events.active_id:
+        identity = read_signed(token, "tv")
+        if not identity or not events.active_id:
+            bail(401, "电视端链接已过期，请管理员重新打开")
+        if identity in (events.active_id, f"{events.active_id}:global"):
+            return  # Existing global-admin TV links remain valid until expiry.
+        parts = identity.split(":")
+        if len(parts) != 4 or parts[:2] != [events.active_id, "event"]:
+            bail(401, "电视端链接已过期，请管理员重新打开")
+        with store.lock:
+            account = store.db.execute(
+                "SELECT revision FROM event_admins WHERE id=?", (parts[2],)
+            ).fetchone()
+        if not account or str(account["revision"]) != parts[3]:
             bail(401, "电视端链接已过期，请管理员重新打开")
 
     @app.get("/api/admin/tv-link")
     def tv_link(vc_admin: str | None = Cookie(default=None)):
-        require_admin(vc_admin)
+        principal = require_admin(vc_admin)
         events.active()
-        return {"url": "/tv.html?token=" + sign("tv", events.active_id, 8 * 3600)}
+        identity = (
+            f"{events.active_id}:global"
+            if principal["role"] == "global"
+            else f"{events.active_id}:event:{principal['id']}:{principal['revision']}"
+        )
+        return {"url": "/tv.html?token=" + sign("tv", identity, 8 * 3600)}
 
     @app.get("/api/tv/state")
     def tv_state(token: str):
@@ -1638,7 +1794,7 @@ def create_app(
     ):
         if not events.active_id:
             bail(404, "当前没有活动场次")
-        if read_signed(vc_admin, "admin") != "yes":
+        if admin_principal(vc_admin) is None:
             require_user(vc_guest)
         with store.lock:
             row = store.db.execute(

@@ -20,6 +20,7 @@ let lyricHits = 0;
 let currentEventId = null;
 let archiveListKey = null;
 let settingsEventId = null;
+let adminAccountsEventId = null;
 const player = $("player");
 
 
@@ -372,10 +373,15 @@ $("admin-advanced").addEventListener("toggle",()=>{
   if($("admin-advanced").open){adminStateKey=null;refresh();}
 });
 $("login-btn").onclick=()=>guarded(async()=>{
-  await api("/api/admin/login","POST",{password:$("password").value});
+  await api("/api/admin/login","POST",{
+    username:$("admin-username").value.trim()||null,
+    password:$("password").value
+  });
   $("password").value="";admin=true;adminStateKey=null;toast("管理员登录成功");await refresh();
 },$("login-btn"));
-$("password").onkeydown=(e)=>{if(e.key==="Enter")$("login-btn").click();};
+for(const id of ["password","admin-username"]){
+  $(id).onkeydown=(e)=>{if(e.key==="Enter")$("login-btn").click();};
+}
 $("logout-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/logout","POST");admin=false;adminStateKey=null;currentMediaId=null;
   player.pause();player.removeAttribute("src");player.load();await refresh();
@@ -528,14 +534,66 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
   await api(`/api/admin/songs/${popupSongId}/lyrics`,"POST",{text:$("lyrics-textarea").value});
   $("lyrics-dialog").close();toast("已保存参考歌词");await refresh();
 },$("lyrics-save"));
+async function refreshAdminAccounts(){
+  const target=$("admin-account-list");
+  const data=await api("/api/admin/accounts");
+  target.replaceChildren();
+  if(!data.accounts.length){appendText(target,"p","本场尚未创建管理员","muted");return;}
+  data.accounts.forEach(account=>{
+    const item=document.createElement("div");item.className="archive-item";
+    appendText(item,"strong",account.username);
+    const password=document.createElement("input");
+    password.type="password";password.autocomplete="new-password";
+    password.minLength=6;password.maxLength=72;password.placeholder="新密码（至少 6 个字符）";
+    password.setAttribute("aria-label","重置 "+account.username+" 的密码");
+    item.append(password);
+    const reset=appendText(item,"button","重置密码","btn neutral");
+    reset.type="button";
+    reset.onclick=()=>guarded(async()=>{
+      if(password.value.length<6)throw new Error("密码至少 6 个字符");
+      await api("/api/admin/accounts/"+account.id+"/password","PUT",{password:password.value});
+      password.value="";toast("密码已重置，旧登录及电视链接已失效");
+    },reset);
+    const revoke=appendText(item,"button","撤销","btn subtle");
+    revoke.type="button";
+    revoke.onclick=()=>guarded(async()=>{
+      if(!confirm("撤销本场管理员「"+account.username+"」？当前登录及电视链接会立即失效。"))return;
+      await api("/api/admin/accounts/"+account.id,"DELETE");
+      toast("本场管理员已撤销");await refreshAdminAccounts();
+    },revoke);
+    target.append(item);
+  });
+}
+$("admin-accounts-panel").addEventListener("toggle",()=>{
+  if($("admin-accounts-panel").open && !$("admin-accounts-panel").classList.contains("hidden"))
+    guarded(refreshAdminAccounts);
+});
+$("admin-account-create").onclick=()=>guarded(async()=>{
+  const username=$("admin-account-name").value.trim();
+  const password=$("admin-account-password").value;
+  if(!username||password.length<6)throw new Error("请输入用户名和至少 6 位的密码");
+  await api("/api/admin/accounts","POST",{username,password});
+  $("admin-account-name").value="";
+  $("admin-account-password").value="";
+  toast("本场管理员已创建");await refreshAdminAccounts();
+},$("admin-account-create"));
 async function refreshEvents(){
   const data=await api("/api/admin/events");
   const active=data.events.find(e=>e.id===data.active);
   $("event-status").textContent=active?"♫ "+active.name:"尚未创建场次";
   $("event-join-code").textContent=active&&!active.legacy?"加入码  "+active.code:"";
-  $("event-create-fields").classList.toggle("hidden",!!active);
+  $("event-create-fields").classList.toggle("hidden",!!active||data.role!=="global");
   $("event-close-btn").classList.toggle("hidden",!active);
   $("event-settings-panel").classList.toggle("hidden",!active);
+  const canManageAccounts=Boolean(active&&data.role==="global");
+  $("admin-accounts-panel").classList.toggle("hidden",!canManageAccounts);
+  if(adminAccountsEventId!==(canManageAccounts?active.id:null)){
+    adminAccountsEventId=canManageAccounts?active.id:null;
+    $("admin-account-list").replaceChildren();
+    if(canManageAccounts&&$("admin-accounts-panel").open)await refreshAdminAccounts();
+  }
+  $("admin-role").textContent=data.role==="global"?"全局管理员":
+    "本场管理员："+(data.username||"");
 
   const key=JSON.stringify(data.events.map(e=>[e.id,e.name,e.status]));
   if(key!==archiveListKey){
