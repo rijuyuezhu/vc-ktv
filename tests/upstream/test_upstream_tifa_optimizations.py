@@ -5,33 +5,14 @@ from pathlib import Path
 
 from ktv_app.aligners.asr_timing import (
     time_asr_chunks,
-    unanchorable_asr_window,
 )
 from ktv_app.timeline import Line, Timeline, Unit
 
 
-def test_chinese_irrelevant_chunks_are_skipped_only_when_no_lyric_pair():
-    lines = [Line(id="0", text="林中风雨飘摇", language="zh")]
-    assert unanchorable_asr_window({"language": "Chinese", "text": "嗯。"}, lines)
-    assert unanchorable_asr_window({"language": "Chinese", "text": "另外一首歌"}, lines)
-    assert not unanchorable_asr_window(
-        {"language": "Chinese", "text": "林中风雨"}, lines
-    )
-    assert not unanchorable_asr_window(
-        {"language": "Chinese", "text": "嗯。"},
-        [Line(id="0", text="嗯", language="zh")],
-    )
-    assert not unanchorable_asr_window({"language": "Japanese", "text": "嗯。"}, lines)
-    assert not unanchorable_asr_window(
-        {"language": "Chinese", "text": "嗯。"},
-        [Line(id="0", text="まるで", language="ja")],
-    )
-    assert not unanchorable_asr_window({"language": "Chinese", "text": "嗯。"}, None)
-
-
-def test_chinese_gating_never_turns_ignored_asr_into_fake_timestamps(
+def test_all_nonempty_asr_windows_are_timed_even_without_lyric_bigram(
     tmp_path, monkeypatch
 ):
+    """A non-matching ASR window may still carry location evidence."""
     from ktv_app.aligners import asr_timing
 
     monkeypatch.setattr(asr_timing, "crop", lambda *args: None)
@@ -39,21 +20,20 @@ def test_chinese_gating_never_turns_ignored_asr_into_fake_timestamps(
 
     def infer(self, jobs, duration, work):
         submitted.extend(jobs)
-        output = {}
-        for job in jobs:
-            output[job["id"]] = Timeline(
-                duration=40,
+        return {
+            job["id"]: Timeline(
+                duration=50,
                 origin=job["origin"],
                 lines=[
                     Line(
                         id=f"asr-{job['id']}",
-                        text="林中风雨",
+                        text=job["lines"][0].text,
                         units=[
                             Unit(
                                 id=f"u-{job['id']}",
-                                text="林中风雨",
+                                text=job["lines"][0].text,
                                 source_start=0,
-                                source_end=4,
+                                source_end=len(job["lines"][0].text),
                                 start=job["origin"] + 1,
                                 end=job["origin"] + 2,
                             )
@@ -61,15 +41,16 @@ def test_chinese_gating_never_turns_ignored_asr_into_fake_timestamps(
                     )
                 ],
             )
-        return output
+            for job in jobs
+        }
 
     monkeypatch.setattr(asr_timing.TIFAAdapter, "align_many", infer)
     chunks = [
         {
-            "start": i * 9.0,
-            "end": i * 9.0 + 9,
-            "core_start": i * 9.0,
-            "core_end": i * 9.0 + 9,
+            "start": i * 10.0,
+            "end": i * 10.0 + 9,
+            "core_start": i * 10.0,
+            "core_end": i * 10.0 + 9,
             "text": text,
             "language": "Chinese",
             "pass_index": pass_index,
@@ -80,34 +61,22 @@ def test_chinese_gating_never_turns_ignored_asr_into_fake_timestamps(
                 ("嗯。", 0),
                 ("林中风雨", 1),
                 ("噢。", 1),
+                ("", 1),
             ]
         )
     ]
     result = time_asr_chunks(
         "audio.wav",
-        dict(chunks=chunks, duration=40, asr_elapsed=1),
+        dict(chunks=chunks, duration=50, asr_elapsed=1),
         object(),
         tmp_path,
-        [Line(id="0", text="林中风雨飘摇", language="zh")],
-    )
-    assert [job["id"] for job in submitted] == ["0", "2"]
-    assert result["tifa_skipped_windows"] == [1, 3]
-    assert result["tokens"] and result["verification_tokens"]
-    assert all(chunk.get("timing_skipped") for chunk in (chunks[1], chunks[3]))
-    assert all(token["text"] == "林中风雨" for token in result["tokens"])
-    submitted.clear()
-    # The complete fallback reuses the Qwen text but fills every TIFA
-    # timing window instead of retaining the selective "skipped" marker.
-    full = time_asr_chunks(
-        "audio.wav",
-        dict(chunks=chunks, duration=40, asr_elapsed=1),
-        object(),
-        tmp_path / "full",
-        None,
     )
     assert [job["id"] for job in submitted] == ["0", "1", "2", "3"]
-    assert full["tifa_skipped_windows"] == []
+    assert result["tokens"] and result["verification_tokens"]
     assert all("timing_skipped" not in chunk for chunk in chunks)
+    assert "tifa_skipped_windows" not in result
+    # Both unrelated ASR windows have independent timing evidence.
+    assert "items" in chunks[1] and "items" in chunks[3]
 
 
 def test_session_uses_original_order_and_propagates_to_block_worker(

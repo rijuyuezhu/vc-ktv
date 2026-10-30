@@ -9,8 +9,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-STAGING = Path.home() / ".local/share/vc-ktv-pipeline-staging"
-TIFA_PYTHON = Path.home() / "Code/vc-ktv/.runtime/tifa-env/bin/python"
+PIPELINE_ROOT = Path.home() / ".local/share/vc-ktv/pipeline"
+TIFA_PYTHON = PIPELINE_ROOT / "runtime/tifa/bin/python"
 
 
 def python_output(python, expression):
@@ -96,7 +96,7 @@ def setup(group, staging, shared_python):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("group", choices=("kim", "qwen", "all"))
-    parser.add_argument("--root", type=Path, default=STAGING)
+    parser.add_argument("--root", type=Path, default=PIPELINE_ROOT)
     parser.add_argument("--tifa-python", type=Path, default=TIFA_PYTHON)
     args = parser.parse_args()
     for group in ("kim", "qwen") if args.group == "all" else (args.group,):

@@ -85,7 +85,7 @@ def run_profile(
     target: Path,
     *,
     interval: float = 5.0,
-    tifa_root: Path | None = None,
+    pipeline_root: Path | None = None,
     mode: str = "quality",
 ) -> dict:
     if target.exists():
@@ -155,7 +155,7 @@ def run_profile(
             source,
             lyrics,
             target / "work",
-            upstream.spark_settings(tifa_root=tifa_root),
+            upstream.spark_settings(pipeline_root),
             progress=lambda msg: record("event: " + msg),
             **({"mode": mode} if mode != "quality" else {}),
         )
@@ -193,13 +193,13 @@ def main():
     parser.add_argument(
         "--mode",
         choices=("global-kim", "global", "quality", "fast"),
-        default="global-kim",
+        default="quality",
     )
     parser.add_argument(
-        "--tifa-root",
+        "--pipeline-root",
         type=Path,
-        default=Path.home() / "Code/vc-ktv",
-        help="Root of existing verified read-only .runtime/TIFA environment",
+        default=Path.home() / ".local/share/vc-ktv/pipeline",
+        help="VCKTV permanent pipeline model and runtime root",
     )
     args = parser.parse_args()
     source = args.source.expanduser().resolve(strict=True)
@@ -210,7 +210,7 @@ def main():
         source,
         lyrics,
         args.out / args.name,
-        tifa_root=args.tifa_root.expanduser().resolve(strict=True),
+        pipeline_root=args.pipeline_root.expanduser().resolve(strict=True),
         mode=args.mode,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)

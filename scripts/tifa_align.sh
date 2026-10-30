@@ -9,9 +9,10 @@ if [ "$#" -ne 2 ]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PYTHON="$ROOT/.runtime/tifa-env/bin/python"
-TIFA="$ROOT/.runtime/TIFA"
-MODEL="$ROOT/.runtime/models/TIFA-1.0-ST/model.pt"
+PIPELINE="$HOME/.local/share/vc-ktv/pipeline"
+PYTHON="$PIPELINE/runtime/tifa/bin/python"
+TIFA="$PIPELINE/models/forced_alignment/sources/TIFA"
+MODEL="$PIPELINE/models/forced_alignment/tifa/TIFA-1.0-ST/model.pt"
 
 audio="$(realpath -e -- "$1")"
 transcript="$(dirname "$audio")/$(basename "$audio" | sed 's/\.[^.]*$/.txt/')"

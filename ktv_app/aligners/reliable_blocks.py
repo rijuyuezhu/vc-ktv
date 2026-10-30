@@ -114,37 +114,6 @@ def align_reliable_blocks(
         return plan, first, second
 
     plan, first, second = prepare_plan(recognition)
-    if (
-        recognition.get("tifa_skipped_windows")
-        and not plan["adaptive_relaxation"]["target_met"]
-    ):
-        event("歌词切点证据不足，补齐此前跳过的 TIFA 窗口再完整规划")
-        recognition, warning = locate(
-            audio,
-            lines,
-            settings,
-            work,
-            profile=PROFILE,
-            event=event,
-            full_tifa=True,
-            asr_seed={
-                key: value
-                for key, value in recognition.items()
-                if key
-                not in (
-                    "tokens",
-                    "verification_tokens",
-                    "timestamp_errors",
-                    "tifa_skipped_windows",
-                    "tifa_timing_elapsed",
-                    "elapsed",
-                )
-            },
-        )
-        if not recognition:
-            raise RuntimeError(warning or "完整 TIFA 时间定位未完成")
-        plan, first, second = prepare_plan(recognition)
-
     (work / "block_plan.json").write_text(
         json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -262,7 +231,6 @@ def align_reliable_blocks(
                 "peak_gpu_gib",
                 "chunk_seconds",
                 "overlap_seconds",
-                "tifa_skipped_windows",
             )
         },
         "warnings": [warning] if warning else [],
