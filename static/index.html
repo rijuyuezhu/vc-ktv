@@ -92,14 +92,17 @@
       <div id="login-box" class="panel login-panel">
         <h2><span aria-hidden="true">⚙</span> 管理员登录</h2>
 
+        <label for="admin-username">本场管理员用户名（全局管理员留空）</label>
+        <input id="admin-username" maxlength="24" autocomplete="username" placeholder="本场管理员用户名（可留空）">
         <label for="password">管理员密码</label>
-        <div class="input-row"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"><button id="login-btn" class="btn primary">登录</button></div>
+        <div class="input-row"><input id="password" type="password" autocomplete="current-password" placeholder="密码"><button id="login-btn" class="btn primary">登录</button></div>
       </div>
       <div id="admin-panel" class="hidden admin-layout">
         <section class="panel full-width" id="event-management">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 当前场次</h2></div>
           <p id="event-status" class="muted">正在获取当前场次……</p>
           <p id="event-join-code" class="muted"></p>
+          <p id="admin-role" class="muted"></p>
           <div class="input-row" id="event-create-fields">
             <input id="event-name" maxlength="60" placeholder="场次名称，如 周末 KTV" aria-label="场次名称">
             <input id="event-code" maxlength="6" inputmode="numeric" placeholder="6 位密码（可留空自动生成）" aria-label="六位加入密码">
@@ -183,6 +186,22 @@
           <p class="muted">字幕预览仅供选择风格，成片以实际画面为准。新风格只影响之后开始制作的歌曲，不修改已有成片。默认等待字幕完成后播放。</p>
           <button id="settings-save-btn" class="btn primary" type="button">✓ 保存设置</button>
         </section>
+        <details class="panel full-width fold-panel hidden" id="admin-accounts-panel">
+          <summary><span class="ui-icon" aria-hidden="true">♙</span> 本场管理员账号</summary>
+          <p class="muted">仅全局管理员可创建和撤销。本场结束后账号自动失效。</p>
+          <div class="settings-fields">
+            <div>
+              <label for="admin-account-name">用户名</label>
+              <input id="admin-account-name" maxlength="24" autocomplete="off" placeholder="例如 播放负责人">
+            </div>
+            <div>
+              <label for="admin-account-password">初始密码</label>
+              <input id="admin-account-password" type="password" minlength="6" maxlength="72" autocomplete="new-password" placeholder="至少 6 个字符">
+            </div>
+          </div>
+          <button id="admin-account-create" class="btn primary" type="button">✚ 创建管理员</button>
+          <div id="admin-account-list" class="archive-list"></div>
+        </details>
         <details class="panel full-width fold-panel" id="event-archive-panel">
           <summary><span class="ui-icon" aria-hidden="true">▣</span> 历史歌单</summary>
 

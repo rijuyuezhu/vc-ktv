@@ -108,3 +108,22 @@ def test_essentials_remain_accessible_after_ui_cleanup():
     assert (
         '<details class="panel full-width fold-panel" id="performance-panel">' in html
     )
+
+
+def test_event_admin_login_and_account_controls_present():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    for ident in (
+        "admin-username",
+        "admin-role",
+        "admin-accounts-panel",
+        "admin-account-name",
+        "admin-account-password",
+        "admin-account-create",
+        "admin-account-list",
+    ):
+        assert ('id="' + ident + '"') in html
+    assert 'api("/api/admin/accounts")' in js
+    assert 'data.role==="global"' in js
+    assert 'api("/api/admin/login","POST"' in js
