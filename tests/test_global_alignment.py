@@ -72,7 +72,14 @@ def test_global_mode_executes_one_tifa_process_and_saves_raw_evidence(
 
     def fake_infer(args, **kwargs):
         assert args[0] == str(python)
-        assert args[-4:] == ["--batch-size", "1", "--num-workers", "0"]
+        assert args[-6:] == [
+            "--batch-size",
+            "1",
+            "--num-workers",
+            "0",
+            "--skip-handling",
+            "preserve",
+        ]
         assert kwargs["cwd"] == tifa
         grid_file(tmp_path / "run" / "alignment" / "audio.TextGrid")
         calls.append(args)

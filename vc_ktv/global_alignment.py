@@ -14,10 +14,14 @@ from ktv_app.media import run
 from ktv_app.timeline import Line, Timeline, Unit
 
 from .karaoke import parse_lrc
-from .textgrid_import import convert_textgrid
+from .textgrid_import import chars, convert_textgrid
 
 SCAT_READINGS = {
     "du": "嘟",
+    "bi": "比",
+    "ba": "巴",
+    "pa": "啪",
+    "mi": "咪",
     "da": "哒",
     "la": "啦",
     "ha": "哈",
@@ -37,6 +41,7 @@ SCAT_WORD = re.compile(
     r"(?<![A-Za-z])(?:" + SCAT_PART.pattern + r"){2,}(?![A-Za-z])",
     re.IGNORECASE,
 )
+UNKNOWN_LATIN = re.compile(r"[A-Za-z]+")
 SCAT_PREFIX = re.compile(
     r"^(?:(?:ha|ah|aa|la|oh|woo|ooh|wu|na|ya)\b[\s~]*){1,8}"
     r"(?=[\u3400-\u9fff])",
@@ -44,7 +49,7 @@ SCAT_PREFIX = re.compile(
 )
 
 
-def pronunciation_lyrics(lyrics: str):
+def pronunciation_lyrics(lyrics: str, *, unknown_vocables: bool = False):
     """Explicit Mandarin pronunciation hints with a source-character mapping.
 
     Translate only known scat syllables, never ordinary English words. All
@@ -78,6 +83,18 @@ def pronunciation_lyrics(lyrics: str):
                             match.end(),
                             SCAT_READINGS[match.group().lower()],
                         )
+                    )
+        if unknown_vocables:
+            # Prepare unsupported Latin vocalizations before TIFA starts;
+            # unrecognized English requires an optional ONNX G2P runtime.
+            # Never change the displayed lyrics, only the phonetic input.
+            for match in UNKNOWN_LATIN.finditer(display):
+                if not any(
+                    a < match.end() and match.start() < b for a, b, _ in replacements
+                ):
+                    repetitions = max(1, min(12, (len(match.group()) + 1) // 2))
+                    replacements.append(
+                        (match.start(), match.end(), "啦" * repetitions)
                     )
         replacements.sort()
         cursor, text, spans = 0, [], []
@@ -173,7 +190,14 @@ def timeline_from_lrc(
 
 
 def align_full_song(
-    source: Path, lyrics: str, duration: float, origin: float, work: Path, settings
+    source: Path,
+    lyrics: str,
+    duration: float,
+    origin: float,
+    work: Path,
+    settings,
+    *,
+    unknown_vocables: bool = False,
 ) -> Timeline:
     """Align one full-song waveform, either original mixed audio or Kim vocals."""
     tifa = Path(settings.tifa_source)
@@ -202,7 +226,9 @@ def align_full_song(
         timeout=180,
         log=work / "extract.log",
     )
-    spoken, spans, changes = pronunciation_lyrics(lyrics)
+    spoken, spans, changes = pronunciation_lyrics(
+        lyrics, unknown_vocables=unknown_vocables
+    )
     (work / "lyrics.source.txt").write_text(lyrics, encoding="utf-8")
     (work / "audio.txt").write_text(spoken, encoding="utf-8")
     (work / "pronunciation_trace.json").write_text(
@@ -225,6 +251,8 @@ def align_full_song(
         "1",
         "--num-workers",
         "0",
+        "--skip-handling",
+        "preserve",
     ]
     with (work / "tifa.log").open("w") as log:
         result = subprocess.run(
@@ -240,16 +268,67 @@ def align_full_song(
     grid = out / "audio.TextGrid"
     if not grid.is_file():
         raise RuntimeError("整首 TIFA 未生成 TextGrid")
-    lrc, report = convert_textgrid(
-        grid,
-        lyrics,
-        duration,
-        offset=origin,
-        pronunciation=spoken,
-        source_spans=spans,
-    )
+    from .auto_textgrid_repair import reconcile_lyrics
+
+    repaired = None
+    try:
+        lrc, report = convert_textgrid(
+            grid,
+            lyrics,
+            duration,
+            offset=origin,
+            pronunciation=spoken,
+            source_spans=spans,
+            millisecond_timestamps=True,
+        )
+    except ValueError as error:
+        if "对齐文本与确认歌词不完全匹配" not in str(error):
+            raise
+        repaired = reconcile_lyrics(
+            grid, spoken.splitlines(), work / "repaired.TextGrid"
+        )
+        lrc, report = convert_textgrid(
+            work / "repaired.TextGrid",
+            lyrics,
+            duration,
+            offset=origin,
+            pronunciation=spoken,
+            source_spans=spans,
+            millisecond_timestamps=True,
+        )
+        report["best_effort"] = repaired
     (work / "aligned.lrc").write_text(lrc, encoding="utf-8")
     (work / "alignment_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
-    return timeline_from_lrc(lrc, lyrics, duration, origin)
+    timeline = timeline_from_lrc(lrc, lyrics, duration, origin)
+    if unknown_vocables and UNKNOWN_LATIN.search(pronunciation_lyrics(lyrics)[0]):
+        timeline.diagnostics["approximate_pronunciation"] = True
+    if repaired is not None:
+        timeline.diagnostics["best_effort"] = repaired
+        # Only units containing restored characters need estimated provenance;
+        # the remaining TIFA timings remain genuine model measurements.
+        offset = 0
+        for line, reading, mapping in zip(timeline.lines, spoken.splitlines(), spans):
+            _, positions = chars(reading)
+            for item in repaired["diff"]:
+                for global_index in range(
+                    item["expected_start"],
+                    item["expected_start"] + len(item["expected"]),
+                ):
+                    local = global_index - offset
+                    if not 0 <= local < len(positions):
+                        continue
+                    display_start = mapping[positions[local]][0]
+                    for unit in line.units:
+                        if unit.source_start <= display_start < unit.source_end:
+                            unit.timing_source = "estimated"
+                            if "best_effort_repair" not in unit.flags:
+                                unit.flags.append("best_effort_repair")
+                            break
+            offset += len(positions)
+        timeline.diagnostics["estimated_lines"] = sum(
+            any(unit.timing_source == "estimated" for unit in line.units)
+            for line in timeline.lines
+        )
+    return timeline
