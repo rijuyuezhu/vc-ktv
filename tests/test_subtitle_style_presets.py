@@ -176,7 +176,8 @@ def test_real_adapter_forwards_selected_style(tmp_path, monkeypatch):
     work = tmp_path / "archive"
     work.mkdir()
 
-    def fake_pipeline(video, lyrics, dest, settings, *, style):
+    def fake_pipeline(video, lyrics, dest, settings, *, style, mode):
+        assert mode == "global-kim"
         assert video == source
         assert lyrics == "第一句\n第二句"
         assert style.mode == "single" and style.size == 38

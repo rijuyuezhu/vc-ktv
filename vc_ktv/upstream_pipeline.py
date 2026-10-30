@@ -66,9 +66,9 @@ def make_karaoke_video(
     progress: Callable[[str], None] | None = None,
     style: Style | None = None,
     render_options: RenderOptions | None = None,
-    mode: str = "quality",
+    mode: str = "global-kim",
 ) -> PipelineResult:
-    """Use the full upstream Kim → Qwen ASR → bounded TIFA → ASS/MP4 pipeline.
+    """Run the selected alignment mode, preserving current subtitles and MP4 output.
 
     The work directory MUST be new and local to this song/attempt. In particular,
     no live event DB state is touched; AutoPrep owns the final
@@ -85,8 +85,8 @@ def make_karaoke_video(
     ):
         raise ValueError("制作目录不能覆盖原视频所在路径")
     work_dir.mkdir(parents=True, exist_ok=False)
-    if mode not in ("quality", "fast"):
-        raise ValueError("mode must be quality or fast")
+    if mode not in ("global-kim", "global", "quality", "fast"):
+        raise ValueError("mode must be global-kim, global, quality or fast")
     style = style or Style(font="Noto Sans CJK SC", mode="double", auto_complete=True)
     render_options = render_options or RenderOptions()
     emit = progress or (lambda message: None)
@@ -108,7 +108,39 @@ def make_karaoke_video(
         (work_dir / "confirmed_lyrics.txt").write_text(
             confirmed_lyrics, encoding="utf-8"
         )
-        if mode == "fast":
+        if mode in ("global", "global-kim"):
+            from .global_alignment import align_full_song
+
+            align_audio = source
+            if mode == "global-kim":
+                stage("kim", "Kim 分离用于推理的人声")
+                align_audio, evidence = prepare_alignment_audio(
+                    source,
+                    work_dir / "audio.wav",
+                    info,
+                    work_dir,
+                    "kim",
+                    settings,
+                    lambda message: emit(
+                        message.replace("开始 ASR", "开始整首 TIFA").replace(
+                            "进入歌词识别", "进入整首 TIFA"
+                        )
+                    ),
+                )
+                timeline_audio = evidence
+            else:
+                timeline_audio = {"source": "original_audio"}
+            stage("align", "整首 TIFA 对齐完整歌词（不分块、不估算）")
+            timeline = align_full_song(
+                align_audio,
+                confirmed_lyrics,
+                info["duration"],
+                info["audio_offset"],
+                work_dir / "alignment",
+                settings,
+            )
+            timeline.diagnostics["alignment_audio"] = timeline_audio
+        elif mode == "fast":
             from ktv_app.aligners.fast import align_fast
 
             stage("align", "Fast Mode：原音频识别、粗定位与分段 TIFA")
@@ -142,7 +174,11 @@ def make_karaoke_video(
         timeline.origin = info["audio_offset"]
         # Upstream's formal chain discards any old generated estimates before
         # bounded completion and records new estimated provenance explicitly.
-        timeline = complete_timeline(remove_estimates(timeline), rolling=True)
+        if mode not in ("global", "global-kim"):
+            timeline = complete_timeline(remove_estimates(timeline), rolling=True)
+        else:
+            # No rolled estimates or inferred timings in the restored pipeline.
+            style = style.model_copy(update={"auto_complete": False})
         stage("subtitles", "生成 ASS、LRC 与时间轴记录")
         bundle = work_dir / "subtitles"
         write_bundle(timeline, style, bundle)

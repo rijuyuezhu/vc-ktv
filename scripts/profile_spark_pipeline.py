@@ -190,7 +190,11 @@ def main():
     parser.add_argument("--lyrics", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--name", default="cold")
-    parser.add_argument("--mode", choices=("quality", "fast"), default="quality")
+    parser.add_argument(
+        "--mode",
+        choices=("global-kim", "global", "quality", "fast"),
+        default="global-kim",
+    )
     parser.add_argument(
         "--tifa-root",
         type=Path,

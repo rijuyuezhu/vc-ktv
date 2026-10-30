@@ -136,13 +136,11 @@ def render_upstream_video(
     preset: StylePreset = DEFAULT_PRESET,
     progress=None,
 ) -> dict:
-    """Run the copied upstream pipeline; no legacy automatic TIFA fallback."""
+    """Run the selected alignment pipeline; no implicit fallback or retiming."""
     # AutoPrep owns a new attempt directory; the pipeline owns its own
     # isolated child directory and does not mutate the original source.
     options = {"style": preset_style(preset)}
-    mode = os.environ.get("VC_KTV_PIPELINE_MODE", "quality")
-    if mode != "quality":
-        options["mode"] = mode
+    options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "global-kim")
     if progress is not None:
         options["progress"] = progress
     result = make_karaoke_video(
@@ -360,6 +358,7 @@ class AutoPrep:
                     "读取原视频并提取音频": "extract",
                     "Kim 分离用于推理的人声": "kim",
                     "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐": "align",
+                    "整首 TIFA 对齐完整歌词（不分块、不估算）": "align",
                     "生成 ASS、LRC 与时间轴记录": "subtitles",
                     "将字幕烧录到保留原始音轨的 MP4": "render",
                 }

@@ -62,3 +62,13 @@ cd /path/to/vc-ktv
 ## 歌词原文与 TIFA 发音提示
 
 自动流水线保留用户确认的原始歌词于每次制作的 `lyrics.source.txt`，另在 `audio.txt` 中记录送入 TIFA 的发音文本。`pronunciation_trace.json` 标明常见拟声词的替换及原文字段范围。TextGrid 的原生时间区间按源文字段映射回字幕；如果 TIFA 将一个拟声词分为多个音节，只使用这些区间的实际首尾时间并显示原有拟声词，不制造逐字母时间。对于不支持的其他词仍记录 OOV 失败。发音替换本身不是实际歌唱内容或时间精度的证明，需在授权真实样本上复核。
+
+## Kim + 整首 TIFA 试听模式（Issue #59，2026-10-30）
+
+默认 `VC_KTV_PIPELINE_MODE=global-kim`：原视频提取音频后，用 Kim 做人声分离（**只用于对齐**，导出的 MP4 仍保留原始音轨），再对完整歌词运行一次 TIFA，不经过 Qwen3-ASR、不分块、不估算时间。继续使用早期 `pronunciation_lyrics` 发音映射及 `convert_textgrid` 全量文本/顺序/重叠校验；字幕样式、画质和成片体积控制使用现有代码。
+
+保留 `global`（混合音频整首 TIFA）、`quality` 和 `fast` 用于离线 A/B。**不要悄悄从任何模式自动降级到其他模式。** 试听模式下只对过短/过长的原始时间戳生成 `suspicious_timing` 诊断，不篡改时间，不由于阈值拒绝整首输出；字幕时间仍需试听判断。每次尝试保留整个 TIFA `audio.TextGrid`、`tifa.log`、完整原歌词、读音映射、严格 LRC 和导出报告。
+
+### 实歌对照（隔离实验，非客观准确率验证）
+
+《霜雪千年》241 秒，34 行/480 字：直接整首 TIFA 对齐约 13.4 秒，第 1 行起点 2.08 秒、第 19 行 43.53 秒；Kim + 整首 TIFA 约 87 秒（包括约 57 秒分离），第 1 行起点 14.90 秒、第 19 行 6.28 秒，但第 22 行仍接近 30 秒、尾段有短句。两种模式均不能仅根据 `TextGrid` 的完整性断言音画准确。A/B 原始数据见 Spark-WSL `~/.local/share/vc-ktv-pipeline-staging/benchmarks/20261030-global-tifa-regression/`。生产试听时须用「重试字幕」重新对齐已完成的歌曲，已生成的旧成片不会自动改动。
