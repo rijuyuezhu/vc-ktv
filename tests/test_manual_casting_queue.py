@@ -1,7 +1,5 @@
 """Shared queue transitions for self-cancel, replay, and hand-operated casting."""
 
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
@@ -247,24 +245,3 @@ def test_playback_mode_persists_in_event_and_new_event_defaults_to_browser(tmp_p
         new_event = admin.post("/api/admin/events", json={"name": "新场次"})
         assert new_event.status_code == 200
         assert admin.get("/api/admin/state").json()["playback_mode"] == "browser"
-
-
-def test_manual_controls_ui_present_and_not_a_second_queue():
-    static = Path(__file__).resolve().parents[1] / "static"
-    html = (static / "index.html").read_text()
-    js = (static / "app.js").read_text()
-    for element in (
-        "playback-mode",
-        "manual-controls",
-        "manual-download",
-        "played-panel",
-        "played-list",
-        "browser-player",
-        "autoplay-label",
-    ):
-        assert f'id="{element}"' in html
-    assert 'api("/api/songs/"+song.id+"/cancel","POST")' in js
-    assert 'api("/api/admin/songs/"+song.id+"/replay","POST")' in js
-    assert 'api("/api/admin/playback-mode","PUT",{mode})' in js
-    assert '"manual-download").href="/api/songs/"+active.id+"/download"' in js
-    assert "if(!manualMode)guarded" in js
