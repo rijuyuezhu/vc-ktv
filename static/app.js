@@ -21,6 +21,9 @@ let currentEventId = null;
 let archiveListKey = null;
 let settingsEventId = null;
 let adminAccountsEventId = null;
+let guestAuthenticated = false;
+let detailKey = null;
+let playedKey = null;
 const player = $("player");
 
 
@@ -79,10 +82,19 @@ function addDownload(parent,song) {
   if(!song.downloadable)return;
   const link=appendText(parent,"a",song.prep_state==="original"?"↓ 下载原片":"↓ 下载视频","mini download-link");
   link.href="/api/songs/"+song.id+"/download";
+  link.onclick=(event)=>event.stopPropagation();
   link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
 }
-function makeSong(song, order, mode="guest") {
+function makeSong(song, order, mode="row") {
   const outer = document.createElement("div");outer.className="song-item";
+  if(["row","status","played"].includes(mode)){
+    outer.classList.add("song-open");outer.tabIndex=0;outer.setAttribute("role","link");
+    outer.setAttribute("aria-label","详情："+song.title);
+    outer.onclick=()=>{window.location.hash="song-"+song.id;};
+    outer.onkeydown=(e)=>{
+      if(e.key==="Enter"||e.key===" "){e.preventDefault();outer.click();}
+    };
+  }
   appendText(outer,"span",String(order),"ordinal");
   const copy = document.createElement("div");copy.className="song-copy";outer.append(copy);
   appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:"")+
@@ -173,12 +185,20 @@ function makeSong(song, order, mode="guest") {
     }else if(song.status==="rendering"){
       appendText(actions,"span","制作中","status wait");
     }
-    {
+    if(["waiting","ready","rendering"].includes(song.status)){
       const cancel=appendText(actions,"button","✕ 取消点歌","mini");
       cancel.title="取消这首待播歌曲；若正在推理，当前计算可能仍需结束";cancel.onclick=()=>guarded(async()=>{
       if(!confirm("取消这首歌曲？"))return;
       await api(`/api/admin/songs/${song.id}/cancel`,"POST"); await refresh();
     },cancel);
+    }
+    if(song.status==="played"){
+      const replay=appendText(actions,"button","下一首重唱","mini");
+      replay.onclick=()=>guarded(async()=>{
+        if(!confirm("把这首歌安排到下一首？"))return;
+        await api(`/api/admin/songs/${song.id}/replay`,"POST");
+        toast("已加入队列");detailKey=null;await refresh();
+      },replay);
     }
   }else{
     const status=song.status==="ready"&&!song.awaiting_subtitles?
@@ -188,7 +208,7 @@ function makeSong(song, order, mode="guest") {
   addDownload(outer,song);
   return outer;
 }
-function fillList(id, songs, mode="guest") {
+function fillList(id, songs, mode="row") {
   const key=JSON.stringify([mode,songs]);
   if(listKeys.get(id)===key)return;
   listKeys.set(id,key);
@@ -196,6 +216,50 @@ function fillList(id, songs, mode="guest") {
   if(!songs.length){ appendText(target,"div",mode==="admin"?"当前没有待处理的歌曲":"暂无歌曲","empty"); return; }
   songs.forEach((s,i)=>target.append(makeSong(s,i+1,mode)));
 }
+async function refreshSongHistory(){
+  const data=await api("/api/songs/played");
+  const key=JSON.stringify(data.songs);
+  if(playedKey===key)return;
+  playedKey=key;
+  const target=$("page-played");target.replaceChildren();
+  if(!data.songs.length){appendText(target,"p","还没有已唱歌曲","empty");return;}
+  const list=appendText(target,"div","","song-list");
+  data.songs.forEach((song,index)=>list.append(makeSong(song,index+1,"played")));
+}
+async function refreshSongDetail(){
+  const id=Number(currentRoute().slice(5));
+  if(!Number.isInteger(id)||id<=0)return;
+  const song=await api(`/api/songs/${id}/detail`);
+  const key=JSON.stringify([song,isAdminPath()]);
+  if(detailKey===key)return;
+  detailKey=key;
+  $("subpage-back").href=song.status==="played"?"#played":"#";
+  const target=$("page-song");target.replaceChildren();
+  const panel=appendText(target,"section","","panel song-detail-panel");
+  appendText(panel,"h2",song.title);
+  appendText(panel,"small",song.nickname+"  "+duration(song.duration),"muted");
+  if(song.downloadable){
+    const download=appendText(panel,"a","↓ 下载视频","btn primary detail-download");
+    download.href=`/api/songs/${id}/download`;
+  }
+  appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
+  const row=makeSong(song,1,isAdminPath()?"admin":"guest");
+  row.querySelector(".download-link")?.remove();
+  row.querySelector(".song-copy")?.remove();
+  row.querySelector(".ordinal")?.remove();
+  if(row.querySelector(".song-actions,.lyric-pick,button"))panel.append(row);
+  if(isAdminPath()&&song.status==="ready"){
+    const extras=appendText(panel,"details","");
+    appendText(extras,"summary","手工字幕参数");
+    extras.append($("lead-seconds"));
+  }
+  if(isAdminPath()&&song.prep_error){
+    const details=appendText(panel,"details","");
+    appendText(details,"summary","处理信息");
+    appendText(details,"p",song.prep_error,"muted");
+  }
+}
+
 async function fetchPreview(page=1) {
   const info=await api(`/api/preview?bvid=${encodeURIComponent($("bvid").value.trim())}&page=${page}`);
   preview=info;
@@ -377,6 +441,10 @@ function setupSubpages(){
   }
   const settings=document.createElement("div");settings.id="page-settings";
   settings.append(menu);root.append(settings);
+  for(const name of ["played","song"]){
+    const wrapper=document.createElement("div");wrapper.id="page-"+name;
+    wrapper.className="hidden";root.append(wrapper);
+  }
   for(const [route,[,nodeId]] of Object.entries(adminRoutes)){
     if(!nodeId)continue;
     const wrapper=document.createElement("div");wrapper.id="page-"+route;
@@ -389,11 +457,13 @@ function setupSubpages(){
 function showPage(){
   const isAdmin=isAdminPath();
   const route=currentRoute();
-  const page=isAdmin&&adminRoutes[route]?route:"";
-  $("guest-view").classList.toggle("hidden",isAdmin||!!page);
+  const page=isAdmin&&adminRoutes[route]?route:
+    route==="played"?"played":/^song-[0-9]+$/.test(route)?"song":"";
+  const authenticated=isAdmin?admin:guestAuthenticated;
+  $("guest-view").classList.toggle("hidden",isAdmin||Boolean(page&&authenticated));
   $("admin-view").classList.toggle("hidden",!isAdmin);
   $("admin-panel").classList.toggle("hidden",!admin||!!page);
-  $("subpage").classList.toggle("hidden",!page||!admin);
+  $("subpage").classList.toggle("hidden",!page||!authenticated);
   $("tab-guest").classList.toggle("selected",!isAdmin);
   $("tab-admin").classList.toggle("selected",isAdmin);
   $("tab-guest").setAttribute("aria-current",isAdmin?"false":"page");
@@ -401,16 +471,22 @@ function showPage(){
   $("hero-title").textContent=isAdmin?"管理 KTV":"想唱什么？";
   $("hero-desc").textContent=isAdmin?"当前队列":"选择歌曲，加入队列";
   $("hero-title").parentElement.classList.toggle("hidden",!!page);
-  $("subpage-title").textContent=page?adminRoutes[page][0]:"";
-  $("subpage-back").href=page==="settings"||page==="stats"?"#":"#settings";
+  $("subpage-title").textContent=page==="played"?"已唱歌曲":page==="song"?"歌曲详情":
+    page?adminRoutes[page][0]:"";
+  $("subpage-back").href=page==="song"?(window.history.state?.fromPlayed?"#played":"#"):
+    (page==="settings"||page==="stats"||page==="played")?"#":"#settings";
   $("page-settings").classList.toggle("hidden",page!=="settings");
+  for(const name of ["played","song"])$("page-"+name).classList.toggle("hidden",page!==name);
   for(const routeName of Object.keys(adminRoutes)){
     if(routeName!=="settings")$("page-"+routeName).classList.toggle("hidden",page!==routeName);
   }
-  document.title="VC KTV | "+(page?adminRoutes[page][0]:isAdmin?"管理":"点歌");
+  document.title="VC KTV | "+(page==="played"?"已唱歌曲":page==="song"?"歌曲详情":
+    page?adminRoutes[page][0]:isAdmin?"管理":"点歌");
 }
 setupSubpages();
-window.addEventListener("hashchange",()=>{showPage();refresh();});
+window.addEventListener("hashchange",()=>{
+  detailKey=null;playedKey=null;showPage();refresh();
+});
 $("show-user-login").onclick=()=>{
   $("auth-register").classList.add("hidden");$("auth-login").classList.remove("hidden");
 };
@@ -726,11 +802,13 @@ function renderEntry(entry){
       :entry.event.name+"  输入六位加入码";
   $("entry-code").classList.toggle("hidden",!entry.event||entry.joined);
   $("entry-account").classList.toggle("hidden",!entry.event||!entry.joined||entry.authenticated);
+  guestAuthenticated=Boolean(entry.authenticated);
   $("guest-access").classList.toggle("hidden",entry.authenticated);
   $("guest-profile").classList.toggle("hidden",!entry.authenticated);
   $("request-panel").classList.toggle("hidden",!entry.authenticated);
   $("queue-panel").classList.toggle("hidden",!entry.authenticated);
   $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+"  "+entry.event.name:"";
+  showPage();
 }
 $("join-btn").onclick=()=>guarded(async()=>{
   await api("/api/join","POST",{code:$("join-code").value.trim()});
@@ -771,6 +849,8 @@ async function refresh(){
       if(entry.authenticated){
         const state=await api("/api/state");
         const stateKey=JSON.stringify([entry.event?.id,state.current,state.queue,state.waiting]);
+        if(currentRoute()==="played")await refreshSongHistory();
+        if(/^song-[0-9]+$/.test(currentRoute()))await refreshSongDetail();
         if(guestStateKey!==stateKey){
           guestStateKey=stateKey;
           $("queue-count").textContent=state.queue.length+" 首可播";
@@ -794,8 +874,8 @@ async function refresh(){
       try{adm=await api("/api/admin/state");admin=true;}
       catch(e){if(e.message.includes("管理员"))admin=false;else throw e;}
       $("login-box").classList.toggle("hidden",admin);
-      $("admin-panel").classList.toggle("hidden",!admin||Boolean(adminRoutes[currentRoute()]));
-      $("subpage").classList.toggle("hidden",!admin||!adminRoutes[currentRoute()]);
+      $("admin-panel").classList.toggle("hidden",!admin||Boolean(adminRoutes[currentRoute()]||currentRoute()==="played"||/^song-[0-9]+$/.test(currentRoute())));
+      $("subpage").classList.toggle("hidden",!admin||!(adminRoutes[currentRoute()]||currentRoute()==="played"||/^song-[0-9]+$/.test(currentRoute())));
       if(admin){
         await refreshEvents();
         const activeState=adm.active?{...adm.active,media_url:null}:null;
@@ -807,7 +887,8 @@ async function refresh(){
           adminStateKey=key;
           const pending=[...adm.waiting,...adm.queue];
           fillList("manage-status",pending,"status");
-          if($("admin-advanced").open)fillList("manage-list",pending,"admin");
+          // All song operations live in the full-page song detail.
+
           const stats=$("stats");stats.replaceChildren();
           if(!adm.guests.length)appendText(stats,"div","暂无演唱记录","empty");
           adm.guests.forEach(u=>{
@@ -815,7 +896,9 @@ async function refresh(){
             appendText(c,"strong",u.name);
             appendText(c,"small",u.plays+" 首  "+duration(u.seconds));stats.append(c);
           });
+          $("current-song-download").classList.toggle("hidden",!adm.active);
           if(adm.active){
+            $("current-song-download").href=`/api/songs/${adm.active.id}/download`;
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
             $("playing-title").textContent=(manualMode?"当前歌曲：":"正在播放：")+
               adm.active.title+"  "+adm.active.nickname;
@@ -826,7 +909,8 @@ async function refresh(){
             updatePlaybackUI();
           }
         }
-        if($("played-panel").open)await refreshPlayed();
+        if(currentRoute()==="played")await refreshSongHistory();
+        if(/^song-[0-9]+$/.test(currentRoute()))await refreshSongDetail();
       }else {adminStateKey=null;$("subpage").classList.add("hidden");}
     }
     if(refreshFailed){toast("连接已恢复");refreshFailed=false;}

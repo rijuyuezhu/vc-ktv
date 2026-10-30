@@ -149,3 +149,19 @@ def test_full_page_admin_navigation_and_register_first_auth():
         assert key in js
     assert 'window.addEventListener("hashchange"' in js
     assert ".subpage { max-width: 960px;" in css
+
+
+def test_song_rows_open_full_page_detail_and_guest_played_downloads():
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parents[1] / "static"
+    html = (static / "index.html").read_text(encoding="utf-8")
+    js = (static / "app.js").read_text(encoding="utf-8")
+    assert 'href="#played"' in html
+    assert 'id="current-song-download"' in html
+    assert 'window.location.hash="song-"+song.id' in js
+    assert "const authenticated=isAdmin?admin:guestAuthenticated" in js
+    assert 'api("/api/songs/played")' in js
+    assert "api(`/api/songs/${id}/detail`)" in js
+    assert "detail-download" in js
+    assert '/api/songs/"+song.id+"/cancel' in js

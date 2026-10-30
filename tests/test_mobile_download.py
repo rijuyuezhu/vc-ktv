@@ -76,7 +76,7 @@ def test_event_members_can_download_ready_media_but_not_unfinished_or_old_songs(
         with store.lock:
             store.db.execute("UPDATE songs SET status='played' WHERE id=?", (song_id,))
             store.db.commit()
-        assert guest.get(url).status_code == 409
+        assert guest.get(url).status_code == 200  # completed songs stay downloadable
         assert guest.get("/api/songs/9999/download").status_code == 404
 
         with store.lock:

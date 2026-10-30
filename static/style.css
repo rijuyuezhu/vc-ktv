@@ -255,3 +255,14 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
   .subpage .panel { padding: 14px; }
   button, select { min-height: 42px; }
 }
+/* Tap the song row, not a separate action cluster. */
+.song-open { cursor: pointer; min-height: 56px; }
+.song-open:hover, .song-open:focus-visible { border-color: var(--accent); background: var(--accent-soft); }
+.song-open .song-copy { overflow: hidden; }
+#admin-advanced, #played-panel { display: none; }
+.song-detail-panel { display: grid; gap: 15px; }
+.detail-download { display: block; padding: 15px; text-align: center; font-size: 17px; font-weight: 700; }
+.song-detail-panel .song-item { flex-wrap: wrap; }
+.song-detail-panel .song-actions { width: 100%; }
+.song-detail-panel .song-actions button { min-height: 42px; }
+.song-detail-panel .song-copy strong { white-space: normal; }
