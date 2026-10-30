@@ -6,6 +6,7 @@ import csv
 import hashlib
 import hmac
 import io
+import ipaddress
 import json
 import os
 import re
@@ -38,6 +39,7 @@ from .textgrid_import import convert_textgrid
 
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
 MAX_UPLOAD = 512 * 1024 * 1024
+MAX_ACTIVE_SONGS = 1000
 STATIC = Path(__file__).resolve().parent.parent / "static"
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
@@ -97,6 +99,7 @@ class PlaybackSettings(BaseModel):
     video_quality: Literal[720, 480] | None = None
     # Optional to preserve older admin clients' current per-event setting.
     compact_video: bool | None = None
+    orders_paused: bool | None = None
 
 
 class EventCreate(BaseModel):
@@ -303,7 +306,7 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','compact_video')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','compact_video','orders_paused')"
             )
         }
         return {
@@ -312,6 +315,7 @@ class Store:
             "subtitle_style": values.get("subtitle_style", "classic"),
             "video_quality": int(values.get("video_quality", "720")),
             "compact_video": values.get("compact_video", "0") == "1",
+            "orders_paused": values.get("orders_paused", "0") == "1",
         }
 
     def playback_mode(self):
@@ -327,6 +331,7 @@ class Store:
         subtitle_style: StylePreset | None = None,
         video_quality: Literal[720, 480] | None = None,
         compact_video: bool | None = None,
+        orders_paused: bool | None = None,
     ):
         with self.lock:
             for key, value in (
@@ -355,6 +360,12 @@ class Store:
                     "INSERT INTO room_state(name,value) VALUES('compact_video',?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     ("1" if compact_video else "0",),
+                )
+            if orders_paused is not None:
+                self.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES('orders_paused',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    ("1" if orders_paused else "0",),
                 )
             self.db.commit()
             return self.settings()
@@ -577,6 +588,43 @@ def create_app(
     failed_login = {}
     failed_invites = {}
     failed_users = {}
+    trusted_proxy_ips = {
+        str(ipaddress.ip_address(value.strip()))
+        for value in os.getenv("VC_KTV_TRUSTED_PROXY_IPS", "").split(",")
+        if value.strip()
+    }
+
+    def client_ip(request: Request) -> str:
+        peer = request.client.host if request.client else "unknown"
+        if peer in trusted_proxy_ips:
+            # The trusted proxy MUST overwrite X-Real-IP, not forward a user
+            # supplied value. Never trust forwarding headers from other peers.
+            forwarded = request.headers.get("x-real-ip", "")
+            try:
+                return str(ipaddress.ip_address(forwarded))
+            except ValueError:
+                pass
+        return peer
+
+    def check_room_capacity():
+        count = store.db.execute(
+            "SELECT COUNT(*) FROM songs WHERE status IN ('waiting','rendering','ready','playing')"
+        ).fetchone()[0]
+        if count >= MAX_ACTIVE_SONGS:
+            bail(409, "本场待处理歌曲已满，请稍后再点歌")
+
+    def check_new_order(guest_id: str):
+        if store.settings()["orders_paused"]:
+            bail(409, "本场已暂停点歌")
+        check_room_capacity()
+        count = store.db.execute(
+            "SELECT COUNT(*) FROM songs WHERE requester=? "
+            "AND status IN ('waiting','rendering','ready','playing')",
+            (guest_id,),
+        ).fetchone()[0]
+        if count >= 3:
+            bail(409, "每人最多保留三首待唱歌曲")
+
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
     rendering = threading.Event()
@@ -759,7 +807,7 @@ def create_app(
         info = events.metadata()
         if not info or info.get("legacy") or not info.get("code"):
             bail(409, "请等待管理员创建新 KTV 场次")
-        ip = request.client.host if request.client else "unknown"
+        ip = client_ip(request)
         recent = [t for t in failed_invites.get(ip, []) if t > time_now() - 300]
         if len(recent) >= 10:
             bail(429, "尝试过于频繁，请稍后重试")
@@ -843,8 +891,8 @@ def create_app(
         vc_join: str | None = Cookie(default=None),
     ):
         require_entry(vc_join)
-        ip = request.client.host if request.client else "unknown"
-        key = (events.active_id, ip)
+        ip = client_ip(request)
+        key = (events.active_id, ip, body.username.strip())
         recent = [t for t in failed_users.get(key, []) if t > time_now() - 300]
         if len(recent) >= 10:
             bail(429, "尝试过于频繁，请稍后重试")
@@ -887,6 +935,7 @@ def create_app(
                 body.subtitle_style,
                 body.video_quality,
                 body.compact_video,
+                body.orders_paused,
             )
 
     @app.get("/api/admin/events")
@@ -1050,17 +1099,15 @@ def create_app(
         user = require_user(vc_guest)
         guest = user["id"]
         event_id = events.active_id
+        with store.lock:
+            check_new_order(guest)
         info = await app.state.lookup(get_bvid(body.bvid), body.page)
         with store.lock:
             if events.active_id != event_id:
                 bail(409, "场次已变化，请在新场次重新点歌")
-            # Prevent a single person from flooding an active room.
-            n = store.db.execute(
-                "SELECT COUNT(*) FROM songs WHERE requester=? AND status IN ('ready','waiting','rendering','playing')",
-                (guest,),
-            ).fetchone()[0]
-            if n >= 3:
-                bail(409, "每人最多保留三首待唱歌曲")
+            # Recheck under the same lock as insertion: parallel requests
+            # cannot overfill the room or bypass a newly enabled pause.
+            check_new_order(guest)
             cur = store.db.execute(
                 """
                 INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at)
@@ -1229,8 +1276,9 @@ def create_app(
 
     @app.post("/api/admin/login")
     def login(body: Login, request: Request, response: Response):
-        ip = request.client.host if request.client else "unknown"
-        recent = [t for t in failed_login.get(ip, []) if t > time_now() - 300]
+        ip = client_ip(request)
+        key = (ip, body.username.strip() if body.username else "")
+        recent = [t for t in failed_login.get(key, []) if t > time_now() - 300]
         if len(recent) >= 10:
             bail(429, "登录尝试过于频繁，请稍后重试")
         identity = None
@@ -1253,9 +1301,9 @@ def create_app(
                     )
         if identity is None:
             recent.append(time_now())
-            failed_login[ip] = recent
+            failed_login[key] = recent
             bail(401, "用户名或密码错误")
-        failed_login.pop(ip, None)
+        failed_login.pop(key, None)
         response.set_cookie(
             "vc_admin",
             sign("admin", identity, 7 * 86400),
@@ -1676,6 +1724,9 @@ def create_app(
             media = store.media / Path(row["media_file"]).name
             if not media.is_file():
                 bail(404, "成片已丢失")
+            # Admin replay still works during pause, but cannot exceed the
+            # same global unfinished-song capacity.
+            check_room_capacity()
             source = store.media / Path(row["source_file"] or "").name
             if not source.is_file():
                 source = media
