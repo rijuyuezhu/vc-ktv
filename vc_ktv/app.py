@@ -1771,7 +1771,7 @@ def create_app(
         with store.lock:
             return {
                 "songs": store.rows(
-                    """SELECT s.id,s.title,s.duration,s.page,s.played_at,s.replay_of,
+                    """SELECT s.id,s.bvid,s.title,s.duration,s.page,s.played_at,s.replay_of,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.status='played' ORDER BY s.played_at DESC,s.id DESC
@@ -1945,7 +1945,7 @@ def create_app(
             require_user(vc_guest)
         with store.lock:
             rows = store.rows(
-                """SELECT s.id,s.title,s.duration,s.played_at,s.page,
+                """SELECT s.id,s.bvid,s.title,s.duration,s.played_at,s.page,
                           s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester

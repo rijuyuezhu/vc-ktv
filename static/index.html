@@ -121,7 +121,10 @@
         </section>
         <section class="panel">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">▶</span> 播放控制</h2><button id="logout-btn" class="btn subtle">↪ 退出</button></div>
-          <a id="current-song-download" class="btn primary wide hidden" href="#">↓ 下载当前视频</a>
+          <div class="current-media-actions">
+            <a id="current-song-download" class="btn primary hidden" href="#">↓ 下载当前视频</a>
+            <button id="current-song-copy-bv" class="btn neutral hidden" type="button">⧉ 复制 BV</button>
+          </div>
           <div class="mode-select-row">
             <label for="playback-mode">播放方式</label>
             <select id="playback-mode">
