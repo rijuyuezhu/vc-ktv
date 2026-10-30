@@ -248,8 +248,8 @@ def test_failed_download_retries_after_backoff(tmp_path):
         assert len(failures) == 2
 
 
-def test_default_auto_renderer_is_only_upstream_pipeline(tmp_path, monkeypatch):
-    """A normal AutoPrep enhancement never calls our old direct TextGrid path."""
+def test_default_auto_renderer_selects_strict_global_kim_mode(tmp_path, monkeypatch):
+    """Default AutoPrep uses full-song TIFA with existing renderer and outputs."""
     import json
     from types import SimpleNamespace
 
@@ -261,7 +261,8 @@ def test_default_auto_renderer_is_only_upstream_pipeline(tmp_path, monkeypatch):
     attempt.mkdir()
     produced = []
 
-    def fake_pipeline(video, lyrics, work, settings, *, style):
+    def fake_pipeline(video, lyrics, work, settings, *, style, mode):
+        assert mode == "global-kim"
         assert style.size == 48 and style.mode == "double"
         assert video == source
         assert lyrics == "DUDUDU\n你好"

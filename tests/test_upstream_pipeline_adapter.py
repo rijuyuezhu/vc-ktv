@@ -83,7 +83,12 @@ def test_full_adapter_calls_upstream_engine_and_preserves_audio(
     work = tmp_path / "attempt01"
     progress = []
     result = pipeline.make_karaoke_video(
-        media, "DUDUDU\n你好", work, Settings(), progress=progress.append
+        media,
+        "DUDUDU\n你好",
+        work,
+        Settings(),
+        progress=progress.append,
+        mode="quality",
     )
     assert result.video.exists() and result.ass.exists()
     assert "DUDUDU" in result.ass.read_text(encoding="utf-8-sig")
@@ -114,7 +119,7 @@ def test_full_adapter_calls_upstream_engine_and_preserves_audio(
 
     assert audio_packets(media) == audio_packets(result.video)
     with pytest.raises(FileExistsError):
-        pipeline.make_karaoke_video(media, "你好", work, Settings())
+        pipeline.make_karaoke_video(media, "你好", work, Settings(), mode="quality")
 
 
 def test_bad_input_and_safe_failure(tmp_path, monkeypatch):
@@ -164,7 +169,7 @@ def test_estimated_words_are_marked_in_rendered_bundle(media, tmp_path, monkeypa
     monkeypatch.setattr(pipeline, "prepare_alignment_audio", separation)
     monkeypatch.setattr(pipeline, "align_reliable_blocks", partial)
     result = pipeline.make_karaoke_video(
-        media, "DUDUDU\n你好", tmp_path / "estimated", Settings()
+        media, "DUDUDU\n你好", tmp_path / "estimated", Settings(), mode="quality"
     )
     timeline = json.loads(result.timeline.read_text())
     assert timeline["lines"][1]["text"] == "你好"

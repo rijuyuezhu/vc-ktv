@@ -158,7 +158,10 @@ def test_real_stage_events_only_five_transitions(tmp_path, monkeypatch):
     sid = add_song(store, "A", 1)
     stages = []
 
-    def fake_upstream(video, lyrics, dest, settings, *, style, progress):
+    monkeypatch.setenv("VC_KTV_PIPELINE_MODE", "quality")
+
+    def fake_upstream(video, lyrics, dest, settings, *, style, progress, mode):
+        assert mode == "quality"
         for message in (
             "读取原视频并提取音频",
             "Kim 分离用于推理的人声",
