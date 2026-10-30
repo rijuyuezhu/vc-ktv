@@ -34,8 +34,23 @@ def set_sources(monkeypatch, wiki, lrclib, netease, pages, *, query_titles=None)
     monkeypatch.setattr(lyrics, "_wiki_titles", names)
     monkeypatch.setattr(lyrics, "_lrclib", lrclib_results)
     monkeypatch.setattr(lyrics, "vcpedia_lyric_candidates", wiki_results)
-    monkeypatch.setattr(lyrics, "lookup_netease", lambda *args: (netease, []))
-    monkeypatch.setattr(lyrics, "lookup_sites", lambda *args: (pages, []))
+
+    async def netease_results(query):
+        return [
+            candidate
+            for item in netease
+            if (
+                candidate := lyrics._candidate(
+                    item["trackName"],
+                    "网易云音乐",
+                    item["syncedLyrics"],
+                    item["source"],
+                    item["artistName"],
+                )
+            )
+        ]
+
+    monkeypatch.setattr(lyrics, "_netease", netease_results)
 
 
 def test_conservative_japanese_script_variants_change_only_search_title():
@@ -43,29 +58,24 @@ def test_conservative_japanese_script_variants_change_only_search_title():
     assert similarity("千本樱", "千本桜") == 1
 
 
-def test_fallback_sources_get_visible_slots(monkeypatch):
+def test_independent_sources_get_visible_slots(monkeypatch):
     wikis = [
         dict(title="千本樱", source="VCPedia", text=f"Wiki {i}\n完整歌词 {i}")
         for i in range(4)
     ]
     lr = {"千本樱": [dict(title="千本桜", source="LRCLIB", text="原文一\n原文二")]}
     net = [track("千本桜", "网易云音乐", "[00:01]さくら\n[00:02]さくら")]
-    uta = [track("千本桜", "UtaTen", "第一句\n第二句", identifier="utaten")]
-    j = [track("千本桜", "J-Lyric", "第三句\n第四句", identifier="jlyric")]
-    set_sources(monkeypatch, wikis, lr, net, [uta[0], j[0]])
+    set_sources(monkeypatch, wikis, lr, net, [])
     candidates = asyncio.run(lyrics.search_lyric_candidates("千本樱"))
     assert len(candidates) == 6
     assert {c["source"] for c in candidates} >= {
         "VCPedia",
         "LRCLIB",
         "网易云音乐",
-        "UtaTen",
-        "J-Lyric",
     }
     by_source = {c["source"]: c for c in candidates}
     assert by_source["网易云音乐"]["text"] == "さくら\nさくら"
     assert by_source["网易云音乐"]["artist"] == "初音ミク"
-    assert by_source["UtaTen"]["text"] == "第一句\n第二句"
 
 
 def test_bounded_fallback_when_primary_already_has_six(monkeypatch):
@@ -80,18 +90,8 @@ def test_bounded_fallback_when_primary_already_has_six(monkeypatch):
         [],
         [],
     )
-    monkeypatch.setattr(
-        lyrics,
-        "lookup_netease",
-        lambda *args: pytest.fail("no fallback needed"),
-    )
-    monkeypatch.setattr(
-        lyrics,
-        "lookup_sites",
-        lambda *args: pytest.fail("no fallback needed"),
-    )
     results = asyncio.run(lyrics.search_lyric_candidates("测试歌曲"))
-    assert len(results) == 6
+    assert len(results) == 7  # Every available source contributes independently.
 
 
 def test_single_source_six_results_still_queries_independent_providers(monkeypatch):
@@ -104,7 +104,7 @@ def test_single_source_six_results_still_queries_independent_providers(monkeypat
     net = [track("千本桜", "网易云音乐", "歌曲第一句\n歌曲第二句")]
     set_sources(monkeypatch, [], same_source, net, [])
     results = asyncio.run(lyrics.search_lyric_candidates("千本桜"))
-    assert len(results) == 6
+    assert len(results) == 7
     assert "网易云音乐" in {x["source"] for x in results}
 
 
@@ -122,37 +122,30 @@ def test_bad_independent_provider_does_not_fail_guest_search(monkeypatch):
         raise httpx.ConnectError("wiki was unavailable")
 
     monkeypatch.setattr(lyrics, "vcpedia_lyric_candidates", failed_wiki)
-    monkeypatch.setattr(
-        lyrics,
-        "lookup_netease",
-        lambda *args: (_ for _ in ()).throw(httpx.ConnectError("netease down")),
-    )
-    monkeypatch.setattr(
-        lyrics,
-        "lookup_sites",
-        lambda *args: (_ for _ in ()).throw(ValueError("site unavailable")),
-    )
+
+    async def failed_netease(query):
+        raise httpx.ConnectError("netease down")
+
+    monkeypatch.setattr(lyrics, "_netease", failed_netease)
     result = asyncio.run(lyrics.search_lyric_candidates("测试歌曲"))
     assert len(result) == 1 and result[0]["source"] == "LRCLIB"
 
 
-def test_not_entirely_unrelated_or_one_line_candidate():
-    assert lyrics._external_candidates(
-        [
-            track("完全不同", "网易云音乐", "原文一\n原文二"),
-            track("千本桜", "网易云音乐", "只有一句"),
-            track("千本桜", "网易云音乐", "[00:01.00]第一句\n[00:04]第二句"),
-        ],
-        "千本樱",
-    ) == [
-        {
-            "title": "千本桜",
-            "artist": "初音ミク",
-            "source": "网易云音乐",
-            "url": "https://music.163.com/song?id=123",
-            "text": "第一句\n第二句",
-        }
-    ]
+def test_unrelated_lyrics_are_collected_but_one_line_is_unusable():
+    assert lyrics._candidate(
+        "完全不同", "网易云音乐", "原文一\n原文二", "https://music.163.com/song?id=123"
+    ) == {
+        "title": "完全不同",
+        "source": "网易云音乐",
+        "url": "https://music.163.com/song?id=123",
+        "text": "原文一\n原文二",
+    }
+    assert (
+        lyrics._candidate(
+            "千本桜", "网易云音乐", "只有一句", "https://music.163.com/song?id=123"
+        )
+        is None
+    )
 
 
 def test_utaten_keeps_body_and_repeated_lines_not_ruby_or_romaji():

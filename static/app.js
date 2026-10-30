@@ -17,6 +17,7 @@ let selectionRequest = 0;
 let lyricControllers = [];
 let lyricKeys = new Set();
 let lyricHits = 0;
+let lyricPending = 0;
 let currentEventId = null;
 let leadSeconds = 1.8;
 let archiveListKey = null;
@@ -362,7 +363,7 @@ function addLyricCandidates(candidates, songId, sequence){
   if(sequence!==selectionRequest || selectingSongId!==songId)return;
   const panel=$("guest-lyrics-results");
   candidates.forEach(candidate=>{
-    if(lyricHits>=12)return;
+    if(lyricHits>=30)return;
     const key=candidate.title+"\u0000"+candidate.text;
     if(lyricKeys.has(key))return;
     lyricKeys.add(key);
@@ -394,18 +395,37 @@ function addLyricCandidates(candidates, songId, sequence){
     },button);
     panel.append(card);
   });
-  $("guest-lyrics-status").textContent=lyricHits?("已有 "+lyricHits+" 版可选，可立即选择"):"正在查找歌词……";
+  updateLyricSearchStatus();
+}
+function updateLyricSearchStatus(){
+  $("guest-lyrics-status").textContent=lyricHits?
+    `已有 ${lyricHits} 版可选${lyricPending?"，其他来源仍在查询":""}`:
+    (lyricPending?"正在查找歌词……":"没有找到候选，可以更换关键词或上传 LRC");
 }
 async function fetchLyricPhase(phase, songId, query, sequence){
   const controller=new AbortController();
   lyricControllers.push(controller);
+  lyricPending++;
+  const deadline=setTimeout(()=>controller.abort(),5000);
   try{
     const url="/api/songs/"+songId+"/lyrics/candidates?phase="+phase+"&query="+encodeURIComponent(query);
     const data=await api(url,"GET",null,controller.signal);
     if(sequence!==selectionRequest || selectingSongId!==songId)return;
     addLyricCandidates(data.candidates,songId,sequence);
+  }catch(e){
+    // A failed or slow provider contributes no cards. Other providers continue.
+    if(e.name!=="AbortError")console.info("Lyrics provider",phase,e.message);
   }finally{
+    clearTimeout(deadline);
     lyricControllers=lyricControllers.filter(c=>c!==controller);
+    if(sequence===selectionRequest && selectingSongId===songId){
+      lyricPending--;
+      if(!lyricHits && !lyricPending){
+        $("guest-lyrics-results").replaceChildren();
+        appendText($("guest-lyrics-results"),"div","暂无歌词候选，可修改关键词或上传 LRC","empty");
+      }
+      updateLyricSearchStatus();
+    }
   }
 }
 async function searchGuestLyrics(){
@@ -415,24 +435,16 @@ async function searchGuestLyrics(){
   abortLyricRequests();
   lyricKeys=new Set();
   lyricHits=0;
+  lyricPending=0;
   const query=$("guest-lyrics-query").value.trim();
   const panel=$("guest-lyrics-results");
   panel.replaceChildren();
   if(!query){appendText(panel,"div","请先输入歌名","empty");return;}
-  appendText(panel,"div","正在查询 VCPedia 和 LRCLIB……","empty");
-  $("guest-lyrics-status").textContent="优先查找常用来源";
+  appendText(panel,"div","正在查询歌词来源……","empty");
   $("guest-lyrics-more").disabled=false;
-  const sources=["vcpedia","lrclib"];
-  const results=await Promise.allSettled(sources.map(src=>fetchLyricPhase(src,songId,query,sequence)));
-  if(sequence!==selectionRequest || selectingSongId!==songId)return;
-  if(!lyricHits){
-    panel.replaceChildren();
-    appendText(panel,"div","常用来源暂无结果，可以修正歌名或点「更多来源」。","empty");
-  }
-  const failures=results.filter(r=>r.status==="rejected");
-  $("guest-lyrics-status").textContent=
-    lyricHits?("已有 "+lyricHits+" 版可选，找不到可查更多来源"):
-    failures.length===2?"常用来源暂时无法访问，请尝试更多来源":"常用来源已搜索完成";
+  const sources=["vcpedia","wiki","netease","lrclib"];
+  // Each request adds results immediately on arrival, regardless of the others.
+  await Promise.allSettled(sources.map(src=>fetchLyricPhase(src,songId,query,sequence)));
 }
 async function searchMoreLyrics(){
   const songId=selectingSongId;
@@ -442,18 +454,8 @@ async function searchMoreLyrics(){
   if(!query)return;
   const button=$("guest-lyrics-more");
   button.disabled=true;
-  $("guest-lyrics-status").textContent="正在查找其他来源，现有候选仍可选择";
-  try{
-    await fetchLyricPhase("more",songId,query,sequence);
-    if(sequence===selectionRequest && selectingSongId===songId){
-      $("guest-lyrics-status").textContent=lyricHits?
-        ("共 "+lyricHits+" 版可选"):"没有更多候选，请修正歌名";
-    }
-  }catch(e){
-    if(sequence===selectionRequest && selectingSongId===songId){
-      $("guest-lyrics-status").textContent="其他来源暂不可用，已有候选仍可选择";
-    }
-  }finally{button.disabled=false;}
+  await fetchLyricPhase("more",songId,query,sequence);
+  if(sequence===selectionRequest && selectingSongId===songId)button.disabled=false;
 }
 $("guest-lyrics-dialog").addEventListener("close",()=>{
   selectingSongId=null;selectionRequest++;abortLyricRequests();

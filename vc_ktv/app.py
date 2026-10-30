@@ -1173,15 +1173,15 @@ def create_app(
     async def guest_lyric_candidates(
         song_id: int,
         query: str = "",
-        phase: Literal["all", "vcpedia", "lrclib", "more"] = "all",
+        phase: Literal["all", "vcpedia", "wiki", "lrclib", "netease", "more"] = "all",
         vc_guest: str | None = Cookie(default=None),
     ):
         song = own_song(song_id, vc_guest)
         if song["status"] not in ("waiting", "ready"):
             bail(409, "这首歌已经开始播放或结束")
         term = query.strip() if query else title_key(song["title"])[:60].strip()
-        if not 2 <= len(term) <= 60:
-            bail(400, "请使用 2–60 字的歌名关键词")
+        if not 1 <= len(term) <= 60:
+            bail(400, "请使用 1–60 字的歌名关键词")
         key = (song["requester"], song_id)
         recent = [t for t in lyric_search_times.get(key, []) if t > time_now() - 300]
         if len(recent) >= 30:

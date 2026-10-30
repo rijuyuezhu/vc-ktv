@@ -25,10 +25,11 @@ def test_fast_provider_never_waits_for_slow_external_sources(monkeypatch):
 
     monkeypatch.setattr(source, "_lrclib", fast_lrclib)
     monkeypatch.setattr(source, "vcpedia_lyric_candidates", blocked_wiki)
-    monkeypatch.setattr(
-        source, "lookup_netease", lambda *args: pytest.fail("No Netease")
-    )
-    monkeypatch.setattr(source, "lookup_sites", lambda *args: pytest.fail("No sites"))
+
+    async def unexpected_netease(query):
+        pytest.fail("NetEase must not run during a direct LRCLIB lookup")
+
+    monkeypatch.setattr(source, "_netease", unexpected_netease)
     result = asyncio.run(
         asyncio.wait_for(search_lyric_candidates("千本桜", phase="lrclib"), 0.4)
     )
@@ -42,12 +43,11 @@ def test_optional_more_sources_are_not_in_fast_vcpedia_search(monkeypatch):
         return [dict(title=query, text="第一句\n第二句", source="VCPedia")]
 
     monkeypatch.setattr(source, "vcpedia_lyric_candidates", fast)
-    monkeypatch.setattr(
-        source, "lookup_netease", lambda *args: pytest.fail("No fallback")
-    )
-    monkeypatch.setattr(
-        source, "lookup_sites", lambda *args: pytest.fail("No fallback")
-    )
+
+    async def unexpected_netease(query):
+        pytest.fail("NetEase must not run during a direct VCPedia lookup")
+
+    monkeypatch.setattr(source, "_netease", unexpected_netease)
     result = asyncio.run(search_lyric_candidates("千本樱", phase="vcpedia"))
     assert result[0]["source"] == "VCPedia"
 

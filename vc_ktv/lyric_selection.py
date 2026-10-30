@@ -1,22 +1,39 @@
-"""Bounded lyric candidates for the submitter's selection."""
+"""Independent, bounded sources of user-selected lyric candidates.
+
+No song/artist matching is performed: the guest chooses the correct version.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import re
+import logging
 
 import httpx
 
-from ktv_app.lyric_names import similarity, title_variants
-from ktv_app.lyric_netease import lookup_netease
-from ktv_app.lyric_sources import lookup_sites
+from ktv_app.lyric_names import title_variants
 from ktv_app.text_normalization import clean_lyric_text
-from ktv_app.web_search import search_web
 
 from .lyric_sources import vcpedia_lyric_candidates
 
+log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "VC-KTV/0.5 (guest lyrics search)"}
-TIMEOUT = httpx.Timeout(10, connect=5)
+TIMEOUT = httpx.Timeout(3.5, connect=2)
+DEADLINE = 4.0
+
+
+def _candidate(
+    title: str, source: str, raw: str, url: str, artist: str = ""
+) -> dict | None:
+    """Only validate that a source supplied usable lyric lines."""
+    if not title.strip() or not isinstance(raw, str):
+        return None
+    text = clean_lyric_text(raw).strip()[:12_000]
+    if len(text.splitlines()) < 2:
+        return None
+    result = {"title": title, "source": source, "text": text, "url": url}
+    if artist:
+        result["artist"] = artist
+    return result
 
 
 async def _wiki_titles(query: str) -> list[str]:
@@ -48,230 +65,140 @@ async def _lrclib(query: str) -> list[dict]:
     rows = response.json()
     if not isinstance(rows, list):
         return []
-    result = []
+    output = []
     for row in rows[:8]:
         if not isinstance(row, dict) or row.get("instrumental"):
             continue
-        text = row.get("plainLyrics") or row.get("syncedLyrics") or ""
-        title = row.get("trackName")
-        if not isinstance(text, str) or not isinstance(title, str):
-            continue
-        text = re.sub(r"^\[\d+:\d+(?:\.\d+)?\]", "", text, flags=re.M).strip()
-        if len(text.splitlines()) >= 2 and 2 <= len(title) <= 90:
-            result.append(
-                {
-                    "title": title,
-                    "source": "LRCLIB",
-                    "text": text[:12_000],
-                    "url": f"https://lrclib.net/api/get/{row['id']}"
-                    if isinstance(row.get("id"), int)
-                    else "https://lrclib.net/",
-                }
-            )
-    return result
-
-
-def _external_candidates(records: list[dict], query: str) -> list[dict]:
-    """Adapt upstream source records to the existing guest-choice contract."""
-    result = []
-    for item in records:
-        title, artist = item.get("trackName"), item.get("artistName")
-        source = item.get("provider")
-        url = item.get("source")
-        raw = item.get("plainLyrics") or item.get("syncedLyrics")
-        if (
-            not isinstance(title, str)
-            or not isinstance(artist, str)
-            or not isinstance(source, str)
-            or not isinstance(url, str)
-            or not isinstance(raw, str)
-            or similarity(query, title) < 0.5
-        ):
-            continue
-        text = clean_lyric_text(raw).strip()[:12_000]
-        if len(text.splitlines()) < 2:
-            continue
-        result.append(
-            {
-                "title": title,
-                "artist": artist,
-                "source": source,
-                "url": url,
-                "text": text,
-            }
+        title, lyrics = (
+            row.get("trackName"),
+            row.get("plainLyrics") or row.get("syncedLyrics"),
         )
-    return result
-
-
-async def search_lyric_candidates(query: str, phase: str = "all") -> list[dict]:
-    """Primary providers are independently available without slow fallbacks."""
-
-    """Retrieve diverse, source-labeled candidates; never select for a guest."""
-    query = query.strip()
-    if not 2 <= len(query) <= 60:
-        return []
-    if phase == "vcpedia":
-        try:
-            return (await vcpedia_lyric_candidates(query))[:6]
-        except Exception:
-            return []
-    if phase == "lrclib":
-        try:
-            return (await _lrclib(query))[:6]
-        except Exception:
-            return []
-    if phase == "more":
-        return await _more_candidates(query)
-    if phase != "all":
-        raise ValueError("unsupported lyric search phase")
-    sources = await asyncio.gather(
-        _wiki_titles(query), _lrclib(query), return_exceptions=True
-    )
-    titles = [query]
-    if isinstance(sources[0], list):
-        titles.extend(sources[0])
-    titles = list(dict.fromkeys(titles))[:5]
-    wiki = await asyncio.gather(
-        *(vcpedia_lyric_candidates(title) for title in titles),
-        return_exceptions=True,
-    )
-    groups: dict[str, list[dict]] = {
-        "VCPedia": [
-            candidate
-            for batch in wiki
-            if isinstance(batch, list)
-            for candidate in batch
-        ],
-        "LRCLIB": sources[1] if isinstance(sources[1], list) else [],
-    }
-    seen = set()
-
-    def valid(candidate):
-        if not isinstance(candidate, dict):
-            return None
-        title, raw = candidate.get("title"), candidate.get("text")
-        if not isinstance(title, str) or not isinstance(raw, str):
-            return None
-        text = raw.strip()[:12_000]
-        if len(text.splitlines()) < 2:
-            return None
-        return {**candidate, "text": text}
-
-    unique_primary = {
-        (c["title"], c["text"])
-        for group in groups.values()
-        for candidate in group
-        if (c := valid(candidate))
-    }
-    primary_sources = sum(
-        any(valid(candidate) for candidate in group) for group in groups.values()
-    )
-    # A single provider can return dozens of similar variants.
-    # Try other hosts even when one provider fills all six UI slots.
-    if len(unique_primary) < 6 or primary_sources < 2:
-        variants = title_variants(query)[:2]
-        tasks = [*(_lrclib(v) for v in variants)]
-        # All external sync retrievals stay off the FastAPI event loop.
-        tasks.extend(
-            [
-                asyncio.to_thread(lookup_netease, query, "", 0),
-                asyncio.to_thread(lookup_sites, query, "", search_web),
-            ]
+        if not isinstance(title, str):
+            continue
+        url = (
+            f"https://lrclib.net/api/get/{row['id']}"
+            if isinstance(row.get("id"), int)
+            else "https://lrclib.net/"
         )
-        more = await asyncio.gather(*tasks, return_exceptions=True)
-        groups["LRCLIB variants"] = [
-            c
-            for batch in more[: len(variants)]
-            if isinstance(batch, list)
-            for c in batch
+        item = _candidate(title, "LRCLIB", lyrics, url, row.get("artistName") or "")
+        if item:
+            output.append(item)
+    return output[:6]
+
+
+async def _netease(query: str) -> list[dict]:
+    """Public catalogue order, no title-similarity or artist-based rejection."""
+    async with httpx.AsyncClient(
+        timeout=TIMEOUT, headers=HEADERS, follow_redirects=False
+    ) as client:
+        response = await client.get(
+            "https://music.163.com/api/search/get",
+            params={"s": query, "type": 1, "limit": 6},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get("code") != 200:
+            return []
+        songs = (data.get("result") or {}).get("songs") or []
+        if not isinstance(songs, list):
+            return []
+        tracks = [
+            s for s in songs[:6] if isinstance(s, dict) and isinstance(s.get("id"), int)
         ]
-        for output in more[len(variants) :]:
-            if not isinstance(output, tuple):
-                continue
-            for candidate in _external_candidates(output[0], query):
-                group = candidate["source"]
-                if group in ("网易云音乐", "UtaTen", "J-Lyric"):
-                    groups.setdefault(group, []).append(candidate)
 
-    # One result per source group first, then fill remaining slots. Otherwise
-    # VCPedia often crowds out every independent candidate in the 6-item UI.
-    results = []
+        async def lyric(track):
+            try:
+                response = await client.get(
+                    "https://music.163.com/api/song/lyric",
+                    params={"id": track["id"], "lv": -1, "kv": -1, "tv": -1},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("code") != 200 or payload.get("nolyric"):
+                    return None
+                raw = (payload.get("lrc") or {}).get("lyric")
+                name = track.get("name")
+                if not isinstance(name, str):
+                    return None
+                artists = track.get("artists") or []
+                artist = " / ".join(
+                    a["name"]
+                    for a in artists
+                    if isinstance(a, dict) and isinstance(a.get("name"), str)
+                )
+                return _candidate(
+                    name,
+                    "网易云音乐",
+                    raw,
+                    f"https://music.163.com/song?id={track['id']}",
+                    artist,
+                )
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+                return None
 
-    def add(candidate):
-        c = valid(candidate)
-        if c is None:
-            return False
-        key = (c["title"], c["text"])
-        if key in seen:
-            return False
-        seen.add(key)
-        results.append(c)
-        return True
+        return [
+            c for c in await asyncio.gather(*(lyric(track) for track in tracks)) if c
+        ]
 
-    for group in groups.values():
-        for candidate in group:
-            if add(candidate):
-                break
-    for group in groups.values():
-        for candidate in group:
-            if len(results) >= 6:
-                break
-            add(candidate)
-    return results[:6]
+
+async def _collect_ready(coroutines) -> list[dict]:
+    """Keep finished candidate pages when one sibling page stalls."""
+    tasks = [asyncio.create_task(coro) for coro in coroutines]
+    if not tasks:
+        return []
+    done, pending = await asyncio.wait(tasks, timeout=3.0)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+    result = []
+    for task in tasks:
+        if task in done and not task.cancelled() and task.exception() is None:
+            result.extend(task.result())
+    return result[:6]
+
+
+async def _wiki_search(query: str) -> list[dict]:
+    titles = list(dict.fromkeys(await _wiki_titles(query)))[:4]
+    # The actual MediaWiki page may use alternate glyphs.
+    return await _collect_ready(vcpedia_lyric_candidates(title) for title in titles)
 
 
 async def _more_candidates(query: str) -> list[dict]:
-    """Optional wider searches; never delay the first two source results."""
+    """Extra LRCLIB name variants, not slow general web scraping."""
+    return await _collect_ready(_lrclib(title) for title in title_variants(query)[:2])
+
+
+async def search_lyric_candidates(query: str, phase: str = "all") -> list[dict]:
+    query = query.strip()
+    if not 1 <= len(query) <= 60:
+        return []
+    sources = {
+        "vcpedia": lambda: vcpedia_lyric_candidates(query),
+        "wiki": lambda: _wiki_search(query),
+        "lrclib": lambda: _lrclib(query),
+        "netease": lambda: _netease(query),
+        "more": lambda: _more_candidates(query),
+    }
+    if phase == "all":
+        batches = await asyncio.gather(
+            *(
+                search_lyric_candidates(query, name)
+                for name in ("vcpedia", "wiki", "lrclib", "netease")
+            )
+        )
+        seen, results = set(), []
+        for batch in batches:
+            for item in batch:
+                key = (item["title"], item["text"])
+                if key not in seen:
+                    seen.add(key)
+                    results.append(item)
+        return results[:12]
+    if phase not in sources:
+        raise ValueError("unsupported lyric search phase")
     try:
-        titles = (await _wiki_titles(query))[:4]
-    except Exception:
-        titles = []
-    titles = [t for t in dict.fromkeys(titles) if t != query][:3]
-    variants = title_variants(query)[:2]
-    tasks = [
-        *(vcpedia_lyric_candidates(title) for title in titles),
-        *(_lrclib(title) for title in variants),
-        asyncio.to_thread(lookup_netease, query, "", 0),
-        asyncio.to_thread(lookup_sites, query, "", search_web),
-    ]
-    batches = await asyncio.gather(*tasks, return_exceptions=True)
-    groups: dict[str, list[dict]] = {}
-    for batch in batches[: len(titles) + len(variants)]:
-        if isinstance(batch, list):
-            for c in batch:
-                if isinstance(c, dict) and isinstance(c.get("source"), str):
-                    groups.setdefault(c["source"], []).append(c)
-    for output in batches[len(titles) + len(variants) :]:
-        if isinstance(output, tuple):
-            for c in _external_candidates(output[0], query):
-                if c["source"] in ("网易云音乐", "UtaTen", "J-Lyric"):
-                    groups.setdefault(c["source"], []).append(c)
-    result = []
-    seen = set()
-    for group in groups.values():
-        for c in group:
-            text = c.get("text", "") if isinstance(c, dict) else ""
-            title = c.get("title", "") if isinstance(c, dict) else ""
-            if not isinstance(text, str) or not isinstance(title, str):
-                continue
-            if len(text.splitlines()) < 2:
-                continue
-            key = (title, text)
-            if key not in seen:
-                result.append(c)
-                seen.add(key)
-                break
-    for group in groups.values():
-        for c in group:
-            if len(result) >= 6:
-                break
-            if not isinstance(c, dict):
-                continue
-            text, title = c.get("text"), c.get("title")
-            if not isinstance(text, str) or not isinstance(title, str):
-                continue
-            key = (title, text)
-            if len(text.splitlines()) >= 2 and key not in seen:
-                result.append(c)
-                seen.add(key)
-    return result[:6]
+        return (await asyncio.wait_for(sources[phase](), timeout=DEADLINE))[:6]
+    except Exception as exc:  # noqa: BLE001 - one failed source must not block others
+        log.info("Lyric source %s unavailable (%s)", phase, type(exc).__name__)
+        return []

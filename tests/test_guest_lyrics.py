@@ -151,8 +151,10 @@ def test_multiple_wiki_sources_and_manual_query(monkeypatch):
     async def lrclib(query):
         return []
 
-    monkeypatch.setattr(lyric_selection, "lookup_netease", lambda *args: ([], []))
-    monkeypatch.setattr(lyric_selection, "lookup_sites", lambda *args: ([], []))
+    async def netease(query):
+        return []
+
+    monkeypatch.setattr(lyric_selection, "_netease", netease)
     monkeypatch.setattr(lyric_selection, "_wiki_titles", pages)
     monkeypatch.setattr(lyric_selection, "_lrclib", lrclib)
     monkeypatch.setattr(lyric_selection, "vcpedia_lyric_candidates", lyric)
