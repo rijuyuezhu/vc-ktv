@@ -106,6 +106,20 @@ def test_best_effort_on_actual_pipeline_marks_one_word_estimated(tmp_path, monke
     assert report["best_effort"]["changed_intervals"] == 1
 
 
+def test_automatic_millisecond_stamp_preserves_tifa_1ms_intervals(tmp_path):
+    from vc_ktv.global_alignment import timeline_from_lrc
+
+    raw = model_grid(
+        tmp_path / "subcentisecond.TextGrid",
+        [(0.500, 0.502, "你"), (0.502, 0.504, "好"), (0.504, 0.510, "吗")],
+    )
+    lrc, _ = convert_textgrid(raw, "你好吗", 6, millisecond_timestamps=True)
+    assert "00:00.502" in lrc
+    timeline = timeline_from_lrc(lrc, "你好吗", 6)
+    assert len(timeline.lines[0].units) == 3
+    assert [round(u.start, 3) for u in timeline.lines[0].units] == [0.500, 0.502, 0.504]
+
+
 def test_manual_strict_import_remains_strict(tmp_path):
     source = model_grid(tmp_path / "raw.TextGrid", [(0.5, 0.7, "你"), (0.8, 1.0, "吗")])
     with pytest.raises(ValueError, match="对齐文本"):

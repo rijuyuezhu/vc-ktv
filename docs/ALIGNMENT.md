@@ -61,13 +61,13 @@ cd /path/to/vc-ktv
 
 ## 歌词原文与 TIFA 发音提示
 
-自动流水线保留用户确认的原始歌词于每次制作的 `lyrics.source.txt`，另在 `audio.txt` 中记录送入 TIFA 的发音文本。`pronunciation_trace.json` 标明常见拟声词的替换及原文字段范围。TextGrid 的原生时间区间按源文字段映射回字幕；如果 TIFA 将一个拟声词分为多个音节，只使用这些区间的实际首尾时间并显示原有拟声词，不制造逐字母时间。对于不支持的其他词仍记录 OOV 失败。发音替换本身不是实际歌唱内容或时间精度的证明，需在授权真实样本上复核。
+自动流水线保留用户确认的原始歌词于每次制作的 `lyrics.source.txt`，另在 `audio.txt` 中记录送入 TIFA 的发音文本。`pronunciation_trace.json` 标明常见拟声词的替换及原文字段范围。TextGrid 的原生时间区间按源文字段映射回字幕；如果 TIFA 将一个拟声词分为多个音节，只使用这些区间的实际首尾时间并显示原有拟声词，不制造逐字母时间。未知拉丁字母唱词在进入 TIFA 前按长度转换成可识别的中文音节，并保留原文映射；不依赖可选英文 G2P 运行时。发音替换本身不是实际歌唱内容或时间精度的证明，需在授权真实样本上复核。
 
 ## Kim + 整首 TIFA 试听模式（Issue #59，2026-10-30）
 
-默认 `VC_KTV_PIPELINE_MODE=global-kim`：原视频提取音频后，用 Kim 做人声分离（**只用于对齐**，导出的 MP4 仍保留原始音轨），再对完整歌词运行一次 TIFA，不经过 Qwen3-ASR、不分块、不估算时间。继续使用早期 `pronunciation_lyrics` 发音映射及 `convert_textgrid` 全量文本/顺序/重叠校验；字幕样式、画质和成片体积控制使用现有代码。
+默认 `VC_KTV_PIPELINE_MODE=global-kim`：原视频提取音频后，用 Kim 做人声分离（**只用于对齐**，导出的 MP4 仍保留原始音轨），再对完整歌词运行一次 TIFA，不经过 Qwen3-ASR、不分块；若 TIFA 无法运行，则允许单独标识的保底时间估算。继续使用早期 `pronunciation_lyrics` 发音映射及 `convert_textgrid` 全量文本/顺序/重叠校验；字幕样式、画质和成片体积控制使用现有代码。
 
-保留 `global`（混合音频整首 TIFA）、`quality` 和 `fast` 用于离线 A/B。**不要悄悄从任何模式自动降级到其他模式。** 试听模式下只对过短/过长的原始时间戳生成 `suspicious_timing` 诊断，不篡改时间，不由于阈值拒绝整首输出；字幕时间仍需试听判断。每次尝试保留整个 TIFA `audio.TextGrid`、`tifa.log`、完整原歌词、读音映射、严格 LRC 和导出报告。
+保留 `global`（混合音频整首 TIFA）、`quality` 和 `fast` 用于离线 A/B。全曲对齐失败时，`global-kim` 内部允许改用原始混合音频重试同一算法，保留回退原因，不擅自切换到旧 Fast/Quality pipeline。 试听模式下只对过短/过长的原始时间戳生成 `suspicious_timing` 诊断，不篡改时间，不由于阈值拒绝整首输出；字幕时间仍需试听判断。每次尝试保留整个 TIFA `audio.TextGrid`、`tifa.log`、完整原歌词、读音映射、严格 LRC 和导出报告。
 
 ### 实歌对照（隔离实验，非客观准确率验证）
 
@@ -81,6 +81,12 @@ TIFA 默认会略去 zero-width 音素，导致整首歌词偶尔缺少一个或
 
 ### 自动字幕可用性兜底（Issue #61 扩展）
 
-对生产 `global-kim` 和 `global` 模式贯彻 best effort：首先尝试 Kim（如果选中）和整首 TIFA；Kim 不可用则以原混合音频直接执行 TIFA；文本少量缺漏则利用原始 TextGrid 锚点进行单字/局部修复，并把受影响单元标记为 `estimated`；如果未知拉丁字母拟声词（如 BIBIBI、BAPABAPA）引起 TIFA/G2P 失败，保持**原样展示歌词**，只在对齐输入中采用“啦”音节通用近似后重跑一次。若 TIFA 仍失败，则估计人声音量区间，将完整歌词按顺序、长度权重分配到粗时间轴，继续渲染视频。粗时间轴所有单元标记为 `estimated`，报告的 `alignment_quality` 设置为 `rough`；仅局部修复为 `repaired`，使用通用拟声词的 TIFA 为 `phonetic_approx`，正常完整 TIFA 为 `model`。错误和回退步骤保存 `fallback_report.json`，原片、原始模型输出、诊断文件都保留。
+对生产 `global-kim` 和 `global` 模式贯彻 best effort：首先尝试 Kim（如果选中）和整首 TIFA；Kim 不可用则以原混合音频直接执行 TIFA；文本少量缺漏则利用原始 TextGrid 锚点进行单字/局部修复，并把受影响单元标记为 `estimated`；在 **TIFA 之前** 将已知重复拟声词（如 BIBIBI、BAPABAPA、DUDUDU、DaLaDa）转成中文音节，并把仍未知的拉丁字母唱词以通用“啦”音节近似，**字幕始终保留原文**。TIFA 运行使用 `--skip-handling preserve`，避免它默认 `omit` 丢掉零时长音素，自动生成 LRC 保留毫秒精度；若完整人声版 TIFA 仍失败，再尝试用混合音频整首对齐。若 TIFA 的全部尝试均失败，则估计人声音量区间，将完整歌词按顺序、长度权重分配到粗时间轴，继续渲染视频。粗时间轴所有单元标记为 `estimated`，报告的 `alignment_quality` 设置为 `rough`；仅局部修复为 `repaired`，使用通用拟声词的 TIFA 为 `phonetic_approx`，正常完整 TIFA 为 `model`。错误和回退步骤保存 `fallback_report.json`，原片、原始模型输出、诊断文件都保留。
 
 这不是声学准确率保证，尤其整首歌词均匀估算的粗时间轴仅能保证字幕存在、文字完整、顺序正确，无法保证对应演唱秒数。在可播放原视频和确认歌词有效的前提下，优先交付能试听的带字幕 MP4，而不是因不认识拟声词或某个字的漏识别直接宣布失败。人工上传 TextGrid 的严格验证仍不改变。
+
+### TIFA 可配置的容错参数及实机验证（2026-10-30）
+
+TIFA 默认 `--skip-handling omit` 会丢弃零时长音素；`--skip-handling preserve` 给这些音素分配约 1ms 区间而不删除文字。原先《星花挽愿》588 字只导出 587 字；同一个音频用 `preserve` 再跑一遍得到 588 字，自动 TextGrid→LRC 使用毫秒精度后，40 行歌词全部通过，无需文字修复。百分秒格式的老导出会将 1–2ms 的相邻区间舍入成同一时间，所以保留三位小数只用于自动流程，人工导入格式不受影响。
+
+`--oov-handling force` 只会丢弃不支持的**发音候选**，并不是“忽略生词而保留其时间”的能力。模型词表包含 `zh/` 和 `en/` 音素，但要启用英文 G2P 的 `-L en` 时，实际实验被缺少 `onnxruntime` 阻断。优先做已知拟声词精确转换与未知拉丁字母的近似中文读音映射，无需在生产加入新的模型运行时依赖。原文始终用于最终展示，转换仅用于 TIFA 的文字输入。此机制依旧不能保证声学毫秒准确，全部近似和回退均通过诊断记录。

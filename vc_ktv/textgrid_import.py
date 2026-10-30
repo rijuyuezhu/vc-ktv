@@ -22,9 +22,10 @@ def chars(text: str) -> tuple[str, list[int]]:
     return "".join(content), positions
 
 
-def stamp(value: float) -> str:
-    n = round(value * 100)
-    return f"{n // 6000:02d}:{n // 100 % 60:02d}.{n % 100:02d}"
+def stamp(value: float, *, milliseconds: bool = False) -> str:
+    scale = 1000 if milliseconds else 100
+    n = round(value * scale)
+    return f"{n // (60 * scale):02d}:{n // scale % 60:02d}.{n % scale:0{3 if milliseconds else 2}d}"
 
 
 def convert_textgrid(
@@ -35,6 +36,7 @@ def convert_textgrid(
     *,
     pronunciation: str | None = None,
     source_spans: list[list[tuple[int, int]]] | None = None,
+    millisecond_timestamps: bool = False,
 ) -> tuple[str, dict]:
     if not -10 <= offset <= 10:
         raise ValueError("时间偏移必须在 -10 至 10 秒以内")
@@ -120,9 +122,10 @@ def convert_textgrid(
             converted.append((start, end, display + line[original_cursor:]))
         line_start = units[first_unit][1]
         output.append(
-            f"[{stamp(line_start)}]"
+            f"[{stamp(line_start, milliseconds=millisecond_timestamps)}]"
             + "".join(
-                f"<{stamp(start)}>{display}<{stamp(end)}>"
+                f"<{stamp(start, milliseconds=millisecond_timestamps)}>{display}"
+                f"<{stamp(end, milliseconds=millisecond_timestamps)}>"
                 for start, end, display in converted
             )
         )

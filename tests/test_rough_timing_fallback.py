@@ -16,7 +16,7 @@ def test_unknown_scat_maps_to_approximate_pronunciation_preserving_display():
     original = "BIBIBI BAPABAPA\n我来啦 BZBZBZ woohoooo\nDUDUDU DaLaDa"
     spoken, mapping, changes = pronunciation_lyrics(original, unknown_vocables=True)
     assert len(spoken.splitlines()) == 3
-    assert spoken.splitlines()[0] == "啦啦啦 啦啦啦啦"
+    assert spoken.splitlines()[0] == "比比比 巴啪巴啪"
     assert len(spoken.splitlines()[1]) < len(original.splitlines()[1])
     assert spoken.splitlines()[2] == "嘟嘟嘟 哒啦哒"
     assert any(x["display"] == "BAPABAPA" for x in changes)
@@ -73,7 +73,7 @@ def _small_video(path):
     )
 
 
-def test_unknown_vocable_retry_produces_real_video_with_original_display(
+def test_unknown_vocable_preprocessing_produces_video_on_first_tifa_attempt(
     tmp_path, monkeypatch
 ):
     from vc_ktv import global_alignment, upstream_pipeline
@@ -86,8 +86,7 @@ def test_unknown_vocable_retry_produces_real_video_with_original_display(
         source, lyrics, duration, origin, work, settings, *, unknown_vocables=False
     ):
         calls.append(unknown_vocables)
-        if not unknown_vocables:
-            raise RuntimeError("TIFA OOV: BIBIBI")
+        assert unknown_vocables
         spoken, _, changes = pronunciation_lyrics(lyrics, unknown_vocables=True)
         assert "BIBIBI" not in spoken and changes
         return Timeline(
@@ -114,12 +113,12 @@ def test_unknown_vocable_retry_produces_real_video_with_original_display(
 
     monkeypatch.setattr(global_alignment, "align_full_song", fake_full)
     result = upstream_pipeline.make_karaoke_video(
-        video, "BIBIBI BAPABAPA", tmp_path / "retry", Settings(), mode="global"
+        video, "BIBIBI ZAZAZA", tmp_path / "retry", Settings(), mode="global"
     )
-    assert calls == [False, True]
+    assert calls == [True]
     timeline = json.loads(result.timeline.read_text())
-    assert timeline["lines"][0]["text"] == "BIBIBI BAPABAPA"
-    assert timeline["diagnostics"]["fallback_attempts"][0]["stage"] == "tifa"
+    assert timeline["lines"][0]["text"] == "BIBIBI ZAZAZA"
+    assert "fallback_attempts" not in timeline["diagnostics"]
     assert result.video.stat().st_size > 0
 
 
@@ -147,23 +146,78 @@ def test_no_models_at_all_still_makes_karaoke_mp4(tmp_path, monkeypatch):
         Settings(),
         mode="global-kim",
     )
-    assert seen == ["kim_failed", "tifa_failed", "tifa_failed"]
+    assert seen == ["kim_failed", "tifa_failed"]
     report = json.loads(result.report.read_text())
     timeline = json.loads(result.timeline.read_text())
     assert result.video.stat().st_size > 0
     assert report["rendered_lines"] == 3
     assert report["estimated_lines"] == 3
     assert report["alignment_quality"] == "rough"
-    assert len(report["fallback_attempts"]) == 3
+    assert len(report["fallback_attempts"]) == 2
     assert report["unmatched_lines"] == 0
     assert timeline["diagnostics"]["pipeline"] == "last_resort_rough_timing"
     assert [r["stage"] for r in timeline["diagnostics"]["fallback_attempts"]] == [
         "kim",
         "tifa",
-        "tifa-vocables",
     ]
     assert [line["text"] for line in timeline["lines"]] == [
         "BIBIBI",
         "跟着节奏",
         "LaLaLa",
     ]
+
+
+def test_kim_tifa_failure_tries_whole_song_original_mix_before_rough(
+    tmp_path, monkeypatch
+):
+    from vc_ktv import global_alignment, upstream_pipeline
+
+    video = tmp_path / "source.mp4"
+    _small_video(video)
+    separated = tmp_path / "separated.wav"
+    separated.write_bytes(b"mock-vocals")
+    calls = []
+
+    def kim(*args, **kwargs):
+        return separated, {"method": "kim"}
+
+    def model(source, lyrics, duration, origin, work, settings, **kwargs):
+        calls.append((source, work.name))
+        if source == separated:
+            raise ValueError("TIFA struggles on separated audio")
+        return Timeline(
+            duration=duration,
+            lines=[
+                Line(
+                    id="line",
+                    text=lyrics,
+                    start=0.2,
+                    end=2.8,
+                    units=[
+                        Unit(
+                            id="unit",
+                            text=lyrics,
+                            source_start=0,
+                            source_end=len(lyrics),
+                            start=0.2,
+                            end=2.8,
+                        )
+                    ],
+                )
+            ],
+        )
+
+    monkeypatch.setattr(upstream_pipeline, "prepare_alignment_audio", kim)
+    monkeypatch.setattr(global_alignment, "align_full_song", model)
+    result = upstream_pipeline.make_karaoke_video(
+        video, "有字歌词", tmp_path / "mixed-fallback", Settings(), mode="global-kim"
+    )
+    assert calls == [(separated, "alignment"), (video.resolve(), "alignment-mix")]
+    report = json.loads(result.report.read_text())
+    timeline = json.loads(result.timeline.read_text())
+    assert report["alignment_quality"] == "model"
+    assert report["estimated_units"] == 0
+    assert (
+        timeline["diagnostics"]["alignment_audio"]["source"] == "original_mix_fallback"
+    )
+    assert [x["stage"] for x in report["fallback_attempts"]] == ["tifa"]

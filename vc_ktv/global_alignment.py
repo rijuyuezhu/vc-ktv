@@ -18,6 +18,10 @@ from .textgrid_import import chars, convert_textgrid
 
 SCAT_READINGS = {
     "du": "嘟",
+    "bi": "比",
+    "ba": "巴",
+    "pa": "啪",
+    "mi": "咪",
     "da": "哒",
     "la": "啦",
     "ha": "哈",
@@ -37,7 +41,7 @@ SCAT_WORD = re.compile(
     r"(?<![A-Za-z])(?:" + SCAT_PART.pattern + r"){2,}(?![A-Za-z])",
     re.IGNORECASE,
 )
-UNKNOWN_LATIN = re.compile(r"[A-Za-z]{2,}")
+UNKNOWN_LATIN = re.compile(r"[A-Za-z]+")
 SCAT_PREFIX = re.compile(
     r"^(?:(?:ha|ah|aa|la|oh|woo|ooh|wu|na|ya)\b[\s~]*){1,8}"
     r"(?=[\u3400-\u9fff])",
@@ -81,9 +85,9 @@ def pronunciation_lyrics(lyrics: str, *, unknown_vocables: bool = False):
                         )
                     )
         if unknown_vocables:
-            # Fallback only after the standard TIFA attempt failed. Unknown
-            # Latin vocalizations are approximated as Mandarin syllables; the
-            # original display string remains untouched in exported subtitles.
+            # Prepare unsupported Latin vocalizations before TIFA starts;
+            # unrecognized English requires an optional ONNX G2P runtime.
+            # Never change the displayed lyrics, only the phonetic input.
             for match in UNKNOWN_LATIN.finditer(display):
                 if not any(
                     a < match.end() and match.start() < b for a, b, _ in replacements
@@ -247,6 +251,8 @@ def align_full_song(
         "1",
         "--num-workers",
         "0",
+        "--skip-handling",
+        "preserve",
     ]
     with (work / "tifa.log").open("w") as log:
         result = subprocess.run(
@@ -273,6 +279,7 @@ def align_full_song(
             offset=origin,
             pronunciation=spoken,
             source_spans=spans,
+            millisecond_timestamps=True,
         )
     except ValueError as error:
         if "对齐文本与确认歌词不完全匹配" not in str(error):
@@ -287,6 +294,7 @@ def align_full_song(
             offset=origin,
             pronunciation=spoken,
             source_spans=spans,
+            millisecond_timestamps=True,
         )
         report["best_effort"] = repaired
     (work / "aligned.lrc").write_text(lrc, encoding="utf-8")
@@ -294,7 +302,7 @@ def align_full_song(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     timeline = timeline_from_lrc(lrc, lyrics, duration, origin)
-    if unknown_vocables:
+    if unknown_vocables and UNKNOWN_LATIN.search(pronunciation_lyrics(lyrics)[0]):
         timeline.diagnostics["approximate_pronunciation"] = True
     if repaired is not None:
         timeline.diagnostics["best_effort"] = repaired

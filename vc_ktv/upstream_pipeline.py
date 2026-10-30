@@ -109,10 +109,19 @@ def make_karaoke_video(
             confirmed_lyrics, encoding="utf-8"
         )
         if mode in ("global", "global-kim"):
-            from .global_alignment import align_full_song
+            from .global_alignment import (
+                UNKNOWN_LATIN,
+                align_full_song,
+                pronunciation_lyrics,
+            )
             from .rough_timing import approximate_timeline
 
             align_audio = source
+            # Known scat syllables use precise mappings; pre-convert only
+            # remaining Latin vocals before attempting any full-song TIFA.
+            normalized, _, _ = pronunciation_lyrics(confirmed_lyrics)
+            generic_pronunciation = bool(UNKNOWN_LATIN.search(normalized))
+            align_options = {"unknown_vocables": True} if generic_pronunciation else {}
             failures = []
             timeline_audio = {"source": "original_audio"}
             if mode == "global-kim":
@@ -134,6 +143,8 @@ def make_karaoke_video(
                 except Exception as error:
                     failures.append({"stage": "kim", "error": str(error)[:350]})
                     emit("人声分离不可用，尝试直接对原音频做整首歌词对齐")
+            if generic_pronunciation:
+                emit("检测到未收录的拉丁字母唱词，已预处理为近似中文读音")
             stage("align", "整首 TIFA 对齐完整歌词")
             try:
                 timeline = align_full_song(
@@ -143,33 +154,35 @@ def make_karaoke_video(
                     info["audio_offset"],
                     work_dir / "alignment",
                     settings,
+                    **align_options,
                 )
             except Exception as error:
                 failures.append({"stage": "tifa", "error": str(error)[:350]})
                 timeline = None
-                # Keep the original lyrics intact; on unknown Latin syllables
-                # retry TIFA with a safe, approximate Mandarin vocalization.
-                if any(char.isascii() and char.isalpha() for char in confirmed_lyrics):
-                    emit("整首 TIFA 对齐受阻，尝试拟声词通用发音映射")
+                if Path(align_audio) != source:
+                    # If the isolated vocals are difficult for the model,
+                    # preserve whole-song acoustic alignment on original mix.
+                    emit("人声版 TIFA 无法完成，改用原始混合音频重试全曲对齐")
                     try:
                         timeline = align_full_song(
-                            align_audio,
+                            source,
                             confirmed_lyrics,
                             info["duration"],
                             info["audio_offset"],
-                            work_dir / "alignment-vocables",
+                            work_dir / "alignment-mix",
                             settings,
-                            unknown_vocables=True,
+                            **align_options,
                         )
+                        timeline_audio = {"source": "original_mix_fallback"}
                     except Exception as retry_error:
                         failures.append(
                             {
-                                "stage": "tifa-vocables",
+                                "stage": "tifa-mix",
                                 "error": str(retry_error)[:350],
                             }
                         )
                 if timeline is None:
-                    emit("TIFA 无法完整对齐，改用粗时间轴保留全部歌词")
+                    emit("整首 TIFA 对齐路径均不可用，最终以粗时间轴保留全部歌词")
                     timeline = approximate_timeline(
                         confirmed_lyrics,
                         info["duration"],
