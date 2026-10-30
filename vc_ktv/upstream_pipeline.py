@@ -15,7 +15,7 @@ from ktv_app.aligners.reliable_blocks import align_reliable_blocks
 from ktv_app.completion import complete_timeline, remove_estimates
 from ktv_app.config import Settings
 from ktv_app.lyrics import preprocess
-from ktv_app.media import extract
+from ktv_app.media import extract, probe
 from ktv_app.rendering import RenderOptions, render
 from ktv_app.separation import prepare_alignment_audio
 from ktv_app.subtitles import write_bundle
@@ -99,12 +99,45 @@ def make_karaoke_video(
 
     try:
         stage("extract", "读取原视频并提取音频")
-        info = extract(source, work_dir, settings)
-        lines = preprocess(confirmed_lyrics)
+        recovery = []
+
+        def record_failure(stage_name, error):
+            recovery.append(
+                {"stage": stage_name, "error": f"{type(error).__name__}: {error}"[:350]}
+            )
+
+        def rough(reason):
+            emit("精确对齐不可用，使用估计时间轴保留全部歌词")
+            from .rough_timing import approximate_timeline
+
+            fallback = approximate_timeline(
+                confirmed_lyrics,
+                info["duration"],
+                audio=work_dir / "audio.wav",
+                reason=str(reason),
+            )
+            fallback.diagnostics["fallback_attempts"] = list(recovery)
+            fallback.origin = info["audio_offset"]
+            return fallback
+
+        try:
+            info = extract(source, work_dir, settings)
+        except Exception as error:
+            # Valid source video can often still be captioned even if audio
+            # extraction or waveform generation is unavailable.
+            record_failure("extract", error)
+            info = probe(source, settings)
         (work_dir / "confirmed_lyrics.txt").write_text(
             confirmed_lyrics, encoding="utf-8"
         )
-        if mode in ("global", "global-kim"):
+        try:
+            lines = preprocess(confirmed_lyrics)
+        except Exception as error:
+            record_failure("preprocess", error)
+            lines = None
+        if recovery:
+            timeline = rough(recovery[-1]["error"])
+        elif mode in ("global", "global-kim"):
             from .global_alignment import (
                 UNKNOWN_LATIN,
                 align_full_song,
@@ -198,38 +231,70 @@ def make_karaoke_video(
             from ktv_app.aligners.fast import align_fast
 
             stage("align", "Fast Mode：原音频识别、粗定位与分段 TIFA")
-            timeline = align_fast(
-                work_dir / "audio.wav",
-                lines,
-                info["duration"],
-                info["audio_offset"],
-                work_dir / "alignment",
-                settings,
-                emit,
-            )
-            timeline.diagnostics["alignment_audio"] = {"source": "original_audio"}
+            try:
+                timeline = align_fast(
+                    work_dir / "audio.wav",
+                    lines,
+                    info["duration"],
+                    info["audio_offset"],
+                    work_dir / "alignment",
+                    settings,
+                    emit,
+                )
+                timeline.diagnostics["alignment_audio"] = {"source": "original_audio"}
+            except Exception as error:
+                record_failure("fast-align", error)
+                timeline = rough(error)
         else:
             stage("kim", "Kim 分离用于推理的人声")
-            audio, evidence = prepare_alignment_audio(
-                source, work_dir / "audio.wav", info, work_dir, "kim", settings, emit
-            )
+            try:
+                audio, evidence = prepare_alignment_audio(
+                    source,
+                    work_dir / "audio.wav",
+                    info,
+                    work_dir,
+                    "kim",
+                    settings,
+                    emit,
+                )
+            except Exception as error:
+                record_failure("kim", error)
+                audio = work_dir / "audio.wav"
+                evidence = {"source": "original_mix_fallback"}
+                emit("Kim 人声分离失败，改用原音轨尝试 ASR/TIFA")
             stage("align", "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐")
-            timeline = align_reliable_blocks(
-                audio,
-                lines,
-                info["duration"],
-                info["audio_offset"],
-                work_dir / "alignment",
-                settings,
-                emit,
-                max_input_seconds=90,
-            )
-            timeline.diagnostics["alignment_audio"] = evidence
+            try:
+                timeline = align_reliable_blocks(
+                    audio,
+                    lines,
+                    info["duration"],
+                    info["audio_offset"],
+                    work_dir / "alignment",
+                    settings,
+                    emit,
+                    max_input_seconds=None,  # Source-backed cut points; no hard duration cutoff.
+                )
+                timeline.diagnostics["alignment_audio"] = evidence
+            except Exception as error:
+                record_failure("asr-tifa", error)
+                timeline = rough(error)
+                timeline.diagnostics["alignment_audio"] = evidence
+            if (
+                recovery
+                and timeline.diagnostics.get("pipeline") != "last_resort_rough_timing"
+            ):
+                timeline.diagnostics["fallback_attempts"] = list(recovery)
         timeline.origin = info["audio_offset"]
-        # Upstream's formal chain discards any old generated estimates before
-        # bounded completion and records new estimated provenance explicitly.
-        if mode not in ("global", "global-kim"):
-            timeline = complete_timeline(remove_estimates(timeline), rolling=True)
+        # Preserve PR62 rough timestamps, never remove them as "old estimates".
+        if timeline.diagnostics.get("pipeline") == "last_resort_rough_timing":
+            style = style.model_copy(update={"auto_complete": True})
+        elif mode not in ("global", "global-kim"):
+            try:
+                timeline = complete_timeline(remove_estimates(timeline), rolling=True)
+            except Exception as error:
+                record_failure("completion", error)
+                timeline = rough(error)
+                style = style.model_copy(update={"auto_complete": True})
         else:
             # Full-song mode never runs rolling completion. Display original
             # model timings, with any local best-effort label repair recorded.
@@ -244,11 +309,34 @@ def make_karaoke_video(
             )
         stage("subtitles", "生成 ASS、LRC 与时间轴记录")
         bundle = work_dir / "subtitles"
-        write_bundle(timeline, style, bundle)
+        try:
+            write_bundle(timeline, style, bundle)
+        except Exception as error:
+            if timeline.diagnostics.get("pipeline") == "last_resort_rough_timing":
+                raise  # Even plain captions could not be written.
+            record_failure("subtitles", error)
+            timeline = rough(error)
+            style = style.model_copy(update={"auto_complete": True})
+            write_bundle(timeline, style, bundle)
         stage("render", "将字幕烧录到保留原始音轨的 MP4")
-        # Fast Mode is an optimization, not a deadline. FFmpeg has its own
-        # independent watchdog; never give it only the alignment's leftover time.
-        final = render(source, bundle, info, settings, render_options, "karaoke.mp4")
+        # Rendering has no fixed wall-clock cap; on an actual encoder failure,
+        # retry once with a lower-resource preset.
+        try:
+            final = render(
+                source, bundle, info, settings, render_options, "karaoke.mp4"
+            )
+        except Exception as error:
+            record_failure("render", error)
+            emit("字幕烧录失败，改用较低资源的编码参数再试一次")
+            safe_render = RenderOptions(preset="ultrafast", crf=28, compact_video=False)
+            final = render(source, bundle, info, settings, safe_render, "karaoke.mp4")
+            # The subtitle export precedes rendering; also record any retry.
+            report_path = bundle / "export_report.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["fallback_attempts"] = list(recovery)
+            report_path.write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
         if not final.is_file() or final.stat().st_size == 0:
             raise RuntimeError("字幕视频未生成")
         result = PipelineResult(
@@ -258,7 +346,24 @@ def make_karaoke_video(
             report=bundle / "export_report.json",
             run_metadata=metadata_path,
         )
-        status.update(status="done", stage="done", outputs=result.as_dict())
+        if recovery:
+            (work_dir / "fallback_report.json").write_text(
+                json.dumps(recovery, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        status.update(
+            status="done",
+            stage="done",
+            alignment_quality=(
+                "rough"
+                if timeline.diagnostics.get("pipeline") == "last_resort_rough_timing"
+                else "repaired"
+                if timeline.diagnostics.get("best_effort")
+                else "model"
+            ),
+            fallback_attempts=recovery,
+            outputs=result.as_dict(),
+        )
         emit("字幕视频制作完成")
         return result
     except Exception as exc:

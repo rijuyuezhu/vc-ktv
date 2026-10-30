@@ -217,7 +217,6 @@ class TIFAAdapter:
                 env=env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=7200,
             )
         return self.collect(lines, duration, origin, work, result.returncode)
 
@@ -252,7 +251,6 @@ class TIFAAdapter:
                 env=env,
                 stdout=log,
                 stderr=subprocess.STDOUT,
-                timeout=7200,
             )
         timelines = {}
         for job in jobs:
@@ -365,7 +363,7 @@ class TIFASession:
         self.work.mkdir(parents=True, exist_ok=True)
         return self
 
-    def align(self, audio, lines, duration, origin, work, *, timeout_s=3600):
+    def align(self, audio, lines, duration, origin, work):
         request, env = self.adapter.prepare(audio, lines, work)
         content = json.loads(request.read_text(encoding="utf-8"))
         content["native_word_indices"] = True
@@ -397,13 +395,9 @@ class TIFASession:
         self.process.stdin.write(json.dumps({"request": str(request.resolve())}) + "\n")
         self.process.stdin.flush()
         done = work / "stream_done.json"
-        deadline = time.monotonic() + timeout_s
         while not done.exists():
             if self.process.poll() is not None:
                 raise RuntimeError("TIFA 递进推理中断；详见 stream/infer.log")
-            if time.monotonic() > deadline:
-                self.process.kill()
-                raise TimeoutError("TIFA 递进推理超出 Fast Mode 时间预算")
             time.sleep(0.1)
         status = json.loads(done.read_text(encoding="utf-8"))["returncode"]
         return self.adapter.collect(

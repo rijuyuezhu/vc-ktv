@@ -14,7 +14,6 @@ class AlignmentOptions(BaseModel):
     model: Literal["reliable_blocks_tifa"] = "reliable_blocks_tifa"
     vocal_separation: Literal["kim"] = "kim"
     complete_missing: Literal[True] = True
-    max_tifa_input_seconds: Literal[90] = 90
     device: Literal["cuda"] = "cuda"
     vocal_start: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     vocal_end: float | None = Field(default=None, gt=0, allow_inf_nan=False)

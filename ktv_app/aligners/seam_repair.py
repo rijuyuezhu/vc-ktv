@@ -6,7 +6,6 @@ from pathlib import Path
 from ..media import crop
 from ..timeline import Line, Unit, quality
 from .anchor_policy import endpoints, run_anchor_alignment
-from .block_planning import context_job
 from .common import blank
 
 
@@ -247,36 +246,10 @@ def retry_seam_gaps(
     return reports
 
 
-def bounded_seam_groups(
-    results, lines, first, second, origin, limit, max_input_seconds=60
-):
-    """Do not undo fine partitioning by merging a risky chain into a whole song."""
-    groups, deferred = [], []
-    for group in seam_groups(results):
-        current = [group[0]]
-        for index in group[1:]:
-            proposed = current + [index]
-            subset = [results[i][0] for i in proposed]
-            block = {
-                "indices": [j for item in subset for j in item["indices"]],
-                "core_start": subset[0]["core_start"],
-                "core_end": subset[-1]["core_end"],
-                "context_limit_seconds": 6,
-            }
-            context = context_job(block, lines, first, second, origin, limit)
-            if context["audio_end"] - context["audio_start"] <= max_input_seconds:
-                current = proposed
-            else:
-                groups.append(current)
-                deferred.append(
-                    {
-                        "left_block": results[current[-1]][0]["id"],
-                        "right_block": results[index][0]["id"],
-                        "reason": "merged_input_exceeds_60_seconds",
-                        "proposed_audio_seconds": context["audio_end"]
-                        - context["audio_start"],
-                    }
-                )
-                current = [index]
-        groups.append(current)
-    return groups, deferred
+def bounded_seam_groups(results, lines, first, second, origin, limit):
+    """Retry every conflicted seam group without an artificial duration cap.
+
+    The model may reject a long merged chunk; the caller's best-effort
+    recovery handles actual inference errors instead of guessing a deadline.
+    """
+    return seam_groups(results), []

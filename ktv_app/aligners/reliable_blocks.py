@@ -118,10 +118,7 @@ def align_reliable_blocks(
         json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     if max_input_seconds is not None and not plan["adaptive_relaxation"]["target_met"]:
-        raise ValueError(
-            f"识别结果与已确认歌词之间没有足够的可信切点，无法生成小于{max_input_seconds}秒的对齐片段。"
-            "请核对演唱语言、歌词版本及实际演唱段落后重试；识别与切片诊断已保存。"
-        )
+        event("未找到足够的可信切点，继续尝试较长 TIFA 分块，不按时长终止")
     event(
         f"通过核验的切点 {len(plan['boundaries'])} 个，分为 {len(plan['blocks'])} 个 TIFA 大块；无可信切点不强行切割"
     )
@@ -178,7 +175,6 @@ def align_reliable_blocks(
                 core_end=subset[-1]["core_end"],
                 reason="seam_conflict_merged_retry",
                 context_limit_seconds=6,
-                max_core_seconds=45,
             )
             merged["duration"] = merged["core_end"] - merged["core_start"]
             merged["over_target"] = merged["duration"] > 45
@@ -248,7 +244,10 @@ def align_reliable_blocks(
         actual = [b["audio_end"] - b["audio_start"] for b, _ in results + final]
         adaptive["max_actual_tifa_input_seconds"] = max(actual)
         adaptive["final_target_met"] = max(actual) < max_input_seconds
-        assert adaptive["final_target_met"], "实际TIFA输入超过实验上限"
+        if not adaptive["final_target_met"]:
+            diag["warnings"].append(
+                "TIFA 分块实际输入超过建议长度；继续处理而非拒绝字幕"
+            )
     if adaptive["relaxations_used"]:
         diag["warnings"].append(
             f"切片条件已放宽 {adaptive['relaxations_used']}/{adaptive['max_relaxations']} 次；当前 {len(plan['blocks'])} 块。新增切点的核验级别已记录，仍需试听接缝。"

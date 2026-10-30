@@ -54,8 +54,8 @@ def time_asr_chunks(audio, result, settings, work):
     for index, chunk in enumerate(result["chunks"]):
         if not chunk["text"].strip():
             continue
-        if not 0 < chunk["end"] - chunk["start"] < 90:
-            raise ValueError("ASR 文本定位窗口必须小于90秒")
+        if not chunk["end"] > chunk["start"]:
+            raise ValueError("ASR 窗口起止时间无效")
         folder = work / f"window_{index:04d}"
         folder.mkdir(parents=True, exist_ok=True)
         clip = folder / "audio.wav"

@@ -536,7 +536,7 @@ def test_long_risky_chain_cannot_merge_back_to_full_song():
         )
     assert seam_groups(results) == [[0, 1, 2, 3]]
     groups, deferred = bounded_seam_groups(results, lines, {}, {}, 0, 100)
-    assert groups == [[0, 1], [2, 3]] and len(deferred) == 1
+    assert groups == [[0, 1, 2, 3]] and deferred == []
 
 
 def test_local_seam_retry_fills_missing_unit_without_changing_native_anchor(
@@ -648,3 +648,16 @@ def test_fine_and_legacy_completion_both_keep_block_ownership(policy):
         == "block_fixed_anchor_gap_interpolation"
     )
     assert result.lines[0].end <= 25 <= result.lines[1].start
+
+
+def test_quality_block_planner_does_not_reject_long_unanchored_songs():
+    from ktv_app.aligners.block_planning import build_adaptive_plan
+
+    lines = [Line(id=str(i), text=f"这一句歌词的内容是第{i}段") for i in range(25)]
+    # Production cases #32/#33/#34/#38 previously failed purely on 90-second
+    # block input checks. With no verified cuts, a full-length block is valid.
+    for duration in (93.54, 91.79, 240.06, 112.02):
+        plan, _, _ = build_adaptive_plan(lines, [], [], 0, duration)
+        assert len(plan["blocks"]) == 1
+        assert plan["blocks"][0]["duration"] == pytest.approx(duration)
+        assert [i for b in plan["blocks"] for i in b["indices"]] == list(range(25))

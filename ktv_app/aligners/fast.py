@@ -143,7 +143,6 @@ def recognize(audio, lines, settings, work):
             env=worker_environment(runtime["device"]),
             stdout=log,
             stderr=subprocess.STDOUT,
-            timeout=1800,  # Process watchdog, not a Fast Mode latency target.
         )
     if run.returncode:
         raise RuntimeError("Fast Mode ASR 失败，详见 infer.log")

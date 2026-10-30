@@ -104,18 +104,14 @@ def test_partial_anchor_cannot_use_characters_inside_a_whole_asr_token():
     )
 
 
-def test_formal_pipeline_always_requires_the_90_second_asr_route():
-    assert AlignmentOptions().max_tifa_input_seconds == 90
-    assert (
-        AlignmentOptions(
-            model="reliable_blocks_tifa", max_tifa_input_seconds=90
-        ).max_tifa_input_seconds
-        == 90
-    )
+def test_formal_pipeline_has_no_hard_tifa_input_limit():
+    options = AlignmentOptions()
+    assert options.model == "reliable_blocks_tifa"
+    assert not hasattr(options, "max_tifa_input_seconds")
     with pytest.raises(ValueError):
-        AlignmentOptions(model="tifa", max_tifa_input_seconds=90)
+        AlignmentOptions(model="tifa")
     with pytest.raises(ValueError):
-        AlignmentOptions(model="reliable_blocks_tifa", max_tifa_input_seconds=91)
+        AlignmentOptions(model="reliable_blocks_tifa", max_tifa_input_seconds=90)
 
 
 def overrun_plan():

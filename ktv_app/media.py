@@ -15,7 +15,7 @@ STILL_MAX_EDGE = 1920
 STILL_MIN_EDGE = 360
 
 
-def run(command, timeout=1800, log=None, cwd=None):
+def run(command, timeout=None, log=None, cwd=None):
     result = subprocess.run(
         [str(x) for x in command],
         cwd=cwd,
