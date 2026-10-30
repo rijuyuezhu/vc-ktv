@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Download upstream-pinned Kim/Qwen model assets for Spark-WSL.
 
-The base project's TIFA runtime and weights are reused read-only. All new
-weights/sources are written under the explicitly selected staging root.
+All pinned assets are installed directly in VCKTV's permanent pipeline directory.
+The separately provisioned TIFA source/weights remain independent of the repo.
 """
 
 import argparse
@@ -123,7 +123,7 @@ def main():
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path.home() / ".local/share/vc-ktv-pipeline-staging",
+        default=Path.home() / ".local/share/vc-ktv/pipeline",
     )
     args = parser.parse_args()
     for item in selected(args.group):

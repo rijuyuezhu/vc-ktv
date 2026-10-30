@@ -248,8 +248,8 @@ def test_failed_download_retries_after_backoff(tmp_path):
         assert len(failures) == 2
 
 
-def test_default_auto_renderer_selects_strict_global_kim_mode(tmp_path, monkeypatch):
-    """Default AutoPrep uses full-song TIFA with existing renderer and outputs."""
+def test_default_auto_renderer_selects_upstream_quality_mode(tmp_path, monkeypatch):
+    """Default AutoPrep uses upstream ASR and TIFA quality mode."""
     import json
     from types import SimpleNamespace
 
@@ -262,7 +262,7 @@ def test_default_auto_renderer_selects_strict_global_kim_mode(tmp_path, monkeypa
     produced = []
 
     def fake_pipeline(video, lyrics, work, settings, *, style, mode, render_options):
-        assert mode == "global-kim"
+        assert mode == "quality"
         assert render_options.compact_video is False
         assert style.size == 48 and style.mode == "double"
         assert video == source

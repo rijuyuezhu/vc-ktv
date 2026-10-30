@@ -123,7 +123,7 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
     ):
         received.append(render_options.compact_video)
         assert style.mode in ("double", "single")
-        assert mode == "global-kim"
+        assert mode == "quality"
         assert video == original.resolve()
         result = folder / "subtitles"
         result.mkdir(parents=True)

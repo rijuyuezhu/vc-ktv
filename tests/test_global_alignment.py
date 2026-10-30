@@ -105,7 +105,7 @@ def test_global_mode_executes_one_tifa_process_and_saves_raw_evidence(
 def test_kim_full_song_adapter_keeps_native_times_and_original_audio(
     tmp_path, monkeypatch
 ):
-    """The default trial must not invoke ASR, split songs, or estimate timing."""
+    """Explicit legacy global-kim mode must not invoke ASR or split songs."""
     from ktv_app.timeline import Line, Timeline, Unit
     from vc_ktv import global_alignment, upstream_pipeline
 
@@ -174,7 +174,7 @@ def test_kim_full_song_adapter_keeps_native_times_and_original_audio(
     monkeypatch.setattr(upstream_pipeline, "prepare_alignment_audio", fake_separation)
     monkeypatch.setattr(global_alignment, "align_full_song", fake_full)
     result = upstream_pipeline.make_karaoke_video(
-        video, "你好世界", tmp_path / "kim-global", Settings()
+        video, "你好世界", tmp_path / "kim-global", Settings(), mode="global-kim"
     )
     assert seen == ["kim", "full_tifa"]
     timeline = json.loads(result.timeline.read_text())

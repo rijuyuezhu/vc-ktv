@@ -53,7 +53,7 @@ def test_mocked_pipeline_records_stage_cost_and_restores_wrapper(monkeypatch, tm
         "line1\nline2",
         stage,
         interval=0.01,
-        tifa_root=tmp_path,
+        pipeline_root=tmp_path,
     )
     assert result["video"] == str(source)
     metrics = json.loads((stage / "metrics.json").read_text())
@@ -78,5 +78,7 @@ def test_failure_is_recorded_and_restores_wrapped_stage(monkeypatch, tmp_path):
     monkeypatch.setattr(profiler, "gpu_info", lambda: {})
     monkeypatch.setattr(profiler, "process_info", lambda: {})
     with pytest.raises(ValueError, match="simulated"):
-        profiler.run_profile(source, "lyrics", stage, interval=0.01, tifa_root=tmp_path)
+        profiler.run_profile(
+            source, "lyrics", stage, interval=0.01, pipeline_root=tmp_path
+        )
     assert json.loads((stage / "metrics.json").read_text())["status"] == "failed"

@@ -106,12 +106,12 @@ def main():
 def process(request, backend, vocabulary, g2p_config, pipeline, model_path):
     import torch
     from g2pflow import to_pfml
-    from g2pflow.converters.base import G2PConversionError
+    from g2pflow.converters.base import G2PConversionError, compose_word
     from inference.callbacks import SaveTextGridCallback, StatisticsCallback
     from inference.data import AudioTextDataset
     from lib.g2p_encoding import G2PEncodingError, encode_paths
 
-    from ktv_app.aligners.partial_g2p import convert_parts
+    from ktv_app.aligners.partial_g2p import convert_scat_parts
     from ktv_app.model_runtime import resolve_device
     from ktv_app.text_normalization import normalize_lyrics
 
@@ -131,10 +131,11 @@ def process(request, backend, vocabulary, g2p_config, pipeline, model_path):
             active.append("en")
         languages.extend(active)
         # Full line context is critical for Japanese kanji readings and Chinese polyphones.
-        parts = convert_parts(
+        parts = convert_scat_parts(
             line["normalized"] or line["text"],
             lambda text: pipeline.convert(text, languages=active),
             G2PConversionError,
+            compose_word,
         )
         if not parts:
             trace.append(

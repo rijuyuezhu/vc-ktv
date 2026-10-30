@@ -29,14 +29,17 @@ def test_upstream_pin_and_manifest_consistent():
     assert len(list(selected("qwen"))) >= 5
 
 
-def test_spark_settings_keep_prod_tifa_referenced_not_copied(tmp_path):
-    staging = tmp_path / "staging"
-    original = tmp_path / "original"
-    settings = spark_settings(staging, original)
-    assert settings.tifa_python == original / ".runtime/tifa-env/bin/python"
-    assert settings.tifa_source == original / ".runtime/TIFA"
-    assert settings.kim_model == staging / "models/separation/Kim/MelBandRoformer.ckpt"
-    assert settings.locator_python == staging / "runtime/qwen/bin/python"
+def test_spark_settings_use_one_permanent_pipeline_root(tmp_path):
+    root = tmp_path / "pipeline"
+    settings = spark_settings(root)
+    assert settings.tifa_python == root / "runtime/tifa/bin/python"
+    assert settings.tifa_source == root / "models/forced_alignment/sources/TIFA"
+    assert (
+        settings.tifa_model
+        == root / "models/forced_alignment/tifa/TIFA-1.0-ST/model.pt"
+    )
+    assert settings.kim_model == root / "models/separation/Kim/MelBandRoformer.ckpt"
+    assert settings.locator_python == root / "runtime/qwen/bin/python"
 
 
 def test_cuda_probe_keeps_venv_symlink_for_python(monkeypatch, tmp_path):

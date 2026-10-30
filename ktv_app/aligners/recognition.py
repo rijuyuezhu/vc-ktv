@@ -75,9 +75,6 @@ def locate(
     work,
     profile=None,
     event=lambda message: None,
-    *,
-    full_tifa=False,
-    asr_seed=None,
 ):
     folder = Path(work) / "locator"
     folder.mkdir(parents=True, exist_ok=True)
@@ -122,7 +119,6 @@ def locate(
         if settings.tifa_model.with_name("g2p.local.yaml").exists()
         else None,
         "g2p": settings.g2p,
-        "full_tifa": full_tifa,
         "lyrics": hashlib.sha256(
             json.dumps(
                 [(line.language, line.text) for line in lines],
@@ -141,12 +137,6 @@ def locate(
     cache.mkdir(parents=True, exist_ok=True)
     result_file = cache / "recognition.json"
     asr_file = cache / "recognition.asr.json"
-    if asr_seed is not None and not asr_file.exists() and not result_file.exists():
-        # Fall back to full TIFA without running Qwen3-ASR a second time.
-        asr_file.write_text(
-            json.dumps(asr_seed, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
     if not result_file.exists() and not asr_file.exists():
         req = {
             "audio": str(Path(audio).resolve()),
@@ -199,7 +189,6 @@ def locate(
                 json.loads(asr_file.read_text(encoding="utf-8")),
                 settings,
                 cache / "asr_tifa",
-                lines=None if full_tifa else lines,
             )
             result_file.write_text(
                 json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"

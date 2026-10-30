@@ -22,21 +22,17 @@ from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Style
 
 
-def spark_settings(root: Path | None = None, tifa_root: Path | None = None) -> Settings:
-    """One set of model paths for CLI smoke runs and the AutoPrep worker."""
+def spark_settings(root: Path | None = None) -> Settings:
+    """Model assets and dedicated runtimes live in VCKTV's permanent data root."""
     root = Path(
-        root
-        or os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv-pipeline-staging")
-    ).expanduser()
-    tifa_root = Path(
-        tifa_root or os.getenv("VC_KTV_TIFA_ROOT", Path(__file__).resolve().parents[1])
+        root or os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
     ).expanduser()
     models = root / "models"
     runtime = root / "runtime"
     return Settings(
-        tifa_source=tifa_root / ".runtime/TIFA",
-        tifa_python=tifa_root / ".runtime/tifa-env/bin/python",
-        tifa_model=tifa_root / ".runtime/models/TIFA-1.0-ST/model.pt",
+        tifa_source=models / "forced_alignment/sources/TIFA",
+        tifa_python=runtime / "tifa/bin/python",
+        tifa_model=models / "forced_alignment/tifa/TIFA-1.0-ST/model.pt",
         kim_source=models / "separation/sources/Kim",
         kim_model=models / "separation/Kim/MelBandRoformer.ckpt",
         separation_python=runtime / "kim/bin/python",
@@ -66,7 +62,7 @@ def make_karaoke_video(
     progress: Callable[[str], None] | None = None,
     style: Style | None = None,
     render_options: RenderOptions | None = None,
-    mode: str = "global-kim",
+    mode: str = "quality",
 ) -> PipelineResult:
     """Run the selected alignment mode, preserving current subtitles and MP4 output.
 

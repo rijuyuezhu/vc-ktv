@@ -7,7 +7,6 @@ from pathlib import Path
 from ..media import crop
 from ..timeline import Line
 from .anchor_policy import clean_tifa
-from .recognition import match_text
 from .tifa import TIFAAdapter
 
 
@@ -46,41 +45,14 @@ def owned_tokens(chunk, timeline):
     return tokens, items
 
 
-def unanchorable_asr_window(chunk, lines):
-    """Skip TIFA only if ASR contains no possible 2-char lyric boundary.
-
-    The ASR text is still retained in full for diagnostics. This deliberately
-    only applies to Chinese lyrics/transcripts with every lyric line >=3 chars;
-    mixed/Japanese/English songs take the original full-window path.
-    """
-    if not lines or chunk.get("language") != "Chinese":
-        return False
-    if any(line.language != "zh" or len(match_text(line.text)) < 3 for line in lines):
-        return False
-    key = match_text(chunk["text"])
-    source_pairs = set()
-    for line in lines:
-        lyric = match_text(line.text)
-        source_pairs.update(lyric[i : i + 2] for i in range(len(lyric) - 1))
-    return not any(key[i : i + 2] in source_pairs for i in range(len(key) - 1))
-
-
-def time_asr_chunks(audio, result, settings, work, lines=None):
+def time_asr_chunks(audio, result, settings, work):
     """One sequential TIFA batch runs after the ASR process has released its GPU."""
     started = time.monotonic()
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     jobs = []
-    skipped = []
     for index, chunk in enumerate(result["chunks"]):
-        # Replayed ASR data from a full-timing fallback must not retain a
-        # stale "skipped" annotation from the selective attempt.
-        chunk.pop("timing_skipped", None)
         if not chunk["text"].strip():
-            continue
-        if unanchorable_asr_window(chunk, lines):
-            chunk["timing_skipped"] = "no_chinese_lyric_bigram"
-            skipped.append(index)
             continue
         if not 0 < chunk["end"] - chunk["start"] < 90:
             raise ValueError("ASR 文本定位窗口必须小于90秒")
@@ -129,7 +101,6 @@ def time_asr_chunks(audio, result, settings, work, lines=None):
         verification_tokens=sorted(verification, key=lambda t: (t["start"], t["end"])),
         timestamp_model="TIFA-1.0-ST",
         timestamp_errors=errors,
-        tifa_skipped_windows=skipped,
         tifa_timing_elapsed=round(time.monotonic() - started, 3),
     )
     result["elapsed"] = result["asr_elapsed"] + result["tifa_timing_elapsed"]

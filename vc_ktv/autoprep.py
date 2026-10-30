@@ -146,7 +146,7 @@ def render_upstream_video(
         "style": preset_style(preset),
         "render_options": RenderOptions(compact_video=compact_video),
     }
-    options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "global-kim")
+    options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "quality")
     if progress is not None:
         options["progress"] = progress
     result = make_karaoke_video(
