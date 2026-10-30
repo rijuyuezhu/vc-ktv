@@ -7,7 +7,6 @@ the event lifecycle and final media commit.
 
 import json
 import os
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -91,7 +90,6 @@ def make_karaoke_video(
     style = style or Style(font="Noto Sans CJK SC", mode="double", auto_complete=True)
     render_options = render_options or RenderOptions()
     emit = progress or (lambda message: None)
-    started = time.monotonic()
     status = {"status": "running", "stage": "extract"}
     metadata_path = work_dir / "run.json"
 
@@ -149,21 +147,9 @@ def make_karaoke_video(
         bundle = work_dir / "subtitles"
         write_bundle(timeline, style, bundle)
         stage("render", "将字幕烧录到保留原始音轨的 MP4")
-        if mode == "fast" and time.monotonic() - started >= 179:
-            raise TimeoutError("Fast Mode 已耗尽三分钟预算，停止渲染")
-        final = render(
-            source,
-            bundle,
-            info,
-            settings,
-            render_options,
-            "karaoke.mp4",
-            **(
-                {"timeout_s": max(1, 180 - (time.monotonic() - started))}
-                if mode == "fast"
-                else {}
-            ),
-        )
+        # Fast Mode is an optimization, not a deadline. FFmpeg has its own
+        # independent watchdog; never give it only the alignment's leftover time.
+        final = render(source, bundle, info, settings, render_options, "karaoke.mp4")
         if not final.is_file() or final.stat().st_size == 0:
             raise RuntimeError("字幕视频未生成")
         result = PipelineResult(

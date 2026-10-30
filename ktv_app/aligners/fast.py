@@ -143,7 +143,7 @@ def recognize(audio, lines, settings, work):
             env=worker_environment(runtime["device"]),
             stdout=log,
             stderr=subprocess.STDOUT,
-            timeout=120,
+            timeout=1800,  # Process watchdog, not a Fast Mode latency target.
         )
     if run.returncode:
         raise RuntimeError("Fast Mode ASR 失败，详见 infer.log")
@@ -154,12 +154,6 @@ def align_fast(audio, lines, duration, origin, work, settings, event=lambda _: N
     work = Path(work)
     work.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-
-    def remaining():
-        seconds = 160 - (time.monotonic() - started)
-        if seconds <= 0:
-            raise TimeoutError("Fast Mode 对齐超过 160 秒预算")
-        return seconds
 
     event("Fast Mode：原音频 Qwen batch 4 粗定位（不分离人声）")
     recognized = recognize(audio, lines, settings, work / "asr")
@@ -193,7 +187,6 @@ def align_fast(audio, lines, duration, origin, work, settings, event=lambda _: N
                     duration,
                     start,
                     folder / "tifa",
-                    timeout_s=remaining(),
                 )
             except TimeoutError:
                 raise
@@ -246,7 +239,6 @@ def align_fast(audio, lines, duration, origin, work, settings, event=lambda _: N
                         duration,
                         retry_start,
                         folder / "tifa",
-                        timeout_s=remaining(),
                     )
                 except TimeoutError:
                     raise

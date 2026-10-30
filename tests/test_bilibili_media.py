@@ -116,3 +116,217 @@ def test_yt_dlp_failure_tries_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(autoprep, "public_media_download", fallback)
     result = autoprep.media_download("BV0000000002", 1, tmp_path)
     assert result.read_bytes() == b"fallback-source"
+
+
+def test_yt_dlp_prefers_1080_and_retries_720_then_480(monkeypatch, tmp_path):
+    attempts = []
+
+    def run(cmd, **kwargs):
+        assert kwargs["timeout"] == 1800  # 1080p downloads may be slow.
+        selected = cmd[cmd.index("-f") + 1]
+        attempts.append(selected)
+        if len(attempts) < 3:
+            return subprocess.CompletedProcess(cmd, 1, stderr="CDN unavailable")
+        (tmp_path / "source.mp4").write_bytes(b"480p-media")
+        return subprocess.CompletedProcess(cmd, 0, stdout="")
+
+    monkeypatch.setattr(autoprep.subprocess, "run", run)
+    monkeypatch.setattr(
+        autoprep,
+        "public_media_download",
+        lambda *_: pytest.fail("Did not expect API fallback"),
+    )
+    result = autoprep.media_download("BV0000000002", 1, tmp_path)
+    assert result.read_bytes() == b"480p-media"
+    assert ["height<=1080", "height<=720", "height<=480"] == [
+        next(part for part in value.split("/") if "height<=" in part)
+        .split("[")[1]
+        .split("]")[0]
+        for value in attempts
+    ]
+
+
+def test_public_api_prefers_1080p_dash_stream(monkeypatch, tmp_path):
+    calls = []
+
+    def handle(req):
+        if req.url.path == "/x/web-interface/view":
+            return httpx.Response(
+                200, json={"code": 0, "data": {"pages": [{"cid": 33}]}}
+            )
+        if req.url.path == "/x/player/playurl":
+            assert req.url.params["qn"] == "80"
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "dash": {
+                            "video": [
+                                {
+                                    "id": 64,
+                                    "codecs": "avc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/720",
+                                },
+                                {
+                                    "id": 80,
+                                    "codecs": "avc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/1080",
+                                },
+                                {
+                                    "id": 112,
+                                    "codecs": "avc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/1080plus",
+                                },
+                                {
+                                    "id": 80,
+                                    "codecs": "hvc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/hevc",
+                                },
+                            ],
+                            "audio": [
+                                {
+                                    "codecs": "mp4a",
+                                    "baseUrl": "https://cdn.bilivideo.com/aac",
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+        calls.append(req.url.path)
+        return httpx.Response(200, content=b"v" * 2300)
+
+    constructor = httpx.Client
+    monkeypatch.setattr(
+        bilibili_media.httpx,
+        "Client",
+        lambda **kw: constructor(transport=httpx.MockTransport(handle), **kw),
+    )
+    monkeypatch.setattr(
+        bilibili_media.subprocess,
+        "run",
+        lambda cmd, **kw: (
+            Path(cmd[-1]).write_bytes(b"remux") or subprocess.CompletedProcess(cmd, 0)
+        ),
+    )
+    assert bilibili_media.public_media_download("BV0000000002", 1, tmp_path).is_file()
+    assert calls == ["/1080", "/aac"]
+
+
+def test_public_api_falls_back_when_high_quality_is_not_public(monkeypatch, tmp_path):
+    requests = []
+
+    def handle(req):
+        if req.url.path == "/x/web-interface/view":
+            return httpx.Response(
+                200, json={"code": 0, "data": {"pages": [{"cid": 33}]}}
+            )
+        if req.url.path == "/x/player/playurl":
+            qn = int(req.url.params["qn"])
+            requests.append(qn)
+            if qn in (80, 64):
+                return httpx.Response(200, json={"code": -403})
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "dash": {
+                            "video": [
+                                {
+                                    "id": 32,
+                                    "codecs": "avc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/480",
+                                }
+                            ],
+                            "audio": [
+                                {
+                                    "codecs": "mp4a",
+                                    "baseUrl": "https://cdn.bilivideo.com/aac",
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+        return httpx.Response(200, content=b"v" * 2300)
+
+    constructor = httpx.Client
+    monkeypatch.setattr(
+        bilibili_media.httpx,
+        "Client",
+        lambda **kw: constructor(transport=httpx.MockTransport(handle), **kw),
+    )
+
+    def ffmpeg(cmd, **kw):
+        Path(cmd[-1]).write_bytes(b"remuxed")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(bilibili_media.subprocess, "run", ffmpeg)
+    assert (
+        bilibili_media.public_media_download("BV0000000002", 1, tmp_path).read_bytes()
+        == b"remuxed"
+    )
+    assert requests == [80, 64, 32]
+
+
+def test_public_api_falls_back_after_1080_cdn_failure(monkeypatch, tmp_path):
+    calls = []
+
+    def handle(req):
+        if req.url.path == "/x/web-interface/view":
+            return httpx.Response(
+                200, json={"code": 0, "data": {"pages": [{"cid": 33}]}}
+            )
+        if req.url.path == "/x/player/playurl":
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "dash": {
+                            "video": [
+                                {
+                                    "id": 80,
+                                    "codecs": "avc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/high",
+                                },
+                                {
+                                    "id": 64,
+                                    "codecs": "avc1",
+                                    "baseUrl": "https://cdn.bilivideo.com/medium",
+                                },
+                            ],
+                            "audio": [
+                                {
+                                    "codecs": "mp4a",
+                                    "baseUrl": "https://cdn.bilivideo.com/aac",
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+        calls.append(req.url.path)
+        return httpx.Response(
+            403 if req.url.path == "/high" else 200, content=b"v" * 2300
+        )
+
+    constructor = httpx.Client
+    monkeypatch.setattr(
+        bilibili_media.httpx,
+        "Client",
+        lambda **kw: constructor(transport=httpx.MockTransport(handle), **kw),
+    )
+
+    def ffmpeg(cmd, **kw):
+        Path(cmd[-1]).write_bytes(b"remuxed")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(bilibili_media.subprocess, "run", ffmpeg)
+    assert (
+        bilibili_media.public_media_download("BV0000000002", 1, tmp_path).read_bytes()
+        == b"remuxed"
+    )
+    assert calls == ["/high", "/medium", "/aac"]

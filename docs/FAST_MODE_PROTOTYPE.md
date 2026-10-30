@@ -1,7 +1,7 @@
 # Fast Mode — quick lyrics alignment and full karaoke rendering
 
 2026-10-30 Spark-WSL. Tested, opt-in prototype. The standard quality
-pipeline remains the default. No production deployment.
+pipeline remains the default; production can opt in via its service environment.
 
 ## Pipeline
 
@@ -22,10 +22,14 @@ python -m scripts.profile_spark_pipeline, alongside --source, --lyrics,
 AutoPrep opt-in: set VC_KTV_PIPELINE_MODE=fast in the service environment.
 Unset or set quality to retain the established pipeline. No UI was added.
 
-Alignment has a 160-second wall-time budget; the renderer gets the remaining
-budget up to 180 seconds. This local-build budget does not include video
-downloading or searching, and is not a real-time scheduling guarantee.
-Over-budget processing should fail, not silently invoke a >5-minute fallback.
+Fast Mode is a *latency optimization*, not a hard three-minute deadline.
+Alignment and rendering proceed to completion even if total processing exceeds
+180 seconds. ASR, individual TIFA blocks, and FFmpeg retain independent
+process-level timeout safeguards (30 minutes for ASR/render and up to 60
+minutes per TIFA block), so a stuck tool still fails without permanently
+blocking the queue. There is no automatic switch to the slower quality
+pipeline. Video length, hardware load, and number of lyric blocks determine
+the actual completion time.
 
 ## Actual measurements: 笼中少女 (BV15x411F75r)
 

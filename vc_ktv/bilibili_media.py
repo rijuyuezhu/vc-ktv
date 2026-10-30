@@ -22,6 +22,9 @@ HEADERS = {
 }
 LIMIT = 512 * 1024 * 1024
 TRUSTED_CDN = ("bilivideo.com", "bilivideo.cn", "hdslb.com")
+# Standard Bilibili qn values: 1080p, 720p, 480p (when publicly available).
+QUALITY_LEVELS = ((80, 1080), (64, 720), (32, 480))
+QUALITY_HEIGHTS = tuple(height for _, height in QUALITY_LEVELS)
 
 
 class PublicMediaUnavailable(RuntimeError):
@@ -83,89 +86,149 @@ def _download(client: httpx.Client, urls: list[str], dest: Path, max_size: int) 
 
 
 def public_media_download(bvid: str, page: int, destdir: Path) -> Path:
-    """Download a public DASH AVC/AAC stream, or an official progressive MP4."""
+    """Prefer public DASH H.264/AAC 1080p, falling back to 720p then 480p."""
     if not BVID.fullmatch(bvid) or page < 1:
         raise ValueError("无效 BV 号或分 P")
+    failures = []
     with httpx.Client(headers=HEADERS, timeout=httpx.Timeout(35, connect=10)) as client:
         view = _json(client, "x/web-interface/view", {"bvid": bvid})
         pages = view.get("pages") or []
         if page > len(pages) or not isinstance(pages[page - 1].get("cid"), int):
             raise PublicMediaUnavailable("B站视频分 P 不存在")
         cid = pages[page - 1]["cid"]
-        params = {"bvid": bvid, "cid": cid, "qn": 64, "fnval": 16, "fourk": 0}
-        data = _json(client, "x/player/playurl", params)
-        dash = data.get("dash") or {}
-        videos = [
-            item
-            for item in dash.get("video", [])
-            if str(item.get("codecs", "")).startswith("avc1")
-            and isinstance(item.get("id"), int)
-            and item["id"] <= 64
-        ]
-        audios = [
-            item
-            for item in dash.get("audio", [])
-            if str(item.get("codecs", "")).startswith("mp4a")
-        ]
-        if videos and audios:
-            video = max(videos, key=lambda x: (x.get("id", 0), x.get("bandwidth", 0)))
-            audio = max(audios, key=lambda x: x.get("bandwidth", 0))
-            vsize = _download(
-                client,
-                [video.get("baseUrl", ""), *video.get("backupUrl", [])],
-                destdir / "video.m4s",
-                LIMIT,
+
+        # DASH often lists several lower qualities in one response. If the
+        # requested stream fails or is restricted, try the next available AVC
+        # representation before asking for a lower qn response.
+        attempted = set()
+        for qn, height in QUALITY_LEVELS:
+            try:
+                data = _json(
+                    client,
+                    "x/player/playurl",
+                    {"bvid": bvid, "cid": cid, "qn": qn, "fnval": 16, "fourk": 0},
+                )
+            except (httpx.HTTPError, ValueError, PublicMediaUnavailable) as error:
+                failures.append(f"DASH {height}p: {type(error).__name__}")
+                continue
+            dash = data.get("dash") or {}
+            videos = sorted(
+                (
+                    item
+                    for item in dash.get("video", [])
+                    if str(item.get("codecs", "")).startswith("avc1")
+                    and isinstance(item.get("id"), int)
+                    and item["id"] <= qn
+                ),
+                key=lambda item: (item["id"], item.get("bandwidth", 0)),
+                reverse=True,
             )
-            _download(
-                client,
-                [audio.get("baseUrl", ""), *audio.get("backupUrl", [])],
-                destdir / "audio.m4s",
-                LIMIT - vsize,
+            audios = sorted(
+                (
+                    item
+                    for item in dash.get("audio", [])
+                    if str(item.get("codecs", "")).startswith("mp4a")
+                ),
+                key=lambda item: item.get("bandwidth", 0),
+                reverse=True,
             )
-            output = destdir / "source.mp4"
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-nostdin",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-y",
-                    "-i",
-                    str(destdir / "video.m4s"),
-                    "-i",
-                    str(destdir / "audio.m4s"),
-                    "-map",
-                    "0:v:0",
-                    "-map",
-                    "1:a:0",
-                    "-c",
-                    "copy",
-                    "-movflags",
-                    "+faststart",
-                    str(output),
-                ],
-                timeout=75,
-                check=True,
-                capture_output=True,
-            )
-            if output.stat().st_size > LIMIT:
-                raise PublicMediaUnavailable("封装后体积超过限制")
-            log.info("Bilibili public DASH fallback succeeded for %s p%s", bvid, page)
-            return output
-        # Explicit progressive fallback for public videos without DASH.
-        progressive = _json(
-            client, "x/player/playurl", {"bvid": bvid, "cid": cid, "qn": 64, "fnval": 0}
-        )
-        parts = progressive.get("durl") or []
-        if len(parts) == 1:
-            target = destdir / "source.mp4"
-            _download(
-                client,
-                [parts[0].get("url", ""), *(parts[0].get("backup_url") or [])],
-                target,
-                LIMIT,
-            )
-            log.info("Bilibili public progressive fallback succeeded for %s", bvid)
-            return target
-    raise PublicMediaUnavailable("该视频没有公开可用的 H.264/AAC 或 MP4 媒体")
+            if not audios:
+                continue
+            audio = audios[0]
+            for video in videos:
+                # qn requests may return identical lower-quality streams.
+                stream = video.get("baseUrl")
+                if not stream or stream in attempted:
+                    continue
+                attempted.add(stream)
+                try:
+                    vsize = _download(
+                        client,
+                        [stream, *(video.get("backupUrl") or [])],
+                        destdir / "video.m4s",
+                        LIMIT,
+                    )
+                    _download(
+                        client,
+                        [audio.get("baseUrl", ""), *(audio.get("backupUrl") or [])],
+                        destdir / "audio.m4s",
+                        LIMIT - vsize,
+                    )
+                    output = destdir / "source.mp4"
+                    subprocess.run(
+                        [
+                            "ffmpeg",
+                            "-nostdin",
+                            "-hide_banner",
+                            "-loglevel",
+                            "error",
+                            "-y",
+                            "-i",
+                            str(destdir / "video.m4s"),
+                            "-i",
+                            str(destdir / "audio.m4s"),
+                            "-map",
+                            "0:v:0",
+                            "-map",
+                            "1:a:0",
+                            "-c",
+                            "copy",
+                            "-movflags",
+                            "+faststart",
+                            str(output),
+                        ],
+                        timeout=75,
+                        check=True,
+                        capture_output=True,
+                    )
+                    if output.stat().st_size > LIMIT:
+                        raise PublicMediaUnavailable("封装后体积超过限制")
+                    log.info(
+                        "Bilibili public DASH video qn=%s (requested <=%sp) succeeded for %s p%s",
+                        video["id"],
+                        height,
+                        bvid,
+                        page,
+                    )
+                    return output
+                except (
+                    httpx.HTTPError,
+                    OSError,
+                    subprocess.SubprocessError,
+                    PublicMediaUnavailable,
+                ) as error:
+                    failures.append(f"DASH qn={video['id']}: {type(error).__name__}")
+                    for name in ("video.m4s", "audio.m4s", "source.mp4"):
+                        (destdir / name).unlink(missing_ok=True)
+
+        # Some older uploads only have one progressive MP4 representation.
+        for qn, height in QUALITY_LEVELS:
+            try:
+                data = _json(
+                    client,
+                    "x/player/playurl",
+                    {"bvid": bvid, "cid": cid, "qn": qn, "fnval": 0},
+                )
+                parts = data.get("durl") or []
+                if len(parts) != 1:
+                    continue
+                target = destdir / "source.mp4"
+                _download(
+                    client,
+                    [parts[0].get("url", ""), *(parts[0].get("backup_url") or [])],
+                    target,
+                    LIMIT,
+                )
+                log.info(
+                    "Bilibili public progressive <=%sp succeeded for %s p%s",
+                    height,
+                    bvid,
+                    page,
+                )
+                return target
+            except (httpx.HTTPError, ValueError, PublicMediaUnavailable) as error:
+                failures.append(f"MP4 {height}p: {type(error).__name__}")
+    raise PublicMediaUnavailable(
+        "该视频没有公开可用的 1080p/720p/480p H.264/AAC 或 MP4 媒体"
+        + (f"；{', '.join(failures[:4])}" if failures else "")
+    )
