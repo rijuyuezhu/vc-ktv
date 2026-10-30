@@ -76,6 +76,54 @@ def test_user_can_only_cancel_own_unstarted_songs(tmp_path):
         assert b.post(f"/api/songs/{other}/cancel").status_code == 200
 
 
+def test_owner_actions_remain_visible_with_both_admin_and_guest_cookies(tmp_path):
+    app = new_app(tmp_path)
+    with (
+        TestClient(app) as owner,
+        TestClient(app) as other,
+        TestClient(app) as admin_only,
+    ):
+        join_and_register(owner, "Owner")
+        join_and_register(other, "Other")
+        owner_id = app.state.store.db.execute(
+            "SELECT id FROM users WHERE username='Owner'"
+        ).fetchone()[0]
+        song_id = add_song(app.state.store, owner_id, media="owner-song.mp4")
+
+        def owner_in_queue(client):
+            state = client.get("/api/state")
+            assert state.status_code == 200
+            return next(s for s in state.json()["queue"] if s["id"] == song_id)
+
+        # Login on the same browser must not hide the owner actions.
+        assert owner_in_queue(owner)["mine"] is True
+        assert owner.get(f"/api/songs/{song_id}/detail").json()["mine"] is True
+        assert (
+            owner.post("/api/admin/login", json={"password": "test-admin"}).status_code
+            == 200
+        )
+        assert owner_in_queue(owner)["mine"] is True
+        assert owner.get(f"/api/songs/{song_id}/detail").json()["mine"] is True
+
+        # Admin-only clients still get read-only views without impersonating the owner.
+        assert (
+            admin_only.post(
+                "/api/admin/login", json={"password": "test-admin"}
+            ).status_code
+            == 200
+        )
+        assert owner_in_queue(admin_only)["mine"] is False
+        assert admin_only.get(f"/api/songs/{song_id}/detail").json()["mine"] is False
+        assert other.get(f"/api/songs/{song_id}/detail").json()["mine"] is False
+        assert other.post(f"/api/songs/{song_id}/cancel").status_code == 403
+        assert admin_only.post(f"/api/songs/{song_id}/cancel").status_code == 401
+
+        assert owner.post(f"/api/songs/{song_id}/cancel").status_code == 200
+        assert not any(
+            s["id"] == song_id for s in owner.get("/api/state").json()["queue"]
+        )
+
+
 def test_replay_prioritized_next_in_both_policies_and_keeps_history(tmp_path):
     app = new_app(tmp_path)
     with TestClient(app) as admin, TestClient(app) as guest:
