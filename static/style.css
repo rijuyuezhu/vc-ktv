@@ -232,3 +232,26 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 
 /* Per-event admin account controls stay usable on narrow screens. */
 #admin-account-list input { flex: 1 1 200px; width: auto; }
+
+/* Routed secondary screens use the whole content viewport, not overlay dialogs. */
+.subpage { max-width: 960px; margin: auto; min-height: 65vh; }
+.subpage-head { margin-bottom: 16px; justify-content: flex-start; }
+.subpage-head h1 { font-size: 23px; margin: 0; }
+.quick-nav { display: flex; gap: 10px; }
+.quick-nav a, .page-links a { min-height: 44px; display: flex; align-items: center; justify-content: space-between; border-radius: 8px; padding: 12px 14px; background: var(--surface-2); color: var(--ink); font-weight: 650; }
+.quick-nav a { flex: 1; }
+.page-links { display: grid; gap: 10px; }
+.link-switch { border: 0; background: none; color: var(--accent-ink); text-decoration: underline; }
+.auth-single { max-width: 400px; margin: auto; }
+.auth-single h3 { margin: 8px 0 14px; font-size: 20px; color: var(--ink); }
+#guest-access { max-width: 540px; }
+@media (max-width:760px) {
+  .subpage-head h1 { font-size: 20px; }
+  .quick-nav a { padding: 10px; }
+  .topinner { padding: 9px 12px; }
+  .brandicon { width: 34px; height: 34px; font-size: 20px; }
+  .tabs a { padding: 8px; }
+  .subpage { min-height: 78vh; }
+  .subpage .panel { padding: 14px; }
+  button, select { min-height: 42px; }
+}

@@ -130,3 +130,22 @@ def test_event_admin_login_and_account_controls_present():
     assert 'api("/api/admin/accounts")' in js
     assert 'data.role==="global"' in js
     assert 'api("/api/admin/login","POST"' in js
+
+
+def test_full_page_admin_navigation_and_register_first_auth():
+    from pathlib import Path
+
+    static_dir = Path(__file__).resolve().parents[1] / "static"
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    js = (static_dir / "app.js").read_text(encoding="utf-8")
+    css = (static_dir / "style.css").read_text(encoding="utf-8")
+    assert 'id="auth-register"' in html
+    assert 'id="auth-login"' in html and 'auth-single hidden" id="auth-login"' in html
+    assert 'id="show-user-login"' in html and "已有账号？登录" in html
+    assert 'id="show-user-register"' in html
+    assert 'id="subpage"' in html and 'id="subpage-back"' in html
+    assert 'href="#settings"' in html and 'href="#stats"' in html
+    for key in ("settings-playback", "settings-event", "settings-history", "stats"):
+        assert key in js
+    assert 'window.addEventListener("hashchange"' in js
+    assert ".subpage { max-width: 960px;" in css

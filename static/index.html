@@ -34,24 +34,28 @@
           </div>
         </div>
         <div id="entry-account" class="hidden">
-          <div class="auth-grid">
+          <div class="auth-single" id="auth-register">
             <div>
-              <h3><span aria-hidden="true">✚</span> 新用户</h3>
+              <h3>注册账号</h3>
               <label for="register-name">用户名</label>
               <input id="register-name" maxlength="24" autocomplete="username" placeholder="本场显示的名字">
               <label for="register-password">密码</label>
               <input id="register-password" type="password" autocomplete="new-password" placeholder="至少 6 个字符">
               <label for="register-confirm">重复密码</label>
               <input id="register-confirm" type="password" autocomplete="new-password">
-              <button id="register-btn" type="button" class="btn primary wide">注册并进入 →</button>
+              <button id="register-btn" type="button" class="btn primary wide">注册并进入</button>
+              <button id="show-user-login" type="button" class="btn link-switch wide">已有账号？登录</button>
             </div>
+          </div>
+          <div class="auth-single hidden" id="auth-login">
             <div>
-              <h3><span aria-hidden="true">↪</span> 已有账号</h3>
+              <h3>登录账号</h3>
               <label for="user-login-name">用户名</label>
               <input id="user-login-name" maxlength="24" autocomplete="username">
               <label for="user-login-password">密码</label>
               <input id="user-login-password" type="password" autocomplete="current-password">
-              <button id="user-login-btn" type="button" class="btn neutral wide">登录</button>
+              <button id="user-login-btn" type="button" class="btn primary wide">登录</button>
+              <button id="show-user-register" type="button" class="btn link-switch wide">没有账号？注册</button>
             </div>
           </div>
         </div>
@@ -98,6 +102,10 @@
         <div class="input-row"><input id="password" type="password" autocomplete="current-password" placeholder="密码"><button id="login-btn" class="btn primary">登录</button></div>
       </div>
       <div id="admin-panel" class="hidden admin-layout">
+        <nav class="panel full-width quick-nav" aria-label="管理菜单">
+          <a href="#settings">设置 <span aria-hidden="true">›</span></a>
+          <a href="#stats">演唱统计 <span aria-hidden="true">›</span></a>
+        </nav>
         <section class="panel full-width" id="event-management">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 当前场次</h2></div>
           <p id="event-status" class="muted">正在获取当前场次……</p>
@@ -217,6 +225,13 @@
         </details>
       </div>
     </div>
+    <section id="subpage" class="subpage hidden" aria-labelledby="subpage-title">
+      <div class="section-head subpage-head">
+        <a id="subpage-back" href="#" class="btn neutral" aria-label="返回">‹ 返回</a>
+        <h1 id="subpage-title">详情</h1>
+      </div>
+      <div id="subpage-content"></div>
+    </section>
   </main>
   <footer>VC KTV</footer>
   <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog">
