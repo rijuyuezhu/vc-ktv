@@ -103,3 +103,9 @@ def test_fast_render_uses_independent_timeout_not_remaining_budget(
     )
     assert invoked == ["karaoke.mp4"]
     assert result.video.read_bytes() == b"rendered"
+
+
+def test_default_karaoke_render_is_compressed_without_changing_audio():
+    from ktv_app.rendering import RenderOptions
+
+    assert RenderOptions().crf == 23

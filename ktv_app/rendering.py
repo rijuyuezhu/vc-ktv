@@ -1,4 +1,6 @@
+import logging
 import re
+import subprocess
 import unicodedata
 from pathlib import Path
 
@@ -6,12 +8,18 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .media import run
 
+log = logging.getLogger(__name__)
+MAX_KARAOKE_BYTES = 30_000_000
+# Reserve room for bitrate variation, subtitles, audio/mux overhead.
+COMPACT_TARGET_BYTES = 28_000_000
+
 
 class RenderOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     width: int | None = Field(default=None, ge=160, le=7680)
     height: int | None = Field(default=None, ge=120, le=4320)
-    crf: int = Field(default=20, ge=0, le=40)
+    # Slightly smaller H.264 karaoke MP4; audio remains stream-copied verbatim.
+    crf: int = Field(default=23, ge=0, le=40)
     preset: str = Field(default="medium", pattern=r"^(ultrafast|fast|medium|slow)$")
     output_dir: str = ""
 
@@ -80,4 +88,56 @@ def render(video, bundle, info, settings, options, output_name=None, *, timeout_
         target,
     ]
     run(cmd, log=folder / "render.log", cwd=folder, timeout=timeout_s)
+
+    # A complex 720p music video can become >100 MB after subtitle burn.
+    # Only if necessary, rerender from the ORIGINAL video + ASS with a
+    # bitrate budget. Never recompress the first lossy render or its audio.
+    # Keep H.264 for broad TV compatibility; avoid HEVC-only downloads.
+    if target.stat().st_size > MAX_KARAOKE_BYTES and options.crf == 23:
+        duration = float(info["duration"])
+        audio_bps = sum(
+            int(stream["bit_rate"])
+            if str(stream.get("bit_rate") or "").isdecimal()
+            else 192000
+            for stream in info["raw"]["streams"]
+            if stream["codec_type"] == "audio"
+        )
+        video_bps = max(
+            250000, int(COMPACT_TARGET_BYTES * 8 / duration - audio_bps - 20000)
+        )
+        compact = target.with_name(target.stem + ".compact.mp4")
+        compact_cmd = [
+            *cmd[: cmd.index("-c:v")],
+            "-c:v",
+            "libx264",
+            "-b:v",
+            str(video_bps),
+            "-maxrate",
+            str(int(video_bps * 1.2)),
+            "-bufsize",
+            str(video_bps * 2),
+            "-preset",
+            options.preset,
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            compact,
+        ]
+        try:
+            run(
+                compact_cmd,
+                log=folder / "compact.log",
+                cwd=folder,
+                timeout=timeout_s,
+            )
+            if 1024 < compact.stat().st_size < target.stat().st_size:
+                compact.replace(target)
+        except (OSError, RuntimeError, TimeoutError, subprocess.TimeoutExpired):
+            log.warning(
+                "Video compaction failed; keeping playable original render",
+                exc_info=True,
+            )
+        finally:
+            compact.unlink(missing_ok=True)
     return target

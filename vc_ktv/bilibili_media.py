@@ -22,8 +22,8 @@ HEADERS = {
 }
 LIMIT = 512 * 1024 * 1024
 TRUSTED_CDN = ("bilivideo.com", "bilivideo.cn", "hdslb.com")
-# Standard Bilibili qn values: 1080p, 720p, 480p (when publicly available).
-QUALITY_LEVELS = ((80, 1080), (64, 720), (32, 480))
+# Public video quality ceilings exposed to admins: 720p (default), 480p.
+QUALITY_LEVELS = ((64, 720), (32, 480))
 QUALITY_HEIGHTS = tuple(height for _, height in QUALITY_LEVELS)
 
 
@@ -85,10 +85,15 @@ def _download(client: httpx.Client, urls: list[str], dest: Path, max_size: int) 
     raise PublicMediaUnavailable("所有公开媒体 CDN 均失败：" + ",".join(errors[:4]))
 
 
-def public_media_download(bvid: str, page: int, destdir: Path) -> Path:
-    """Prefer public DASH H.264/AAC 1080p, falling back to 720p then 480p."""
+def public_media_download(
+    bvid: str, page: int, destdir: Path, *, max_height: int = 720
+) -> Path:
+    """Prefer public DASH AVC/AAC at the selected 720p or 480p ceiling."""
     if not BVID.fullmatch(bvid) or page < 1:
         raise ValueError("无效 BV 号或分 P")
+    if max_height not in QUALITY_HEIGHTS:
+        raise ValueError("不支持的清晰度")
+    levels = [(qn, height) for qn, height in QUALITY_LEVELS if height <= max_height]
     failures = []
     with httpx.Client(headers=HEADERS, timeout=httpx.Timeout(35, connect=10)) as client:
         view = _json(client, "x/web-interface/view", {"bvid": bvid})
@@ -101,7 +106,7 @@ def public_media_download(bvid: str, page: int, destdir: Path) -> Path:
         # requested stream fails or is restricted, try the next available AVC
         # representation before asking for a lower qn response.
         attempted = set()
-        for qn, height in QUALITY_LEVELS:
+        for qn, height in levels:
             try:
                 data = _json(
                     client,
@@ -202,7 +207,7 @@ def public_media_download(bvid: str, page: int, destdir: Path) -> Path:
                         (destdir / name).unlink(missing_ok=True)
 
         # Some older uploads only have one progressive MP4 representation.
-        for qn, height in QUALITY_LEVELS:
+        for qn, height in levels:
             try:
                 data = _json(
                     client,
@@ -229,6 +234,6 @@ def public_media_download(bvid: str, page: int, destdir: Path) -> Path:
             except (httpx.HTTPError, ValueError, PublicMediaUnavailable) as error:
                 failures.append(f"MP4 {height}p: {type(error).__name__}")
     raise PublicMediaUnavailable(
-        "该视频没有公开可用的 1080p/720p/480p H.264/AAC 或 MP4 媒体"
+        "该视频没有公开可用的 H.264/AAC 或 MP4 媒体"
         + (f"；{', '.join(failures[:4])}" if failures else "")
     )

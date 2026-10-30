@@ -84,6 +84,7 @@ class PlaybackSettings(BaseModel):
     allow_unsubtitled: bool
     # Old clients that omit the new field must not reset the chosen preset.
     subtitle_style: StylePreset | None = None
+    video_quality: Literal[720, 480] | None = None
 
 
 class EventCreate(BaseModel):
@@ -276,13 +277,14 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality')"
             )
         }
         return {
             "queue_policy": values.get("queue_policy", "fair"),
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
             "subtitle_style": values.get("subtitle_style", "classic"),
+            "video_quality": int(values.get("video_quality", "720")),
         }
 
     def playback_mode(self):
@@ -296,6 +298,7 @@ class Store:
         queue_policy: str,
         allow_unsubtitled: bool,
         subtitle_style: StylePreset | None = None,
+        video_quality: Literal[720, 480] | None = None,
     ):
         with self.lock:
             for key, value in (
@@ -312,6 +315,12 @@ class Store:
                     "INSERT INTO room_state(name,value) VALUES('subtitle_style',?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     (subtitle_style,),
+                )
+            if video_quality is not None:
+                self.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES('video_quality',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    (str(video_quality),),
                 )
             self.db.commit()
             return self.settings()
@@ -787,7 +796,10 @@ def create_app(
         require_admin(vc_admin)
         with store.lock:
             return store.save_settings(
-                body.queue_policy, body.allow_unsubtitled, body.subtitle_style
+                body.queue_policy,
+                body.allow_unsubtitled,
+                body.subtitle_style,
+                body.video_quality,
             )
 
     @app.get("/api/admin/events")

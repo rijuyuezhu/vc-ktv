@@ -12,6 +12,13 @@ limited retries for cross-block overlaps -> complete ASS/LRC and full MP4.
 
 No Kim vocal separation. No separate TIFA timing across 36 Qwen ASR windows.
 The full video must be rendered before it is ready; no streamed subtitles.
+New renders use H.264 CRF 23 (previously 20); for results over 30 MB,
+they are rerendered directly from the original media/ASS with a calculated
+bitrate budget (aim ~28 MB), retaining H.264 compatibility and original
+resolution. Supported audio streams are copied verbatim. Compression is
+best-effort and can take an extra encoding pass; failure retains the first
+playable MP4. This is lossy video compression, not lossless pixels; existing
+rendered MP4 files are never transcoded automatically.
 
 ## Activation
 

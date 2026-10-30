@@ -52,7 +52,11 @@ def title_key(name: str) -> str:
     )[0].strip()
 
 
-def media_download(bvid: str, page: int, directory: Path) -> Path:
+def media_download(
+    bvid: str, page: int, directory: Path, *, max_height: int = 720
+) -> Path:
+    if max_height not in QUALITY_HEIGHTS:
+        raise ValueError("不支持的清晰度")
     output = directory / "source.%(ext)s"
     args = [
         sys.executable,
@@ -73,7 +77,7 @@ def media_download(bvid: str, page: int, directory: Path) -> Path:
     ]
     # Try higher quality first. If the stream itself fails, retry a lower
     # ceiling, not merely a lower format when a format is unavailable.
-    for height in QUALITY_HEIGHTS:
+    for height in (height for height in QUALITY_HEIGHTS if height <= max_height):
         for old in directory.glob("source.*"):
             old.unlink(missing_ok=True)
         selection = (
@@ -119,7 +123,7 @@ def media_download(bvid: str, page: int, directory: Path) -> Path:
     log.warning(
         "yt-dlp exhausted quality fallbacks for %s p%s; using public API", bvid, page
     )
-    return public_media_download(bvid, page, directory)
+    return public_media_download(bvid, page, directory, max_height=max_height)
 
 
 def render_upstream_video(
@@ -222,6 +226,8 @@ class AutoPrep:
             if row:
                 self.busy.set()
                 claimed = dict(row)
+                if row["status"] == "waiting":
+                    claimed["video_quality"] = self.store.settings()["video_quality"]
                 if row["status"] == "ready":
                     # Snapshot under the same Store lock as the claim: changing
                     # admin settings cannot affect an already running attempt.
@@ -281,7 +287,15 @@ class AutoPrep:
         with tempfile.TemporaryDirectory(
             prefix=f"vc-ktv-{song_id}-", dir=self.store.root
         ) as tmp:
-            path = self.download(row["bvid"], row["page"], Path(tmp))
+            if self.download is media_download:
+                path = self.download(
+                    row["bvid"],
+                    row["page"],
+                    Path(tmp),
+                    max_height=row["video_quality"],
+                )
+            else:
+                path = self.download(row["bvid"], row["page"], Path(tmp))
             actual_duration = self.probe(path)
             target = (
                 self.store.media
