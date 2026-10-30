@@ -38,8 +38,17 @@
 
 Kim、Qwen 和 TIFA 的权重、源码及运行时统一存放在 `~/.local/share/vc-ktv/pipeline/`，不引用仓库下的 `.runtime` 或早期的 `vc-ktv-pipeline-staging`。环境与权重由独立安装命令准备。生产现有 systemd 配置若显式设置 `VC_KTV_PIPELINE_MODE=global-kim`，合并 PR 后仍需另行审核并切换为 `quality`，不能在开发时重启生产。
 
-## 并行处理（实验性）
+## 并行处理
 
-`VC_KTV_PREP_WORKERS=2` 可以启用两个 AutoPrep 工作者（默认 `1`，仍是串行）。每个待处理歌曲独立占用一套模型推理进程和中间目录。数据库中的领取与状态更新仍由同一场次锁保护；每首歌会执行完整 Kim、双遍 Qwen3-ASR、全部非空 ASR 窗口 TIFA、分块与接缝修复，不采用跳过窗口或降低精度的捷径。活动任务未结束时仍禁止关闭场次。由于多路 GPU 任务可能争抢 CPU、显存带宽与模型算力，仅在经过原始数据 A/B 并确认吞吐提升、结果完整后启用；此 PR 不修改生产配置。
+`VC_KTV_PREP_WORKERS` 是**同时准备的最多歌曲数**，不是凑齐该数量才能执行的批大小。配置为 `4` 时，有 1、2、3 首就分别立即处理 1、2、3 首；有至少 4 首则最多同时处理 4 首，任意 worker 完成后即可领取下一首。队列为空的 worker 约每秒轮询一次，没有批次等待门槛。默认 `1` 保留现有部署兼容；切换到多 worker 时显式配置为 `4`。
 
-`VC_KTV_PREP_WORKERS=3` 扩展为三首并行（需先通过实际吞吐与输出一致性验证）。实验变量 `VC_KTV_KIM_SINGLE_FLIGHT=1` 通过 VCKTV 正式模型目录中的进程锁限制同一时间仅一个 Kim CUDA 子进程；其它阶段仍可并发，模型、输入和字幕算法保持不变。默认不启用该限制。
+各 worker 使用独立的音视频文件和推理进程，数据库任务领取及完成时状态更新受同一场次锁保护。`active_claims` 记录所有正在处理的任务，即使其中一些已经结束，也必须等最后一首完成才允许关闭场次。每首歌始终执行完整 Kim、双遍 Qwen3-ASR、全部非空 ASR 窗口 TIFA、可信歌词大块与接缝修复，以及视频刻录，不跳过任何阶段。
+
+建议在 Spark-WSL 上使用：
+
+```sh
+VC_KTV_PREP_WORKERS=4
+VC_KTV_KIM_SINGLE_FLIGHT=1
+```
+
+第二个变量让 Kim CUDA 推理同一时间仅运行一个实例（位于正式 pipeline 数据目录的跨进程锁）；其它歌曲的 Qwen、TIFA、下载和 FFmpeg 仍可并行。单首没有其它任务争用时通常比多首并行更快，但并非时延保证。2026-10-30 六首历史歌曲完整质量流水线的实测：串行 2129.646 秒，3 worker 861.527 秒，**4 worker 756.814 秒（2.81× 串行吞吐）**，6 worker 829.072 秒。三种并发方案全部六首 MP4 SHA-256、Qwen 窗口及 TIFA/字幕时间轴与串行基线一致。原始记录：`~/.local/share/vc-ktv/pipeline/benchmarks/20261030-six-song-throughput/REPORT.md`。该实验不修改生产配置；生产升级与模式切换仍需单独审批。

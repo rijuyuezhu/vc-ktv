@@ -173,8 +173,8 @@ class AutoPrep:
             if max_workers is None
             else max_workers
         )
-        if max_workers not in (1, 2, 3):
-            raise ValueError("VC_KTV_PREP_WORKERS must be 1, 2 or 3")
+        if max_workers not in (1, 2, 3, 4):
+            raise ValueError("VC_KTV_PREP_WORKERS must be 1, 2, 3 or 4")
         self.max_workers = max_workers
         self.store = store
         self.probe = probe

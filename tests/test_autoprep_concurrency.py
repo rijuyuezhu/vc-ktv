@@ -90,8 +90,11 @@ def test_default_serial_and_invalid_worker_limits(tmp_path, monkeypatch):
     monkeypatch.setenv("VC_KTV_PREP_WORKERS", "2")
     assert AutoPrep(store, probe=lambda p: 10).max_workers == 2
     assert AutoPrep(store, probe=lambda p: 10, max_workers=3).max_workers == 3
-    for n in (0, 4, -1):
-        with pytest.raises(ValueError, match="1, 2 or 3"):
+    assert AutoPrep(store, probe=lambda p: 10, max_workers=4).max_workers == 4
+    monkeypatch.setenv("VC_KTV_PREP_WORKERS", "4")
+    assert AutoPrep(store, probe=lambda p: 10).max_workers == 4
+    for n in (0, 5, -1):
+        with pytest.raises(ValueError, match="1, 2, 3 or 4"):
             AutoPrep(store, probe=lambda p: 10, max_workers=n)
 
 
@@ -200,3 +203,81 @@ def test_three_workers_do_not_unset_busy_until_last_task(tmp_path):
         for gate in gates:
             gate.set()
         assert worker.stop()
+
+
+def test_four_workers_start_with_one_song_and_fill_available_slots(tmp_path):
+    """Four is a capacity limit, not a minimum batch size or a startup barrier."""
+    store = Store(tmp_path / "room")
+    seed_downloads(store, 1)
+    started = []
+    guard = threading.Lock()
+    gates = [threading.Event() for _ in range(5)]
+
+    def download(bvid, page, directory):
+        with guard:
+            index = len(started)
+            started.append(directory)
+        assert gates[index].wait(10)
+        source = directory / "source.mp4"
+        source.write_bytes(f"video-{index}".encode())
+        return source
+
+    def enqueue(count):
+        with store.lock:
+            offset = store.db.execute("SELECT COUNT(*) FROM songs").fetchone()[0]
+            store.db.executemany(
+                """INSERT INTO songs(bvid,page,title,uploader,cover,duration,
+                   requester,requested_at,status,prep_state)
+                   VALUES('BV0000000001',1,?,?,?,20,'g',?,'waiting','pending')""",
+                [(f"Later {i}", "Uploader", "", offset + i) for i in range(count)],
+            )
+            store.db.commit()
+
+    worker = AutoPrep(store, probe=lambda path: 8, download=download, max_workers=4)
+    worker.start()
+    try:
+        assert len(worker.workers) == 4
+        # Immediately process a single song, without waiting for four requests.
+        assert eventually(lambda: len(started) == 1)
+        assert worker.active_claims == 1 and worker.busy.is_set()
+
+        # The second and third songs are claimed as soon as they arrive.
+        enqueue(2)
+        assert eventually(lambda: len(started) == 3)
+        assert worker.active_claims == 3
+
+        enqueue(2)
+        assert eventually(lambda: len(started) == 4)
+        assert worker.active_claims == 4
+        with store.lock:
+            assert (
+                store.db.execute(
+                    "SELECT COUNT(*) FROM songs WHERE prep_state='pending'"
+                ).fetchone()[0]
+                == 1
+            )
+        assert len(set(started)) == 4
+
+        # One task completes; the fifth is claimed without waiting for a batch.
+        gates[0].set()
+        assert eventually(lambda: len(started) == 5)
+        assert worker.active_claims == 4 and worker.busy.is_set()
+        assert len(set(started)) == 5
+
+        for gate in gates[1:]:
+            gate.set()
+        assert eventually(lambda: worker.active_claims == 0)
+        assert not worker.busy.is_set()
+        with store.lock:
+            assert (
+                store.db.execute(
+                    "SELECT COUNT(*) FROM songs WHERE status='ready' AND prep_state='downloaded'"
+                ).fetchone()[0]
+                == 5
+            )
+            assert store.db.execute("SELECT COUNT(*) FROM songs").fetchone()[0] == 5
+    finally:
+        for gate in gates:
+            gate.set()
+        assert worker.stop()
+        assert all(not thread.is_alive() for thread in worker.workers)
