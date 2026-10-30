@@ -1,4 +1,4 @@
-"""A late arrival inherits scheduling progress without fabricated performances."""
+"""Late arrivals accrue no inactive-round debt, and only real performances count."""
 
 from fastapi.testclient import TestClient
 
@@ -6,7 +6,7 @@ from tests.helpers import join_and_register
 from vc_ktv.app import Store, create_app
 
 
-def test_newcomer_matches_highest_effective_progress_but_plays_remain_real(tmp_path):
+def test_newcomer_gets_only_two_early_turns_but_plays_remain_real(tmp_path):
     app = create_app(
         root=tmp_path / "room",
         password="admin",
@@ -26,8 +26,8 @@ def test_newcomer_matches_highest_effective_progress_but_plays_remain_real(tmp_p
         with store.lock:
             users = {u["name"]: u for u in store.rows("SELECT * FROM guests")}
             assert users["C"]["plays"] == 0 and users["C"]["seconds"] == 0
-            assert users["C"]["fair_offset"] == 3
-            assert users["C"]["fair_seconds"] == 450
+            assert users["C"]["fair_offset"] == 0
+            assert users["C"]["fair_seconds"] == 0
             for idx, name in enumerate(("A", "B", "C"), 1):
                 store.db.execute(
                     """INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at,
@@ -47,12 +47,12 @@ def test_newcomer_matches_highest_effective_progress_but_plays_remain_real(tmp_p
                     ),
                 )
             store.db.commit()
-            assert [s["nickname"] for s in store.fair_queue()] == ["B", "A", "C"]
+            assert [s["nickname"] for s in store.fair_queue()] == ["C", "B", "A"]
             assert [u["plays"] for u in store.state()["guests"]] == [3, 2, 0]
             store.save_settings("fcfs", False)
             assert [s["nickname"] for s in store.fair_queue()] == ["A", "B", "C"]
             store.save_settings("fair", False)
-            assert [s["nickname"] for s in store.fair_queue()] == ["B", "A", "C"]
+            assert [s["nickname"] for s in store.fair_queue()] == ["C", "B", "A"]
             store.db.execute("UPDATE songs SET priority_next=1 WHERE title=?", ("C",))
             store.db.commit()
             assert store.fair_queue()[0]["nickname"] == "C"
@@ -69,10 +69,10 @@ def test_newcomer_matches_highest_effective_progress_but_plays_remain_real(tmp_p
             store.db.execute(
                 "SELECT plays,fair_offset FROM guests WHERE name='C'"
             ).fetchone()
-        ) == (0, 3)
+        ) == (0, 0)
 
 
-def test_newcomers_chain_effective_baselines_and_persist_across_reopen(tmp_path):
+def test_newcomer_registration_does_not_inherit_inactive_guest_credit(tmp_path):
     root = tmp_path / "room"
     app = create_app(
         root=root, password="admin", secret=b"fair-test", auto_prepare=False
@@ -87,13 +87,13 @@ def test_newcomers_chain_effective_baselines_and_persist_across_reopen(tmp_path)
         store.db.execute("UPDATE guests SET plays=1,seconds=60 WHERE name='B'")
         store.db.commit()
         join_and_register(c, "C")
-        # B registered at effective count 5, then actually sang one song,
-        # so newcomer C correctly inherits effective count 6.
+        # Registration is not a turn. Neither B nor C receives a credit
+        # until their first playable song competes in the queue.
         assert tuple(
             store.db.execute(
                 "SELECT fair_offset,fair_seconds FROM guests WHERE name='C'"
             ).fetchone()
-        ) == (6, 560)
+        ) == (0, 0)
         assert tuple(
             store.db.execute(
                 "SELECT plays,seconds FROM guests WHERE name='B'"
@@ -101,9 +101,9 @@ def test_newcomers_chain_effective_baselines_and_persist_across_reopen(tmp_path)
         ) == (1, 60)
     reopened = Store(root / "sessions" / app.state.events.active_id)
     counts = {u["name"]: u for u in reopened.rows("SELECT * FROM guests")}
-    assert counts["B"]["fair_offset"] == 5
-    assert counts["B"]["fair_seconds"] == 500
-    assert counts["C"]["fair_offset"] == 6
+    assert counts["B"]["fair_offset"] == 0
+    assert counts["B"]["fair_seconds"] == 0
+    assert counts["C"]["fair_offset"] == 0
     assert counts["C"]["plays"] == 0
 
 

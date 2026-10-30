@@ -226,6 +226,8 @@ class Store:
         # Scheduling offsets are deliberately separate from real performance
         # statistics: late arrivals must not appear to have sung before joining.
         guest_columns = {row[1] for row in self.db.execute("PRAGMA table_info(guests)")}
+        # fair_seconds is a legacy database column retained for compatibility,
+        # but is never read by the song-count-only scheduler.
         for name in ("fair_offset", "fair_seconds"):
             if name not in guest_columns:
                 self.db.execute(
@@ -273,6 +275,7 @@ class Store:
                 "ALTER TABLE songs ADD COLUMN lyric_source TEXT NOT NULL DEFAULT ''"
             )
         for column, ddl in (
+            ("fair_exempt", "INTEGER NOT NULL DEFAULT 0"),
             ("skip_subtitles", "INTEGER NOT NULL DEFAULT 0"),
             ("prep_stage", "TEXT NOT NULL DEFAULT ''"),
             ("prep_stage_at", "INTEGER NOT NULL DEFAULT 0"),
@@ -388,8 +391,12 @@ class Store:
             )
         )
 
-    def fair_queue(self, pool=None, settings=None):
-        """Order playable tracks by the current event's policy."""
+    def fair_queue(self, pool=None, settings=None, *, persist=False):
+        """Order ready songs with at most two turns of accumulated catch-up.
+
+        Preview is read-only; persist virtual credit only when claiming a song.
+        Already completed performances remain a separate real-world statistic.
+        """
         if pool is None:
             pool = self.songs()
         if settings is None:
@@ -402,19 +409,27 @@ class Store:
             return priority + ready  # songs() already orders by requested_at/id.
         users = {x["id"]: x for x in self.rows("SELECT * FROM guests")}
         # Simulate future turns so the displayed order reflects selection policy.
-        tally = {
-            k: (u["plays"] + u["fair_offset"], u["seconds"] + u["fair_seconds"])
-            for k, u in users.items()
-        }
+        tally = {k: u["plays"] + u["fair_offset"] for k, u in users.items()}
+        # Only people with a playable song can compete for a turn. Historical
+        # inactivity must not accumulate unlimited "missing" rounds.
+        # Admin-chosen priority songs are fictitious admin turns. They cannot
+        # advance anybody's virtual count, including via floor normalization.
+        active = {song["requester_id"] for song in ready}
+        if active:
+            floor = max(0, max(tally[user] for user in active) - 2)
+            for user in active:
+                if tally[user] < floor:
+                    delta = floor - tally[user]
+                    tally[user] = floor
+                    if persist and not priority:
+                        self.db.execute(
+                            "UPDATE guests SET fair_offset=fair_offset+? WHERE id=?",
+                            (delta, user),
+                        )
         last = self.db.execute(
             "SELECT value FROM room_state WHERE name='last_requester'"
         ).fetchone()
         previous = last[0] if last else ""
-        for song in priority:
-            user = song["requester_id"]
-            plays, seconds = tally[user]
-            tally[user] = (plays + 1, seconds + song["duration"])
-            previous = user
         output = []
         while ready:
             head = {}
@@ -423,16 +438,14 @@ class Store:
             chosen = min(
                 head.values(),
                 key=lambda s: (
-                    tally[s["requester_id"]][0],
+                    tally[s["requester_id"]],
                     s["requester_id"] == previous,
-                    tally[s["requester_id"]][1],
                     s["requested_at"],
                     s["id"],
                 ),
             )
             output.append(chosen)
-            a, b = tally[chosen["requester_id"]]
-            tally[chosen["requester_id"]] = (a + 1, b + chosen["duration"])
+            tally[chosen["requester_id"]] += 1
             previous = chosen["requester_id"]
             ready.remove(chosen)
         return priority + output
@@ -860,23 +873,10 @@ def create_app(
             require_entry(vc_join)
             event_id = events.active_id
             try:
-                # Give newcomers the highest existing *effective* turn count.
-                # Include the tie-break seconds, otherwise a zero-second new
-                # user would unfairly beat existing guests with equal turns.
-                effective = [
-                    (u["plays"] + u["fair_offset"], u["seconds"] + u["fair_seconds"])
-                    for u in store.rows(
-                        "SELECT plays,seconds,fair_offset,fair_seconds FROM guests"
-                    )
-                ]
-                baseline = max((count for count, _ in effective), default=0)
-                baseline_seconds = max(
-                    (seconds for count, seconds in effective if count == baseline),
-                    default=0,
-                )
+                # Registration itself earns nothing. A user gets bounded
+                # catch-up only when they actually enter a playable queue.
                 store.db.execute(
-                    "INSERT INTO guests(id,name,fair_offset,fair_seconds) VALUES (?,?,?,?)",
-                    (user_id, name, baseline, baseline_seconds),
+                    "INSERT INTO guests(id,name) VALUES (?,?)", (user_id, name)
                 )
                 store.db.execute(
                     "INSERT INTO users(id,username,password_hash) VALUES (?,?,?)",
@@ -1712,12 +1712,14 @@ def create_app(
     def next_impl():
         with store.lock:
             if not store.current():
-                queue = store.fair_queue()
+                queue = store.fair_queue(persist=True)
                 if queue:
                     song = queue[0]
+                    # Store the exemption on the song: once priority_next is
+                    # cleared, finish/skip must still know this was an admin turn.
                     store.db.execute(
-                        "UPDATE songs SET status='playing',priority_next=0 WHERE id=?",
-                        (song["id"],),
+                        "UPDATE songs SET status='playing',priority_next=0,fair_exempt=? WHERE id=?",
+                        (int(bool(song["priority_next"])), song["id"]),
                     )
                     store.db.commit()
             return {"active": active_view()}
@@ -1732,11 +1734,18 @@ def create_app(
                 "UPDATE songs SET status=?,played_at=? WHERE id=?",
                 ("played" if completed else "skipped", time_now(), body.song_id),
             )
-            if completed:
-                store.db.execute(
-                    "UPDATE guests SET plays=plays+1,seconds=seconds+? WHERE id=?",
-                    (song["duration"], song["requester"]),
-                )
+            if not song["fair_exempt"]:
+                if completed:
+                    store.db.execute(
+                        "UPDATE guests SET plays=plays+1,seconds=seconds+? WHERE id=?",
+                        (song["duration"], song["requester"]),
+                    )
+                else:
+                    # A skipped ordinary turn consumes only virtual song credit.
+                    store.db.execute(
+                        "UPDATE guests SET fair_offset=fair_offset+1 WHERE id=?",
+                        (song["requester"],),
+                    )
                 store.db.execute(
                     "INSERT INTO room_state(name,value) VALUES('last_requester',?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
