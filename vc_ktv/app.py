@@ -40,6 +40,12 @@ from .textgrid_import import convert_textgrid
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
 MAX_UPLOAD = 512 * 1024 * 1024
 MAX_ACTIVE_SONGS = 1000
+MAX_USER_SONGS = 10
+MAX_LRC_UPLOAD = 128 * 1024
+LRC_LINE = re.compile(
+    r"^(?:\[(?:(?:\d{1,2}:)?\d{1,3}:\d{2}(?:[.:]\d{1,3})?)\])+\s*(.*)$"
+)
+LRC_WORD_TIME = re.compile(r"<(?:(?:\d{1,2}:)?\d{1,3}:\d{2}(?:[.:]\d{1,3})?)>")
 STATIC = Path(__file__).resolve().parent.parent / "static"
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
@@ -622,8 +628,8 @@ def create_app(
             "AND status IN ('waiting','rendering','ready','playing')",
             (guest_id,),
         ).fetchone()[0]
-        if count >= 3:
-            bail(409, "每人最多保留三首待唱歌曲")
+        if count >= MAX_USER_SONGS:
+            bail(409, "每人最多保留十首待唱歌曲")
 
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
@@ -1141,6 +1147,27 @@ def create_app(
             bail(404, "找不到你提交的歌曲")
         return dict(song)
 
+    def save_guest_lyrics(song_id: int, requester: str, lyrics: str, source: str):
+        with store.lock:
+            current = store.db.execute(
+                "SELECT * FROM songs WHERE id=? AND requester=?",
+                (song_id, requester),
+            ).fetchone()
+            if not current or current["status"] not in ("waiting", "ready"):
+                bail(409, "歌曲已经开始播放或结束，不能切换歌词")
+            if current["prep_state"] == "aligning":
+                bail(409, "字幕正在制作中，暂不能更换歌词")
+            next_state = (
+                "downloaded" if current["status"] == "ready" else current["prep_state"]
+            )
+            store.db.execute(
+                "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,prep_error='' "
+                "WHERE id=?",
+                (lyrics, source, next_state, song_id),
+            )
+            store.db.commit()
+        return {"ok": True, "id": song_id, "status": next_state}
+
     @app.get("/api/songs/{song_id}/lyrics/candidates")
     async def guest_lyric_candidates(
         song_id: int,
@@ -1191,25 +1218,37 @@ def create_app(
             bail(400, "歌词来源不受支持")
         if len(body.text.splitlines()) < 2:
             bail(400, "歌词候选无效")
-        with store.lock:
-            current = store.db.execute(
-                "SELECT * FROM songs WHERE id=? AND requester=?",
-                (song_id, song["requester"]),
-            ).fetchone()
-            if not current or current["status"] not in ("waiting", "ready"):
-                bail(409, "歌曲已经开始播放或结束，不能切换歌词")
-            if current["prep_state"] == "aligning":
-                bail(409, "字幕正在制作中，暂不能更换歌词")
-            next_state = (
-                "downloaded" if current["status"] == "ready" else current["prep_state"]
-            )
-            store.db.execute(
-                "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,prep_error='' "
-                "WHERE id=?",
-                (body.text, body.source, next_state, song_id),
-            )
-            store.db.commit()
-        return {"ok": True, "id": song_id, "status": next_state}
+        return save_guest_lyrics(song_id, song["requester"], body.text, body.source)
+
+    @app.post("/api/songs/{song_id}/lyrics/upload")
+    async def guest_upload_lrc(
+        song_id: int,
+        file: Annotated[UploadFile, File()],
+        vc_guest: str | None = Cookie(default=None),
+    ):
+        song = own_song(song_id, vc_guest)
+        if not (file.filename or "").lower().endswith(".lrc"):
+            bail(400, "请上传 .lrc 歌词文件")
+        raw = await file.read(MAX_LRC_UPLOAD + 1)
+        await file.close()
+        if len(raw) > MAX_LRC_UPLOAD:
+            bail(413, "LRC 文件最大 128 KiB")
+        try:
+            content = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            bail(400, "LRC 文件需要使用 UTF-8 编码")
+        lines = []
+        for line in content.splitlines():
+            match = LRC_LINE.match(line.strip())
+            if match:
+                lyric = LRC_WORD_TIME.sub("", match.group(1)).strip()
+                if lyric:
+                    lines.append(lyric)
+        lyrics = "\n".join(lines)
+        if len(lines) < 2 or not 10 <= len(lyrics) <= 12_000:
+            bail(400, "LRC 需要至少两行带时间标签的有效歌词，总长度不超过 12000 字符")
+        # Uploaded timing is not trusted; the original quality pipeline realigns the text.
+        return save_guest_lyrics(song_id, song["requester"], lyrics, "上传 LRC")
 
     @app.get("/api/admin/accounts")
     def list_event_admins(vc_admin: str | None = Cookie(default=None)):

@@ -87,12 +87,23 @@ function addDownload(parent,song) {
   link.onclick=(event)=>event.stopPropagation();
   link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
 }
+async function cancelGuestSong(songId){
+  if(!confirm("取消自己点的这首歌？"))return;
+  await api(`/api/songs/${songId}/cancel`,"POST");
+  if(selectingSongId===songId && $("guest-lyrics-dialog").open)$("guest-lyrics-dialog").close();
+  if(currentRoute()==="song-"+songId)window.location.hash="";
+  toast("✓ 已取消点歌");
+  await refresh();
+}
 function makeSong(song, order, mode="row") {
   const outer = document.createElement("div");outer.className="song-item";
   if(["row","status","played"].includes(mode)){
     outer.classList.add("song-open");outer.tabIndex=0;outer.setAttribute("role","link");
     outer.setAttribute("aria-label","详情："+song.title);
-    outer.onclick=()=>{window.location.hash="song-"+song.id;};
+    outer.onclick=(e)=>{
+      if(e.target.closest("button,a,input,label"))return;
+      window.location.hash="song-"+song.id;
+    };
     outer.onkeydown=(e)=>{
       // A focused download link retains its own native keyboard action.
       if(e.target!==outer)return;
@@ -104,6 +115,10 @@ function makeSong(song, order, mode="row") {
   appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:"")+
     (song.priority_next?"  ↻ 下一首重唱":""));
   appendText(copy,"small",`${song.nickname}  ${duration(song.duration)}  ${song.uploader}`);
+  if(mode==="row" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
+    const detail=appendText(outer,"button","详情 / 取消","mini");
+    detail.onclick=(e)=>{e.stopPropagation();window.location.hash="song-"+song.id;};
+  }
   if(mode==="guest" && song.mine && ["ready","waiting"].includes(song.status) &&
      song.prep_state!=="aligning"){
     const pick=appendText(outer,"button",song.lyric_selected?"♫ 换歌词":"♫ 选歌词","mini lyric-pick");
@@ -112,11 +127,7 @@ function makeSong(song, order, mode="row") {
   if(mode==="guest" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
     const cancel=appendText(outer,"button","✕ 取消","mini");
     cancel.title="仅取消自己尚未开唱的歌曲";
-    cancel.onclick=()=>guarded(async()=>{
-      if(!confirm("取消自己点的这首歌？"))return;
-      await api("/api/songs/"+song.id+"/cancel","POST");
-      toast("✓ 已取消点歌");await refresh();
-    },cancel);
+    cancel.onclick=()=>guarded(()=>cancelGuestSong(song.id),cancel);
   }
   if(mode==="status"){
     const status=preparationStatus(song);
@@ -434,6 +445,20 @@ async function searchMoreLyrics(){
 }
 $("guest-lyrics-dialog").addEventListener("close",()=>{
   selectingSongId=null;selectionRequest++;abortLyricRequests();
+});
+$("guest-lyrics-cancel").onclick=()=>guarded(()=>cancelGuestSong(selectingSongId),$("guest-lyrics-cancel"));
+$("guest-lyrics-upload").onchange=()=>guarded(async()=>{
+  const input=$("guest-lyrics-upload"), file=input.files[0], songId=selectingSongId;
+  if(!file||songId===null)return;
+  try{
+    if(!file.name.toLowerCase().endsWith(".lrc")||file.size>128*1024)
+      throw new Error("请选择不超过 128 KiB 的 .lrc 文件");
+    const data=new FormData();data.append("file",file);
+    await api(`/api/songs/${songId}/lyrics/upload`,"POST",data);
+    $("guest-lyrics-dialog").close();
+    toast("✓ 已上传歌词，将重新对齐时间轴");
+    await refresh();
+  }finally{input.value="";}
 });
 $("guest-lyrics-search").onclick=()=>guarded(()=>searchGuestLyrics(),$("guest-lyrics-search"));
 $("guest-lyrics-more").onclick=()=>guarded(()=>searchMoreLyrics(),$("guest-lyrics-more"));

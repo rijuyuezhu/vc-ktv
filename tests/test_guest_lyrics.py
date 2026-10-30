@@ -265,3 +265,50 @@ def test_new_source_requires_original_guest_and_signed_ticket(tmp_path, source):
         ).fetchone()
         assert stored["lyric_source"] == source
         assert stored["lyric_choice"] == candidate["text"]
+
+
+def test_guest_upload_lrc_strips_timing_and_uses_alignment_pipeline(tmp_path):
+    app, _ = app_for_lyrics(tmp_path)
+    raw = (
+        "\ufeff[ar:作者]\n[ti:标题]\n[offset:200]\n"
+        "[00:01.20]第一句歌词你好世界\n"
+        "[00:06.00]<00:06.00>第二句<00:07.50>歌词\n"
+        "[00:09.00][00:10.00]第三句歌词你好\n"
+    ).encode("utf-8")
+    with TestClient(app) as owner, TestClient(app) as other, TestClient(app) as anon:
+        join_and_register(owner, "Uploader")
+        join_and_register(other, "Nonowner")
+        sid = owner.post("/api/songs", json={"bvid": "BV0000000002"}).json()["id"]
+        url = f"/api/songs/{sid}/lyrics/upload"
+
+        def upload(client, content=raw, filename="custom.lrc"):
+            return client.post(url, files={"file": (filename, content, "text/plain")})
+
+        assert upload(anon).status_code == 401
+        assert upload(other).status_code == 404
+        assert upload(owner, filename="custom.txt").status_code == 400
+        assert upload(owner, content=b"\xff\xfe\x00").status_code == 400
+        assert upload(owner, content=b"[ar:who]\n[00:01.00]one").status_code == 400
+        assert upload(owner, content=b"z" * (128 * 1024 + 1)).status_code == 413
+        assert upload(owner).status_code == 200
+        record = app.state.store.db.execute(
+            "SELECT lyric_choice,lyric_source FROM songs WHERE id=?", (sid,)
+        ).fetchone()
+        assert record["lyric_source"] == "上传 LRC"
+        assert record["lyric_choice"] == (
+            "第一句歌词你好世界\n第二句歌词\n第三句歌词你好"
+        )
+        # AutoPrep reads lyric_choice and computes its own timings, not uploaded LRC tags.
+        assert owner.get("/api/state").json()["waiting"][0]["lyric_selected"]
+        with app.state.store.lock:
+            app.state.store.db.execute(
+                "UPDATE songs SET prep_state='aligning' WHERE id=?", (sid,)
+            )
+            app.state.store.db.commit()
+        assert upload(owner).status_code == 409
+        with app.state.store.lock:
+            app.state.store.db.execute(
+                "UPDATE songs SET status='playing',prep_state='done' WHERE id=?", (sid,)
+            )
+            app.state.store.db.commit()
+        assert upload(owner).status_code == 409
