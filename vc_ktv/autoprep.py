@@ -40,7 +40,7 @@ def title_key(name: str) -> str:
     # Original song titles are frequently embedded in a long Bilibili headline:
     # 「宣传语。对你许下了《歌名》。【UP/活动标签】」.
     # Extract only when there is one unambiguous Chinese title enclosure.
-    enclosed = [x.strip() for x in re.findall(r"《([^《》]{2,48})》", name)]
+    enclosed = [x.strip() for x in re.findall(r"《([^《》]{1,48})》", name)]
     if len(enclosed) == 1:
         return enclosed[0]
     # Trim tags such as 【洛天依AI】 and [cover] without stripping actual song words.

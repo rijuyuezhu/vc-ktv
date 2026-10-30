@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from tests.helpers import join_and_register
 from vc_ktv import lyric_selection
 from vc_ktv.app import create_app
+from vc_ktv.autoprep import title_key
 
 
 @pytest.mark.parametrize("query", ["花", "秋鶄岚夜曲"])
@@ -191,3 +192,8 @@ def test_slow_wiki_article_does_not_discard_a_ready_article(monkeypatch):
     # discard a completed candidate or cause a 15-second stall.
     rows = asyncio.run(lyric_selection.search_lyric_candidates("秋鶄岚夜曲", "wiki"))
     assert [r["title"] for r in rows] == ["秋䴖岚夜曲"]
+
+
+def test_single_character_book_title_is_extracted():
+    assert title_key("【乐正绫原创曲】《花》【PV付】") == "花"
+    assert title_key("【乐正绫原创曲】花") == "花"
