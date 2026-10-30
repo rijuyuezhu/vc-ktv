@@ -82,7 +82,7 @@
 
       </section>
       <section class="panel queue-panel hidden" id="queue-panel">
-        <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">☷</span> 歌单</h2><span id="queue-count" class="small-tag">0 首可播</span></div>
+        <div class="section-head"><h2>队列</h2><a href="#played" class="mini">已唱歌曲 ›</a><span id="queue-count" class="small-tag">0 首可播</span></div>
         <div id="current-guest" class="current-card"><span class="current-label">正在播放</span><p>尚未开始播放</p></div>
         <h3><span aria-hidden="true">✓</span> 待播放</h3>
         <div id="queue-ready" class="song-list"><div class="empty">还没有准备好的歌曲</div></div>
@@ -105,6 +105,7 @@
         <nav class="panel full-width quick-nav" aria-label="管理菜单">
           <a href="#settings">设置 <span aria-hidden="true">›</span></a>
           <a href="#stats">演唱统计 <span aria-hidden="true">›</span></a>
+          <a href="#played">已唱歌曲 <span aria-hidden="true">›</span></a>
         </nav>
         <section class="panel full-width" id="event-management">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 当前场次</h2></div>
@@ -127,6 +128,7 @@
               <option value="manual">手动投屏（乐播相册）</option>
             </select>
           </div>
+          <a id="current-song-download" class="btn primary wide hidden" href="#">↓ 下载当前视频</a>
           <div class="player-shell" id="browser-player">
             <video id="player" playsinline controls preload="metadata"></video>
             <div id="player-empty">等待下一首</div>

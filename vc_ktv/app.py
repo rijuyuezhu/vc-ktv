@@ -411,7 +411,7 @@ class Store:
     @staticmethod
     def downloadable(song):
         return (
-            song["status"] in ("ready", "playing")
+            song["status"] in ("ready", "playing", "played")
             and song["prep_state"] in ("done", "manual", "original")
             and bool(song.get("has_media") or song.get("media_file"))
         )
@@ -1762,6 +1762,58 @@ def create_app(
             if store.playback_mode() == "manual":
                 bail(409, "当前使用手动投屏，请在管理后台操作")
             return finish_impl(body)
+
+    @app.get("/api/songs/played")
+    def guest_played_songs(
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        if admin_principal(vc_admin) is None:
+            require_user(vc_guest)
+        with store.lock:
+            rows = store.rows(
+                """SELECT s.id,s.title,s.duration,s.played_at,s.page,
+                          s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
+                          g.name AS nickname
+                   FROM songs s JOIN guests g ON g.id=s.requester
+                   WHERE s.status='played'
+                   ORDER BY s.played_at DESC,s.id DESC"""
+            )
+            for song in rows:
+                song["downloadable"] = (
+                    Store.downloadable({**song, "status": "played"})
+                    and (store.media / Path(song["media_file"] or "").name).is_file()
+                )
+                song.pop("media_file", None)
+            return {"songs": rows}
+
+    @app.get("/api/songs/{song_id}/detail")
+    def song_details(
+        song_id: int,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        is_admin = admin_principal(vc_admin) is not None
+        guest = None if is_admin else require_user(vc_guest)
+        with store.lock:
+            row = store.db.execute(
+                """SELECT s.id,s.title,s.bvid,s.page,s.uploader,s.duration,
+                          s.status,s.prep_state,s.prep_error,s.prep_stage,
+                          s.prep_stage_at,s.skip_subtitles,s.priority_next,
+                          s.played_at,s.media_file IS NOT NULL AS has_media,
+                          s.lyric_choice!='' AS lyric_selected,
+                          g.id AS requester_id,g.name AS nickname
+                   FROM songs s JOIN guests g ON g.id=s.requester
+                   WHERE s.id=?""",
+                (song_id,),
+            ).fetchone()
+            if row is None:
+                bail(404, "歌曲不存在")
+            song = dict(row)
+            song["mine"] = bool(guest and guest["id"] == song["requester_id"])
+            song["downloadable"] = Store.downloadable(song)
+            song["lyric_query"] = title_key(song["title"])
+            return song
 
     @app.post("/api/songs/{song_id}/cancel")
     def cancel_own_song(song_id: int, vc_guest: str | None = Cookie(default=None)):
