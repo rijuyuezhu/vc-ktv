@@ -266,3 +266,7 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .song-detail-panel .song-actions { width: 100%; }
 .song-detail-panel .song-actions button { min-height: 42px; }
 .song-detail-panel .song-copy strong { white-space: normal; }
+
+.timing-row { display: flex; justify-content: space-between; gap: 18px; border-bottom: 1px solid var(--line); padding: 8px 0; }
+.timing-row span:last-child, .timing-row strong:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.song-detail-panel details summary { cursor: pointer; font-weight: 650; padding: 8px 0; }

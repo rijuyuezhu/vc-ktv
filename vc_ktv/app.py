@@ -259,6 +259,7 @@ class Store:
             ("skip_subtitles", "INTEGER NOT NULL DEFAULT 0"),
             ("prep_stage", "TEXT NOT NULL DEFAULT ''"),
             ("prep_stage_at", "INTEGER NOT NULL DEFAULT 0"),
+            ("prep_timing", "TEXT NOT NULL DEFAULT '{}'"),
             ("priority_next", "INTEGER NOT NULL DEFAULT 0"),
             ("replay_of", "INTEGER"),
         ):
@@ -1799,7 +1800,7 @@ def create_app(
             row = store.db.execute(
                 """SELECT s.id,s.title,s.bvid,s.page,s.uploader,s.duration,
                           s.status,s.prep_state,s.prep_error,s.prep_stage,
-                          s.prep_stage_at,s.skip_subtitles,s.priority_next,
+                          s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
                           s.played_at,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
                           g.id AS requester_id,g.name AS nickname
@@ -1810,6 +1811,10 @@ def create_app(
             if row is None:
                 bail(404, "歌曲不存在")
             song = dict(row)
+            try:
+                song["stage_seconds"] = json.loads(song.pop("prep_timing"))
+            except (ValueError, TypeError):
+                song["stage_seconds"] = {}
             song["mine"] = bool(guest and guest["id"] == song["requester_id"])
             song["downloadable"] = Store.downloadable(song)
             song["lyric_query"] = title_key(song["title"])
