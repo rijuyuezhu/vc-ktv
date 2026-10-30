@@ -1,8 +1,10 @@
 """Kim vocals for inference; the original video always supplies export audio."""
 
 import json
+import os
 import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +14,30 @@ from .media import fingerprint, run
 from .model_runtime import probe_device, worker_environment
 
 KIM_SHA256 = "87201f4d31afb5bc79993230fc49446918425574db48c01c405e44f365c7559e"
+
+
+@contextmanager
+def kim_gpu_slot():
+    """Optionally limit GPU-heavy Kim inference to one concurrent subprocess.
+
+    Other song phases may run in parallel. The lock changes scheduling only,
+    never the audio, model settings or inference algorithm.
+    """
+    if os.getenv("VC_KTV_KIM_SINGLE_FLIGHT") != "1":
+        yield
+        return
+    import fcntl
+
+    root = Path(
+        os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
+    ).expanduser()
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / "kim-gpu.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def validate_audio(path, original):
@@ -128,34 +154,35 @@ def prepare_alignment_audio(
         encoding="utf-8",
     )
     env = worker_environment(runtime["device"])
-    with (work / "infer.log").open("w", encoding="utf-8") as log:
-        process = subprocess.Popen(
-            [
-                str(settings.separation_python),
-                str(Path(__file__).with_name("separation_worker.py")),
-                str(request),
-            ],
-            env=env,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-        started = time.monotonic()
-        deadline = started + 7200
-        next_notice = started + 30
-        try:
-            while process.poll() is None:
-                if time.monotonic() > deadline:
-                    raise subprocess.TimeoutExpired(process.args, 7200)
-                if time.monotonic() >= next_notice:
-                    event(
-                        f"Kim 正在提取人声（已运行 {time.monotonic() - started:.0f} 秒），完成后自动进入歌词识别"
-                    )
-                    next_notice = time.monotonic() + 30
-                time.sleep(1)
-        except BaseException:
-            process.kill()
-            process.wait(timeout=30)
-            raise
+    with kim_gpu_slot():
+        with (work / "infer.log").open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(
+                [
+                    str(settings.separation_python),
+                    str(Path(__file__).with_name("separation_worker.py")),
+                    str(request),
+                ],
+                env=env,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            started = time.monotonic()
+            deadline = started + 7200
+            next_notice = started + 30
+            try:
+                while process.poll() is None:
+                    if time.monotonic() > deadline:
+                        raise subprocess.TimeoutExpired(process.args, 7200)
+                    if time.monotonic() >= next_notice:
+                        event(
+                            f"Kim 正在提取人声（已运行 {time.monotonic() - started:.0f} 秒），完成后自动进入歌词识别"
+                        )
+                        next_notice = time.monotonic() + 30
+                    time.sleep(1)
+            except BaseException:
+                process.kill()
+                process.wait(timeout=30)
+                raise
     if process.returncode or not stem.exists():
         raise RuntimeError(f"Kim 推理失败，请查看 {work / 'infer.log'}")
     if sf.info(stem).frames != sf.info(mixture).frames:
