@@ -35,7 +35,7 @@ uv run python -m vc_ktv
 | `VC_KTV_CONFIG` | `~/.config/vc-ktv` | 私密配置目录 |
 | `VC_KTV_DATA` | `~/.local/share/vc-ktv` | 场次数据库及媒体 |
 | `VC_KTV_AUTOPREPARE` | `1` | 自动准备任务开关 |
-| `VC_KTV_PREP_WORKERS` | `1` | 同时制作的歌曲数，实验性设置 `2` 可以并行处理两个独立任务；必须先验证吞吐和字幕质量 |
+| `VC_KTV_PREP_WORKERS` | `1` | 同时制作的歌曲数，实验性设置 `2` 或 `3` 可以并行处理多个独立任务；必须先验证吞吐和字幕质量 |
 
 开发校验：`uv run pre-commit run --all-files`、`uv run pytest -q`。服务采用现有 `main` 的静态前端，不需要单独构建前端。
 
