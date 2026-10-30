@@ -164,14 +164,27 @@ class AutoPrep:
         probe,
         download=media_download,
         enhance=render_upstream_video,
+        max_workers: int | None = None,
     ):
+        # Explicit opt-in. Keep production serial until a concurrent
+        # quality-pipeline benchmark demonstrates a throughput improvement.
+        max_workers = (
+            int(os.getenv("VC_KTV_PREP_WORKERS", "1"))
+            if max_workers is None
+            else max_workers
+        )
+        if max_workers not in (1, 2):
+            raise ValueError("VC_KTV_PREP_WORKERS must be 1 or 2")
+        self.max_workers = max_workers
         self.store = store
         self.probe = probe
         self.download = download
         self.enhance = enhance
         self.stop_signal = threading.Event()
         self.worker: threading.Thread | None = None
+        self.workers: list[threading.Thread] = []
         self.busy = threading.Event()
+        self.active_claims = 0
 
     def start(self):
         with self.store.lock:
@@ -183,17 +196,21 @@ class AutoPrep:
                 "UPDATE songs SET prep_state='downloaded',prep_stage='queued' WHERE prep_state='aligning' AND status='ready'"
             )
             self.store.db.commit()
-        self.worker = threading.Thread(
-            target=self.loop, name="vc-ktv-auto-prep", daemon=True
-        )
-        self.worker.start()
+        self.workers = [
+            threading.Thread(
+                target=self.loop, name=f"vc-ktv-auto-prep-{index + 1}", daemon=True
+            )
+            for index in range(self.max_workers)
+        ]
+        self.worker = self.workers[0]  # Existing lifecycle compatibility.
+        for thread in self.workers:
+            thread.start()
 
     def stop(self):
         self.stop_signal.set()
-        if self.worker:
-            self.worker.join(timeout=2)
-            return not self.worker.is_alive()
-        return True
+        for thread in self.workers:
+            thread.join(timeout=2)
+        return all(not thread.is_alive() for thread in self.workers)
 
     def claim(self):
         with self.store.lock:
@@ -229,6 +246,7 @@ class AutoPrep:
                     )
             self.store.db.commit()
             if row:
+                self.active_claims += 1
                 self.busy.set()
                 claimed = dict(row)
                 if row["status"] == "waiting":
@@ -299,7 +317,12 @@ class AutoPrep:
                         )
                     self.store.db.commit()
             finally:
-                self.busy.clear()
+                # Other workers may still be processing a different song.
+                # Account for every claim under the same lock as claim().
+                with self.store.lock:
+                    self.active_claims -= 1
+                    if self.active_claims == 0:
+                        self.busy.clear()
 
     def prepare_source(self, row):
         song_id = row["id"]
