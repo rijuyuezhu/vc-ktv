@@ -74,6 +74,7 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
             "video_quality": 720,
+            "compact_video": False,
         }
         store = app.state.store
         original = add_song(store, "A", 1, "downloaded")
@@ -194,6 +195,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
             "video_quality": 720,
+            "compact_video": False,
         }
     reopened = create_app(
         root=root,
@@ -207,6 +209,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         "allow_unsubtitled": False,
         "subtitle_style": "classic",
         "video_quality": 720,
+        "compact_video": False,
     }
     with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
         assert dict(

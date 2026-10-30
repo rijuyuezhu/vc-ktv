@@ -160,7 +160,9 @@ def test_real_stage_events_only_five_transitions(tmp_path, monkeypatch):
 
     monkeypatch.setenv("VC_KTV_PIPELINE_MODE", "quality")
 
-    def fake_upstream(video, lyrics, dest, settings, *, style, progress, mode):
+    def fake_upstream(
+        video, lyrics, dest, settings, *, style, progress, mode, render_options
+    ):
         assert mode == "quality"
         for message in (
             "读取原视频并提取音频",

@@ -68,6 +68,7 @@ def test_admin_policy_and_archive_panel_elements():
         "event-settings-panel",
         "queue-policy",
         "allow-unsubtitled",
+        "compact-video",
         "settings-save-btn",
         "event-archive-panel",
         "event-history",
@@ -75,6 +76,7 @@ def test_admin_policy_and_archive_panel_elements():
         assert 'id="' + element + '"' in html
     assert 'api("/api/admin/settings")' in js
     assert 'api("/api/admin/settings","PUT"' in js
+    assert 'compact_video:$("compact-video").checked' in js
     assert '"/songs.csv"' in js
 
 
@@ -94,6 +96,7 @@ def test_essentials_remain_accessible_after_ui_cleanup():
         "guest-lyrics-dialog",
         "queue-policy",
         "allow-unsubtitled",
+        "compact-video",
         "settings-save-btn",
         "event-history",
         "player",
