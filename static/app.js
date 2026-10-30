@@ -355,20 +355,68 @@ $("submit-btn").onclick=()=>guarded(async()=>{
   preview=null;await refresh();
   await openLyricPicker(result.id,title,result.lyric_query);
 },$("submit-btn"));
+const isAdminPath=()=>window.location.pathname.replace(/\/$/, "")==="/admin";
+function currentRoute(){return window.location.hash.replace(/^#\/?/, "");}
+const adminRoutes={
+  settings:["设置",null],
+  "settings-playback":["播放与视频","event-settings-panel"],
+  "settings-event":["场次管理","event-management"],
+  "settings-accounts":["管理员账号","admin-accounts-panel"],
+  "settings-history":["历史歌单","event-archive-panel"],
+  stats:["演唱统计","performance-panel"]
+};
+function setupSubpages(){
+  const root=$("subpage-content");
+  const menu=document.createElement("nav");menu.className="panel page-links";
+  for(const [route,label] of [
+    ["settings-playback","播放与视频"],["settings-event","场次管理"],
+    ["settings-accounts","管理员账号"],["settings-history","历史歌单"]
+  ]){
+    const link=appendText(menu,"a",label);
+    link.href="#"+route;
+  }
+  const settings=document.createElement("div");settings.id="page-settings";
+  settings.append(menu);root.append(settings);
+  for(const [route,[,nodeId]] of Object.entries(adminRoutes)){
+    if(!nodeId)continue;
+    const wrapper=document.createElement("div");wrapper.id="page-"+route;
+    wrapper.className="hidden";
+    const node=$(nodeId);
+    if(node.tagName==="DETAILS"){node.open=true;node.classList.remove("fold-panel");}
+    wrapper.append(node);root.append(wrapper);
+  }
+}
 function showPage(){
-  const isAdmin=window.location.pathname.replace(/\/$/, "")==="/admin";
-  $("guest-view").classList.toggle("hidden",isAdmin);
+  const isAdmin=isAdminPath();
+  const route=currentRoute();
+  const page=isAdmin&&adminRoutes[route]?route:"";
+  $("guest-view").classList.toggle("hidden",isAdmin||!!page);
   $("admin-view").classList.toggle("hidden",!isAdmin);
+  $("admin-panel").classList.toggle("hidden",!admin||!!page);
+  $("subpage").classList.toggle("hidden",!page||!admin);
   $("tab-guest").classList.toggle("selected",!isAdmin);
   $("tab-admin").classList.toggle("selected",isAdmin);
   $("tab-guest").setAttribute("aria-current",isAdmin?"false":"page");
   $("tab-admin").setAttribute("aria-current",isAdmin?"page":"false");
   $("hero-title").textContent=isAdmin?"管理 KTV":"想唱什么？";
-  $("hero-desc").textContent=isAdmin
-    ?"控制播放与场次设置"
-    :"输入视频链接，选好歌词就可以排队";
-  document.title=isAdmin?"VC KTV | 管理":"VC KTV | 点歌";
+  $("hero-desc").textContent=isAdmin?"当前队列":"选择歌曲，加入队列";
+  $("hero-title").parentElement.classList.toggle("hidden",!!page);
+  $("subpage-title").textContent=page?adminRoutes[page][0]:"";
+  $("subpage-back").href=page==="settings"||page==="stats"?"#":"#settings";
+  $("page-settings").classList.toggle("hidden",page!=="settings");
+  for(const routeName of Object.keys(adminRoutes)){
+    if(routeName!=="settings")$("page-"+routeName).classList.toggle("hidden",page!==routeName);
+  }
+  document.title="VC KTV | "+(page?adminRoutes[page][0]:isAdmin?"管理":"点歌");
 }
+setupSubpages();
+window.addEventListener("hashchange",()=>{showPage();refresh();});
+$("show-user-login").onclick=()=>{
+  $("auth-register").classList.add("hidden");$("auth-login").classList.remove("hidden");
+};
+$("show-user-register").onclick=()=>{
+  $("auth-login").classList.add("hidden");$("auth-register").classList.remove("hidden");
+};
 $("admin-advanced").addEventListener("toggle",()=>{
   if($("admin-advanced").open){adminStateKey=null;refresh();}
 });
@@ -668,11 +716,13 @@ function renderEntry(entry){
   if(entry.event?.id!==currentEventId){
     currentEventId=entry.event?.id||null;
     $("join-code").value="";
+    $("auth-login").classList.add("hidden");
+    $("auth-register").classList.remove("hidden");
   }
   $("guest-entry-description").textContent=!entry.event
     ?"暂无活动场次"
     :entry.joined
-      ?entry.event.name+"  选择注册或登录"
+      ?entry.event.name
       :entry.event.name+"  输入六位加入码";
   $("entry-code").classList.toggle("hidden",!entry.event||entry.joined);
   $("entry-account").classList.toggle("hidden",!entry.event||!entry.joined||entry.authenticated);
@@ -714,7 +764,7 @@ async function refresh(){
   if(refreshing){refreshQueued=true;return;}
   refreshing=true;
   try{
-    const isGuest=!$("guest-view").classList.contains("hidden");
+    const isGuest=!isAdminPath();
     if(isGuest){
       const entry=await api("/api/entry");
       renderEntry(entry);
@@ -739,12 +789,13 @@ async function refresh(){
         guestStateKey=null;
       }
     }
-    if(!$("admin-view").classList.contains("hidden")){
+    if(isAdminPath()){
       let adm;
       try{adm=await api("/api/admin/state");admin=true;}
       catch(e){if(e.message.includes("管理员"))admin=false;else throw e;}
       $("login-box").classList.toggle("hidden",admin);
-      $("admin-panel").classList.toggle("hidden",!admin);
+      $("admin-panel").classList.toggle("hidden",!admin||Boolean(adminRoutes[currentRoute()]));
+      $("subpage").classList.toggle("hidden",!admin||!adminRoutes[currentRoute()]);
       if(admin){
         await refreshEvents();
         const activeState=adm.active?{...adm.active,media_url:null}:null;
@@ -776,7 +827,7 @@ async function refresh(){
           }
         }
         if($("played-panel").open)await refreshPlayed();
-      }else adminStateKey=null;
+      }else {adminStateKey=null;$("subpage").classList.add("hidden");}
     }
     if(refreshFailed){toast("连接已恢复");refreshFailed=false;}
   }catch(e){
