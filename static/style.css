@@ -212,6 +212,11 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .style-preview.compact { font-size: 16px; }
 .style-preview.compact .style-preview-second { display: none; }
 
+/* Keep BV copy beside download, even when the media is not ready. */
+.media-controls, .current-media-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.media-controls .btn { flex: 1 1 130px; text-align: center; }
+.current-media-actions { margin-top: 19px; }
+.current-media-actions .btn { flex: 1; }
 .download-link { display: inline-block; white-space: nowrap; flex-shrink: 0; text-decoration: none; }
 .download-hint { margin: 13px 0 0; font-size: 11px; }
 @media (max-width: 760px) {

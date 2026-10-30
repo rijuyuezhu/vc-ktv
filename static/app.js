@@ -81,12 +81,43 @@ function preparationStatus(song) {
   if(song.prep_state==="aligning")return "◷ "+(stages[song.prep_stage]||"制作字幕中");
   return states[song.prep_state]||"◷ 准备中";
 }
-function addDownload(parent,song) {
-  if(!song.downloadable)return;
-  const link=appendText(parent,"a",song.prep_state==="original"?"↓ 下载原片":"↓ 下载视频","mini download-link");
-  link.href="/api/songs/"+song.id+"/download";
-  link.onclick=(event)=>event.stopPropagation();
-  link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
+async function copyBv(bvid){
+  if(!bvid)return;
+  try{
+    if(navigator.clipboard?.writeText){
+      await navigator.clipboard.writeText(bvid);
+    }else{
+      // Most local/tailnet HTTP pages do not have secure-context Clipboard API.
+      const field=document.createElement("textarea");
+      field.value=bvid;
+      field.style.cssText="position:fixed;left:-9999px;top:0";
+      document.body.append(field);field.focus();field.select();
+      let copied=false;
+      try{copied=document.execCommand("copy");}finally{field.remove();}
+      if(!copied)throw new Error("clipboard unavailable");
+    }
+    toast("✓ 已复制 "+bvid);
+  }catch(e){
+    // Do not claim copy succeeded; offer a selectable BV to copy manually.
+    prompt("复制此 BV 号",bvid);
+  }
+}
+function addCopyBv(parent,song,cls="mini"){
+  if(!song.bvid)return;
+  const button=appendText(parent,"button","⧉ 复制 BV",cls+" bv-copy");
+  button.type="button";button.title="复制 "+song.bvid;
+  button.onclick=(event)=>{event.stopPropagation();guarded(()=>copyBv(song.bvid),button);};
+}
+function addMediaActions(parent,song,large=false){
+  const bar=appendText(parent,"div","","media-controls");
+  if(song.downloadable){
+    const link=appendText(bar,"a",song.prep_state==="original"?"↓ 下载原片":"↓ 下载视频",large?"btn primary detail-download download-link":"mini download-link");
+    link.href="/api/songs/"+song.id+"/download";
+    link.onclick=(event)=>event.stopPropagation();
+    link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
+  }
+  addCopyBv(bar,song,large?"btn neutral":"mini");
+  if(!bar.children.length)bar.remove();
 }
 async function cancelGuestSong(songId){
   if(!confirm("取消自己点的这首歌？"))return;
@@ -232,7 +263,7 @@ function makeSong(song, order, mode="row") {
       "✓ 可播放":preparationStatus(song);
     appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
   }
-  addDownload(outer,song);
+  addMediaActions(outer,song);
   return outer;
 }
 function fillList(id, songs, mode="row") {
@@ -272,10 +303,7 @@ async function refreshSongDetail(){
   const panel=appendText(target,"section","","panel song-detail-panel");
   appendText(panel,"h2",song.title);
   appendText(panel,"small",song.nickname+"  "+duration(song.duration),"muted");
-  if(song.downloadable){
-    const download=appendText(panel,"a","↓ 下载视频","btn primary detail-download");
-    download.href=`/api/songs/${id}/download`;
-  }
+  addMediaActions(panel,song,true);
   appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
   if(isAdminPath()){
     const names={download:"下载",extract:"提取音频",kim:"人声分离",
@@ -307,7 +335,7 @@ async function refreshSongDetail(){
     }
   }
   const row=makeSong(song,1,isAdminPath()?"admin":"guest");
-  row.querySelector(".download-link")?.remove();
+  row.querySelector(".media-controls")?.remove();
   row.querySelector(".song-copy")?.remove();
   row.querySelector(".ordinal")?.remove();
   if(row.querySelector(".song-actions,.lyric-pick,button"))panel.append(row);
@@ -938,7 +966,7 @@ async function refresh(){
           if(state.current){
             appendText(current,"strong",state.current.title);
             appendText(current,"small","点歌者："+state.current.nickname);
-            addDownload(current,state.current);
+            addMediaActions(current,state.current);
           }else appendText(current,"p","当前空闲，等待管理员开始播放");
         }
       }else{
@@ -973,8 +1001,11 @@ async function refresh(){
             appendText(c,"small",u.plays+" 首  "+duration(u.seconds));stats.append(c);
           });
           $("current-song-download").classList.toggle("hidden",!adm.active);
+          $("current-song-copy-bv").classList.toggle("hidden",!adm.active);
           if(adm.active){
             $("current-song-download").href=`/api/songs/${adm.active.id}/download`;
+            $("current-song-copy-bv").onclick=()=>guarded(
+              ()=>copyBv(adm.active.bvid),$("current-song-copy-bv"));
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
             $("playing-title").textContent=(manualMode?"当前歌曲：":"正在播放：")+
               adm.active.title+"  "+adm.active.nickname;
