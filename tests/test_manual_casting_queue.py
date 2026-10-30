@@ -175,9 +175,11 @@ def test_replay_prioritized_next_in_both_policies_and_keeps_history(tmp_path):
             ).fetchone()[0]
             == 2
         )
+        # A replay arranged by an admin is a fictitious admin turn. It is
+        # recorded in song history, never in the original singer's count.
         assert (
             store.db.execute("SELECT plays FROM guests WHERE id=?", (a,)).fetchone()[0]
-            == 2
+            == 1
         )
         assert (
             store.db.execute(
