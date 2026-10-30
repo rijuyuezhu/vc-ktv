@@ -1058,9 +1058,10 @@ def create_app(
                 "guests": [],
                 "server_time": time_now(),
             }
-        guest = None
-        if admin_principal(vc_admin) is None:
-            guest = require_user(vc_guest)["id"]
+        user = current_user(vc_guest)
+        if user is None and admin_principal(vc_admin) is None:
+            require_user(vc_guest)
+        guest = user["id"] if user else None
         snapshot = store.state()
         for song in [*snapshot["queue"], *snapshot["waiting"]]:
             song["mine"] = bool(guest and song["requester_id"] == guest)
@@ -1910,8 +1911,9 @@ def create_app(
         vc_guest: str | None = Cookie(default=None),
         vc_admin: str | None = Cookie(default=None),
     ):
-        is_admin = admin_principal(vc_admin) is not None
-        guest = None if is_admin else require_user(vc_guest)
+        guest = current_user(vc_guest)
+        if guest is None and admin_principal(vc_admin) is None:
+            require_user(vc_guest)
         with store.lock:
             row = store.db.execute(
                 """SELECT s.id,s.title,s.bvid,s.page,s.uploader,s.duration,
