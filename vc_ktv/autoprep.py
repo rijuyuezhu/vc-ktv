@@ -236,6 +236,7 @@ class AutoPrep:
                 row = self.store.db.execute(
                     """SELECT * FROM songs WHERE status='ready'
                        AND prep_state='downloaded' AND lyric_choice != ''
+                       AND skip_subtitles=0
                        ORDER BY requested_at,id LIMIT 1"""
                 ).fetchone()
                 if row:
@@ -347,7 +348,8 @@ class AutoPrep:
             shutil.copyfile(path, target)
             with self.store.lock:
                 latest = self.store.db.execute(
-                    "SELECT status,prep_state FROM songs WHERE id=?", (song_id,)
+                    "SELECT status,prep_state,skip_subtitles FROM songs WHERE id=?",
+                    (song_id,),
                 ).fetchone()
                 if (
                     not latest
@@ -358,12 +360,14 @@ class AutoPrep:
                     return
                 self.store.db.execute(
                     """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
-                       prep_state='downloaded',prep_stage='downloaded',
-                       prep_stage_at=?,prep_timing=?,prep_error='',prep_retry_at=0 WHERE id=?""",
+                       prep_state=?,prep_stage=?,prep_stage_at=?,prep_timing=?,
+                       prep_error='',prep_retry_at=0 WHERE id=?""",
                     (
                         target.name,
                         target.name,
                         round(actual_duration),
+                        "original" if latest["skip_subtitles"] else "downloaded",
+                        "skipped" if latest["skip_subtitles"] else "downloaded",
                         int(time.time()),
                         json.dumps({"download": round(time.monotonic() - started, 2)}),
                         song_id,
