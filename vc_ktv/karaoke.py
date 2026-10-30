@@ -212,7 +212,7 @@ def render_video(
             "+faststart",
             str(target),
         ]
-        subprocess.run(cmd, cwd=folder, check=True, capture_output=True, timeout=1200)
+        subprocess.run(cmd, cwd=folder, check=True, capture_output=True)
         if not target.is_file() or target.stat().st_size < 1024:
             raise RuntimeError("字幕视频未生成")
         return report

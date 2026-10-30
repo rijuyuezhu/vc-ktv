@@ -8,8 +8,6 @@ import time
 from pathlib import Path
 
 PROBE_PREFIX = "LYRIFRAME_GPU="
-IMPORT_TIMEOUT = 300
-CUDA_TIMEOUT = 60
 
 
 def require_cuda(requested):
@@ -71,8 +69,8 @@ def _stop_probe(process):
 def probe_device(python, requested="cuda", event=lambda message: None):
     """Allow cold DLL loading, then check actual CUDA operations with progress.
 
-    Import and CUDA initialization have separate budgets. An unavailable GPU or
-    expired check fails explicitly; it never starts CPU inference.
+    Import and CUDA initialization have no time budgets. An unavailable GPU
+    fails explicitly; it never starts CPU inference.
     """
     require_cuda(requested)
     # Retain the venv entrypoint: resolving a symlink bypasses uv venv site-packages.
@@ -81,7 +79,6 @@ def probe_device(python, requested="cuda", event=lambda message: None):
     phases = {"import": "加载 PyTorch", "cuda": "初始化 CUDA 并检查显卡计算"}
     phase = "import"
     started = time.monotonic()
-    deadline = started + IMPORT_TIMEOUT
     next_notice = started + 15
     event(f"检查 {label} 显卡环境：{phases[phase]}（首次加载可能较慢）")
     process = None
@@ -106,7 +103,6 @@ def probe_device(python, requested="cuda", event=lambda message: None):
                             r.get("stage") == "cuda" for r in records
                         ):
                             phase = "cuda"
-                            deadline = now + CUDA_TIMEOUT
                         if process.poll() is not None:
                             records = _probe_records(output.read_bytes())
                             result = next(
@@ -127,18 +123,13 @@ def probe_device(python, requested="cuda", event=lambda message: None):
                                 "device": "cuda",
                                 "precision": "bf16" if result["bf16"] else "fp16",
                             }
-                        if now >= deadline:
-                            raise RuntimeError(
-                                f"{label} 显卡环境检查超时，停在“{phases[phase]}”。"
-                                "请检查 Python 模型环境与驱动后重试。"
-                            )
                         if now >= next_notice:
                             event(
                                 f"检查 {label} 显卡环境：{phases[phase]}"
                                 f"（已等待 {now - started:.0f} 秒）"
                             )
                             next_notice = now + 15
-                        time.sleep(min(1, deadline - now))
+                        time.sleep(1)
                 finally:
                     _stop_probe(process)
     except OSError as error:

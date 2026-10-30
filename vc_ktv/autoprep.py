@@ -86,25 +86,20 @@ def media_download(
             f"bv[height<={height}][ext=mp4]+ba[ext=m4a]/"
             f"bv[height<={height}]+ba/best[height<={height}]"
         )
-        try:
-            result = subprocess.run(
-                [
-                    *args,
-                    "-f",
-                    selection,
-                    "--merge-output-format",
-                    "mp4",
-                    "-o",
-                    str(output),
-                    f"https://www.bilibili.com/video/{bvid}/?p={page}",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=1800,  # External download watchdog, not a 3-min quality limit.
-            )
-        except subprocess.TimeoutExpired:
-            log.warning("yt-dlp %sp timed out for %s p%s", height, bvid, page)
-            continue
+        result = subprocess.run(
+            [
+                *args,
+                "-f",
+                selection,
+                "--merge-output-format",
+                "mp4",
+                "-o",
+                str(output),
+                f"https://www.bilibili.com/video/{bvid}/?p={page}",
+            ],
+            capture_output=True,
+            text=True,
+        )
         if result.returncode:
             log.warning(
                 "yt-dlp <=%sp failed for %s p%s: %s",

@@ -56,7 +56,6 @@ def japanese_reading_table(lines, recognition, settings, work):
                 str(request),
             ],
             capture_output=True,
-            timeout=60,
         )
         if completed.returncode or not output.exists():
             return {}, {"available": False, "reason": "reading_worker_failed"}
@@ -164,7 +163,6 @@ def locate(
                     env=env,
                     stdout=log,
                     stderr=subprocess.STDOUT,
-                    timeout=7200,
                 )
             if result.returncode:
                 message = (

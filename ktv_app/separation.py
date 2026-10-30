@@ -167,12 +167,9 @@ def prepare_alignment_audio(
                 stderr=subprocess.STDOUT,
             )
             started = time.monotonic()
-            deadline = started + 7200
             next_notice = started + 30
             try:
                 while process.poll() is None:
-                    if time.monotonic() > deadline:
-                        raise subprocess.TimeoutExpired(process.args, 7200)
                     if time.monotonic() >= next_notice:
                         event(
                             f"Kim 正在提取人声（已运行 {time.monotonic() - started:.0f} 秒），完成后自动进入歌词识别"

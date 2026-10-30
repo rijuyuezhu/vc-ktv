@@ -115,7 +115,6 @@ def align_full_song(
             "48000",
             str(audio),
         ],
-        timeout=180,
         log=work / "extract.log",
     )
     spoken, spans, changes = pronunciation_lyrics(
@@ -152,7 +151,6 @@ def align_full_song(
             cwd=tifa,
             stdout=log,
             stderr=subprocess.STDOUT,
-            timeout=900,
             env={**os.environ, "OMP_NUM_THREADS": "4"},
         )
     if result.returncode:

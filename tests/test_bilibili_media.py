@@ -122,7 +122,7 @@ def test_yt_dlp_prefers_720_and_retries_480(monkeypatch, tmp_path):
     attempts = []
 
     def run(cmd, **kwargs):
-        assert kwargs["timeout"] == 1800  # Larger media should not hit 180s cutoff.
+        assert kwargs.get("timeout") is None  # No overall download runtime limit.
         selected = cmd[cmd.index("-f") + 1]
         attempts.append(selected)
         if len(attempts) < 2:
