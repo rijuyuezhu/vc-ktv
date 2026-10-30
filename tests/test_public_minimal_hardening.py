@@ -156,11 +156,17 @@ def test_parallel_orders_and_pause_during_lookup_rechecked(tmp_path):
                 "duration": 50,
             },
         )
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            results = list(pool.map(lambda _: order(guest).status_code, range(6)))
-        assert results.count(200) == 3
-        assert results.count(409) == 3
-        assert len(app.state.store.rows("SELECT id FROM songs")) == 3
+        with ThreadPoolExecutor(max_workers=14) as pool:
+            results = list(pool.map(lambda _: order(guest).status_code, range(14)))
+        assert results.count(200) == 10
+        assert results.count(409) == 4
+        assert len(app.state.store.rows("SELECT id FROM songs")) == 10
+        # A cancelled song releases one slot; completed songs also stop counting.
+        with app.state.store.lock:
+            app.state.store.db.execute("UPDATE songs SET status='cancelled' WHERE id=1")
+            app.state.store.db.commit()
+        assert order(guest).status_code == 200
+        assert order(guest).status_code == 409
 
 
 def test_proxy_forwarded_ip_only_from_explicit_peer_and_isolated_accounts(

@@ -230,7 +230,7 @@
   </main>
   <footer>VC KTV</footer>
   <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog">
-    <form method="dialog"><div class="section-head"><h2>选择这首歌的歌词</h2><button class="btn subtle">稍后</button></div></form>
+    <form method="dialog"><div class="section-head"><h2>选择这首歌的歌词</h2><div class="input-row"><button id="guest-lyrics-cancel" class="btn neutral" type="button">✕ 取消点歌</button><button class="btn subtle">稍后</button></div></div></form>
     <p id="guest-lyrics-song" class="muted"></p>
     <p class="muted">选一版适合演唱的歌词，找不到可以搜索歌名。</p>
     <label for="guest-lyrics-query">歌词搜索关键词</label>
@@ -241,6 +241,9 @@
     <p id="guest-lyrics-status" class="muted" aria-live="polite"></p>
     <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
     <button id="guest-lyrics-more" class="btn neutral" type="button">更多歌词来源</button>
+    <label for="guest-lyrics-upload">或者上传自己的 LRC 歌词（UTF-8，最多 128 KiB）</label>
+    <input id="guest-lyrics-upload" type="file" accept=".lrc,text/plain">
+    <p class="muted">上传文件的时间戳仅用于识别歌词行，最终字幕仍会重新对齐。</p>
 
   </dialog>
   <dialog id="lyrics-dialog">
