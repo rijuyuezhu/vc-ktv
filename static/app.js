@@ -616,15 +616,18 @@ async function refreshEvents(){
     $("subtitle-style").value=settings.subtitle_style;
     $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
+    $("compact-video").checked=settings.compact_video;
   }else if(document.activeElement!==$("queue-policy")&&
            document.activeElement!==$("allow-unsubtitled")&&
            document.activeElement!==$("subtitle-style")&&
            document.activeElement!==$("video-quality")&&
+           document.activeElement!==$("compact-video")&&
            document.activeElement!==$("settings-save-btn")){
     $("queue-policy").value=settings.queue_policy;
     $("subtitle-style").value=settings.subtitle_style;
     $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
+    $("compact-video").checked=settings.compact_video;
   }
   updateStylePreview();
 }
@@ -637,7 +640,8 @@ $("settings-save-btn").onclick=()=>guarded(async()=>{
     queue_policy:$("queue-policy").value,
     allow_unsubtitled:$("allow-unsubtitled").checked,
     subtitle_style:$("subtitle-style").value,
-    video_quality:Number($("video-quality").value)
+    video_quality:Number($("video-quality").value),
+    compact_video:$("compact-video").checked
   });
   adminStateKey=null;
   listKeys.clear();

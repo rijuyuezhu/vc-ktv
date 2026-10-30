@@ -6,7 +6,9 @@ from types import SimpleNamespace
 from ktv_app import rendering
 
 
-def render_setup(tmp_path, monkeypatch, first_size, compact_size=None):
+def render_setup(
+    tmp_path, monkeypatch, first_size, compact_size=None, *, enabled=False
+):
     folder = tmp_path / "subtitles"
     folder.mkdir()
     (folder / "lyrics.ass").write_text("[Script Info]\n")
@@ -37,7 +39,12 @@ def render_setup(tmp_path, monkeypatch, first_size, compact_size=None):
     }
     settings = SimpleNamespace(tool=lambda name: name)
     output = rendering.render(
-        source, folder, info, settings, rendering.RenderOptions(), "karaoke.mp4"
+        source,
+        folder,
+        info,
+        settings,
+        rendering.RenderOptions(compact_video=enabled),
+        "karaoke.mp4",
     )
     return source, folder, output, calls
 
@@ -46,7 +53,11 @@ def test_compact_large_render_under_30_mb_without_reencoding_audio(
     tmp_path, monkeypatch
 ):
     source, folder, output, calls = render_setup(
-        tmp_path, monkeypatch, first_size=103_622_915, compact_size=27_016_038
+        tmp_path,
+        monkeypatch,
+        first_size=103_622_915,
+        compact_size=27_016_038,
+        enabled=True,
     )
     assert output.stat().st_size == 27_016_038
     assert len(calls) == 2
@@ -70,7 +81,19 @@ def test_small_render_skips_compaction(tmp_path, monkeypatch):
 
 
 def test_compact_failure_preserves_playable_render(tmp_path, monkeypatch):
-    _, folder, output, calls = render_setup(tmp_path, monkeypatch, 103_622_915)
+    _, folder, output, calls = render_setup(
+        tmp_path, monkeypatch, 103_622_915, enabled=True
+    )
     assert len(calls) == 2
+    assert output.stat().st_size == 103_622_915
+    assert not (folder / "karaoke.compact.mp4").exists()
+
+
+def test_default_keeps_large_first_render_without_second_pass(tmp_path, monkeypatch):
+    assert rendering.RenderOptions().compact_video is False
+    _, folder, output, calls = render_setup(
+        tmp_path, monkeypatch, first_size=103_622_915, compact_size=27_016_038
+    )
+    assert len(calls) == 1
     assert output.stat().st_size == 103_622_915
     assert not (folder / "karaoke.compact.mp4").exists()

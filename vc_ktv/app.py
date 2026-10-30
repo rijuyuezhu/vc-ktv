@@ -95,6 +95,8 @@ class PlaybackSettings(BaseModel):
     # Old clients that omit the new field must not reset the chosen preset.
     subtitle_style: StylePreset | None = None
     video_quality: Literal[720, 480] | None = None
+    # Optional to preserve older admin clients' current per-event setting.
+    compact_video: bool | None = None
 
 
 class EventCreate(BaseModel):
@@ -292,7 +294,7 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','compact_video')"
             )
         }
         return {
@@ -300,6 +302,7 @@ class Store:
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
             "subtitle_style": values.get("subtitle_style", "classic"),
             "video_quality": int(values.get("video_quality", "720")),
+            "compact_video": values.get("compact_video", "0") == "1",
         }
 
     def playback_mode(self):
@@ -314,6 +317,7 @@ class Store:
         allow_unsubtitled: bool,
         subtitle_style: StylePreset | None = None,
         video_quality: Literal[720, 480] | None = None,
+        compact_video: bool | None = None,
     ):
         with self.lock:
             for key, value in (
@@ -336,6 +340,12 @@ class Store:
                     "INSERT INTO room_state(name,value) VALUES('video_quality',?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     (str(video_quality),),
+                )
+            if compact_video is not None:
+                self.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES('compact_video',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    ("1" if compact_video else "0",),
                 )
             self.db.commit()
             return self.settings()
@@ -849,6 +859,7 @@ def create_app(
                 body.allow_unsubtitled,
                 body.subtitle_style,
                 body.video_quality,
+                body.compact_video,
             )
 
     @app.get("/api/admin/events")

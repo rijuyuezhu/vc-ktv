@@ -18,8 +18,10 @@ class RenderOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     width: int | None = Field(default=None, ge=160, le=7680)
     height: int | None = Field(default=None, ge=120, le=4320)
-    # Slightly smaller H.264 karaoke MP4; audio remains stream-copied verbatim.
+    # First-pass H.264 quality; audio remains stream-copied verbatim.
     crf: int = Field(default=23, ge=0, le=40)
+    # Second-pass size targeting is optional: prioritize first-pass quality.
+    compact_video: bool = False
     preset: str = Field(default="medium", pattern=r"^(ultrafast|fast|medium|slow)$")
     output_dir: str = ""
 
@@ -93,7 +95,11 @@ def render(video, bundle, info, settings, options, output_name=None, *, timeout_
     # Only if necessary, rerender from the ORIGINAL video + ASS with a
     # bitrate budget. Never recompress the first lossy render or its audio.
     # Keep H.264 for broad TV compatibility; avoid HEVC-only downloads.
-    if target.stat().st_size > MAX_KARAOKE_BYTES and options.crf == 23:
+    if (
+        options.compact_video
+        and target.stat().st_size > MAX_KARAOKE_BYTES
+        and options.crf == 23
+    ):
         duration = float(info["duration"])
         audio_bps = sum(
             int(stream["bit_rate"])

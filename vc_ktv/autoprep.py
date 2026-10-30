@@ -20,6 +20,8 @@ import threading
 import time
 from pathlib import Path
 
+from ktv_app.rendering import RenderOptions
+
 from .bilibili_media import QUALITY_HEIGHTS, public_media_download
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .upstream_pipeline import make_karaoke_video, spark_settings
@@ -134,12 +136,16 @@ def render_upstream_video(
     duration: float,
     *,
     preset: StylePreset = DEFAULT_PRESET,
+    compact_video: bool = False,
     progress=None,
 ) -> dict:
     """Run the selected alignment pipeline; no implicit fallback or retiming."""
     # AutoPrep owns a new attempt directory; the pipeline owns its own
     # isolated child directory and does not mutate the original source.
-    options = {"style": preset_style(preset)}
+    options = {
+        "style": preset_style(preset),
+        "render_options": RenderOptions(compact_video=compact_video),
+    }
     options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "global-kim")
     if progress is not None:
         options["progress"] = progress
@@ -227,9 +233,11 @@ class AutoPrep:
                 if row["status"] == "waiting":
                     claimed["video_quality"] = self.store.settings()["video_quality"]
                 if row["status"] == "ready":
-                    # Snapshot under the same Store lock as the claim: changing
-                    # admin settings cannot affect an already running attempt.
-                    claimed["style_preset"] = self.store.settings()["subtitle_style"]
+                    # Snapshot under the Store lock at subtitle job claim.
+                    # Later admin changes affect only subsequent jobs.
+                    settings = self.store.settings()
+                    claimed["style_preset"] = settings["subtitle_style"]
+                    claimed["compact_video"] = settings["compact_video"]
                 return claimed
             return None
 
@@ -344,8 +352,10 @@ class AutoPrep:
         archive.mkdir(parents=True)
         target = self.store.media / f"{song_id}-auto-{secrets.token_hex(6)}.mp4"
         preset = row.get("style_preset", DEFAULT_PRESET)
+        compact_video = row.get("compact_video", False)
         metadata = {
             "subtitle_style": preset,
+            "compact_video": compact_video,
             "song_id": song_id,
             "source_file": row["source_file"],
             "lyric_source": row["lyric_source"],
@@ -354,6 +364,7 @@ class AutoPrep:
         try:
             options = {"preset": preset}
             if self.enhance is render_upstream_video:
+                options["compact_video"] = compact_video
                 stage_names = {
                     "读取原视频并提取音频": "extract",
                     "Kim 分离用于推理的人声": "kim",

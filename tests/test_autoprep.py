@@ -261,8 +261,9 @@ def test_default_auto_renderer_selects_strict_global_kim_mode(tmp_path, monkeypa
     attempt.mkdir()
     produced = []
 
-    def fake_pipeline(video, lyrics, work, settings, *, style, mode):
+    def fake_pipeline(video, lyrics, work, settings, *, style, mode, render_options):
         assert mode == "global-kim"
+        assert render_options.compact_video is False
         assert style.size == 48 and style.mode == "double"
         assert video == source
         assert lyrics == "DUDUDU\n你好"

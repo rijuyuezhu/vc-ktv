@@ -178,12 +178,16 @@
               <input id="allow-unsubtitled" type="checkbox">
               允许播放无字幕歌曲
             </label>
+            <label class="toggle">
+              <input id="compact-video" type="checkbox">
+              二次压缩成片至约 30 MB（默认关闭）
+            </label>
           </div>
           <div id="style-preview" class="style-preview classic" aria-label="字幕风格示意预览">
             <span>♫ 示例歌词正在演唱</span>
             <span class="style-preview-second">下一行歌词也会显示</span>
           </div>
-          <p class="muted">字幕预览仅供选择风格，成片以实际画面为准。新风格只影响之后开始制作的歌曲，不修改已有成片。默认等待字幕完成后播放。</p>
+          <p class="muted">字幕预览仅供选择风格，成片以实际画面为准。字幕风格和二次压缩对之后开始制作的歌曲生效；清晰度对之后开始下载的歌曲生效。关闭二次压缩时保留正常字幕烧录成片的原始大小。默认等待字幕完成后播放。</p>
           <button id="settings-save-btn" class="btn primary" type="button">✓ 保存设置</button>
         </section>
         <details class="panel full-width fold-panel hidden" id="admin-accounts-panel">
