@@ -211,7 +211,8 @@ class AutoPrep:
             if row:
                 self.store.db.execute(
                     "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
-                    "prep_error='',prep_stage='download',prep_stage_at=? WHERE id=?",
+                    "prep_error='',prep_stage='download',prep_stage_at=?,"
+                    "prep_timing='{}' WHERE id=?",
                     (int(time.time()), row["id"]),
                 )
             else:
@@ -247,6 +248,7 @@ class AutoPrep:
             if not row:
                 self.stop_signal.wait(1)
                 continue
+            attempt_started = time.monotonic()
             try:
                 if row["status"] == "waiting":
                     self.prepare_source(row)
@@ -275,8 +277,19 @@ class AutoPrep:
                             message += "，稍后自动重试"
                         self.store.db.execute(
                             "UPDATE songs SET prep_state='unavailable',prep_error=?,"
-                            "prep_retry_at=? WHERE id=? AND status='waiting'",
-                            (message, retry, row["id"]),
+                            "prep_retry_at=?,prep_timing=? WHERE id=? AND status='waiting'",
+                            (
+                                message,
+                                retry,
+                                json.dumps(
+                                    {
+                                        "download": round(
+                                            time.monotonic() - attempt_started, 2
+                                        )
+                                    }
+                                ),
+                                row["id"],
+                            ),
                         )
                     else:
                         self.store.db.execute(
@@ -290,6 +303,7 @@ class AutoPrep:
 
     def prepare_source(self, row):
         song_id = row["id"]
+        started = time.monotonic()
         with tempfile.TemporaryDirectory(
             prefix=f"vc-ktv-{song_id}-", dir=self.store.root
         ) as tmp:
@@ -322,12 +336,13 @@ class AutoPrep:
                 self.store.db.execute(
                     """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
                        prep_state='downloaded',prep_stage='downloaded',
-                       prep_stage_at=?,prep_error='',prep_retry_at=0 WHERE id=?""",
+                       prep_stage_at=?,prep_timing=?,prep_error='',prep_retry_at=0 WHERE id=?""",
                     (
                         target.name,
                         target.name,
                         round(actual_duration),
                         int(time.time()),
+                        json.dumps({"download": round(time.monotonic() - started, 2)}),
                         song_id,
                     ),
                 )
@@ -336,6 +351,10 @@ class AutoPrep:
 
     def prepare_subtitles(self, row):
         song_id = row["id"]
+        stages = json.loads(row["prep_timing"] or "{}")
+        started = time.monotonic()
+        current_stage = None
+        stage_started = started
         source = self.store.media / Path(row["source_file"] or "").name
         if not source.is_file():
             raise RuntimeError("source file vanished")
@@ -369,22 +388,35 @@ class AutoPrep:
                     "读取原视频并提取音频": "extract",
                     "Kim 分离用于推理的人声": "kim",
                     "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐": "align",
+                    "整首 TIFA 对齐完整歌词": "align",
                     "整首 TIFA 对齐完整歌词（不分块、不估算）": "align",
                     "生成 ASS、LRC 与时间轴记录": "subtitles",
                     "将字幕烧录到保留原始音轨的 MP4": "render",
                 }
 
                 def progress(message):
+                    nonlocal current_stage, stage_started
                     stage = stage_names.get(message)
-                    if stage is None:
+                    if stage is None or stage == current_stage:
                         return
-                    # No polling: five DB writes for five real stage changes.
+                    now = time.monotonic()
+                    if current_stage is not None:
+                        stages[current_stage] = round(now - stage_started, 2)
+                    current_stage, stage_started = stage, now
+                    # At most one DB write per stage transition; the source
+                    # audio and finished video are never affected by telemetry.
                     with self.store.lock:
                         cur = self.store.db.execute(
-                            "UPDATE songs SET prep_stage=?,prep_stage_at=? "
+                            "UPDATE songs SET prep_stage=?,prep_stage_at=?,prep_timing=? "
                             "WHERE id=? AND status='ready' AND prep_state='aligning' "
                             "AND prep_stage!=?",
-                            (stage, int(time.time()), song_id, stage),
+                            (
+                                stage,
+                                int(time.time()),
+                                json.dumps(stages),
+                                song_id,
+                                stage,
+                            ),
                         )
                         if cur.rowcount:
                             self.store.db.commit()
@@ -462,6 +494,16 @@ class AutoPrep:
                 )
                 self.store.db.commit()
         finally:
+            if current_stage is not None:
+                stages[current_stage] = round(time.monotonic() - stage_started, 2)
+            metadata["stage_seconds"] = stages
+            metadata["elapsed_seconds"] = round(time.monotonic() - started, 2)
+            with self.store.lock:
+                self.store.db.execute(
+                    "UPDATE songs SET prep_timing=? WHERE id=? AND status='ready'",
+                    (json.dumps(stages), song_id),
+                )
+                self.store.db.commit()
             (archive / "attempt.json").write_text(
                 json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",

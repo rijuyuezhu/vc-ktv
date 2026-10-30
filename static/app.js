@@ -231,7 +231,12 @@ async function refreshSongDetail(){
   if(!Number.isInteger(id)||id<=0)return;
   const song=await api(`/api/songs/${id}/detail`);
   const key=JSON.stringify([song,isAdminPath()]);
-  if(detailKey===key)return;
+  if(detailKey===key){
+    const running=$("page-song").querySelector(".stage-current-time");
+    if(running&&song.prep_stage_at)running.textContent="进行中 "+
+      Math.max(0,Math.floor(Date.now()/1000-song.prep_stage_at))+" 秒";
+    return;
+  }
   detailKey=key;
   $("subpage-back").href=song.status==="played"?"#played":"#";
   const target=$("page-song");target.replaceChildren();
@@ -243,6 +248,33 @@ async function refreshSongDetail(){
     download.href=`/api/songs/${id}/download`;
   }
   appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
+  if(isAdminPath()){
+    const names={download:"下载",extract:"提取音频",kim:"人声分离",
+      align:"歌词对齐",subtitles:"字幕生成",render:"视频烧录"};
+    const entries=Object.entries(names).filter(([key])=>song.stage_seconds?.[key]!=null);
+    const running=["downloading","aligning"].includes(song.prep_state);
+    if(entries.length||running){
+      const details=appendText(panel,"details","");
+      appendText(details,"summary","处理耗时");
+      for(const [key,label] of entries){
+        const line=appendText(details,"div","","timing-row");
+        appendText(line,"span",label);
+        appendText(line,"span",Number(song.stage_seconds[key]).toFixed(1)+" 秒");
+      }
+      if(running && song.prep_stage_at){
+        const line=appendText(details,"div","","timing-row");
+        appendText(line,"span",names[song.prep_stage]||"制作中");
+        const seconds=Math.max(0,Date.now()/1000-song.prep_stage_at);
+        appendText(line,"span","进行中 "+seconds.toFixed(0)+" 秒","stage-current-time");
+      }
+      const total=entries.reduce((sum,[key])=>sum+Number(song.stage_seconds[key]),0);
+      if(entries.length){
+        const line=appendText(details,"div","","timing-row");
+        appendText(line,"strong","合计");
+        appendText(line,"strong",total.toFixed(1)+" 秒");
+      }
+    }
+  }
   const row=makeSong(song,1,isAdminPath()?"admin":"guest");
   row.querySelector(".download-link")?.remove();
   row.querySelector(".song-copy")?.remove();
@@ -710,6 +742,8 @@ async function refreshEvents(){
   $("event-close-btn").classList.toggle("hidden",!active);
   $("event-settings-panel").classList.toggle("hidden",!active);
   const canManageAccounts=Boolean(active&&data.role==="global");
+  document.querySelector('a[href="#settings-accounts"]')?.classList.toggle("hidden",data.role!=="global");
+  if(data.role!=="global"&&currentRoute()==="settings-accounts")location.hash="settings";
   $("admin-accounts-panel").classList.toggle("hidden",!canManageAccounts);
   if(adminAccountsEventId!==(canManageAccounts?active.id:null)){
     adminAccountsEventId=canManageAccounts?active.id:null;
