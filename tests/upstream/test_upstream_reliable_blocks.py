@@ -661,3 +661,38 @@ def test_quality_block_planner_does_not_reject_long_unanchored_songs():
         assert len(plan["blocks"]) == 1
         assert plan["blocks"][0]["duration"] == pytest.approx(duration)
         assert [i for b in plan["blocks"] for i in b["indices"]] == list(range(25))
+
+
+def test_asr_line_hints_require_two_consistent_passes_and_unique_source():
+    from ktv_app.aligners.reliable_blocks import agreed_asr_line_hints
+    from ktv_app.timeline import Line
+
+    lines = [
+        Line(id="unique", text="晚来的这一句"),
+        Line(id="repeat1", text="重复副歌"),
+        Line(id="repeat2", text="重复副歌"),
+        Line(id="weak", text="低覆盖"),
+        Line(id="shift", text="窗口不一致"),
+    ]
+
+    def match(start, end, coverage=0.65, similarity=0.75):
+        return dict(start=start, end=end, coverage=coverage, similarity=similarity)
+
+    first = {
+        0: match(39, 43),
+        1: match(5, 9),
+        2: match(56, 59),
+        3: match(20, 24, 0.3),
+        4: match(10, 14),
+    }
+    second = {
+        0: match(39.4, 42.9),
+        1: match(5.1, 8.9),
+        2: match(56, 59),
+        3: match(20, 24),
+        4: match(17, 20),
+    }
+    hints = agreed_asr_line_hints(lines, first, second, 90)
+    assert list(hints) == ["unique"]
+    assert hints["unique"]["start"] == 39.2
+    assert hints["unique"]["end"] == 42.95

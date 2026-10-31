@@ -53,6 +53,39 @@ __all__ = [
 ]
 
 
+def agreed_asr_line_hints(lines, first_by, second_by, duration):
+    """Conservative two-pass evidence for *estimated* missing-line placement.
+
+    Repeated source text cannot be assigned uniquely to an ASR occurrence.
+    """
+    occurrences = Counter(match_text(line.text) for line in lines)
+    hints = {}
+    for index, line in enumerate(lines):
+        key = match_text(line.text)
+        if not key or occurrences[key] != 1:
+            continue
+        left, right = first_by.get(index), second_by.get(index)
+        if not left or not right:
+            continue
+        if (
+            min(left["coverage"], right["coverage"]) < 0.5
+            or min(left["similarity"], right["similarity"]) < 0.6
+            or abs(left["start"] - right["start"]) > 2
+            or abs(left["end"] - right["end"]) > 2
+        ):
+            continue
+        start = (left["start"] + right["start"]) / 2
+        end = (left["end"] + right["end"]) / 2
+        if 0 <= start < end <= duration:
+            hints[line.id] = {
+                "start": round(start, 3),
+                "end": round(end, 3),
+                "coverage": round(min(left["coverage"], right["coverage"]), 3),
+                "similarity": round(min(left["similarity"], right["similarity"]), 3),
+            }
+    return hints
+
+
 def align_reliable_blocks(
     audio,
     lines,
@@ -204,8 +237,11 @@ def align_reliable_blocks(
                     ],
                 }
             )
+    # Small line-scoped ASR evidence; never promoted into TIFA native timings.
+    asr_line_hints = agreed_asr_line_hints(lines, first_by, second_by, duration)
     diag = {
         "pipeline": "verified_asr_blocks_tifa",
+        "asr_line_hints": asr_line_hints,
         "boundary_policy": POLICY,
         "block_policy": PROFILE,
         "block_plan": plan,
