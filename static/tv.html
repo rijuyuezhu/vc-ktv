@@ -16,6 +16,21 @@
     button{border:0;border-radius:14px;background:#4f5bd5;padding:15px 25px;font-size:21px;color:#fff;font-weight:700;cursor:pointer}
     #status{position:fixed;bottom:12px;left:18px;color:#b9cee2;background:#0007;padding:6px 12px;border-radius:8px;pointer-events:none}
     #error{color:#ffb1ac;max-width:780px}
+    #panel-toggle{position:fixed;right:16px;top:16px;z-index:7;padding:10px 14px;font-size:17px;background:#151b27ce}
+    #controls{position:fixed;right:16px;top:68px;z-index:7;width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 84px);overflow:auto;padding:18px;border-radius:18px;background:#111b29eb;box-shadow:0 8px 28px #000a}
+    #controls[hidden],#next-tip[hidden]{display:none}
+    #controls h2{font-size:18px;margin:0 0 8px}
+    #controls p{font-size:14px;margin:0 0 12px;text-align:left;color:#d2dfed}
+    #controls .actions{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
+    #controls button{padding:10px 12px;font-size:14px;border-radius:9px}
+    #controls button:disabled{opacity:.45;cursor:not-allowed}
+    #controls label{display:flex;gap:10px;align-items:center;font-size:14px}
+    #controls input{flex:1;min-width:0}
+    #progress{font-variant-numeric:tabular-nums}
+    #next-list{list-style:none;padding:0;margin:6px 0;font-size:14px}
+    #next-list li{padding:6px 0;border-bottom:1px solid #ffffff17;overflow-wrap:anywhere}
+    #next-tip{position:fixed;bottom:64px;right:18px;max-width:min(520px,85vw);padding:10px 15px;border-radius:10px;background:#111b29df;color:#fff;pointer-events:none}
+    @media(max-width:560px){#controls{top:62px;max-height:calc(100vh - 74px)}}
   </style>
 </head>
 <body>
@@ -27,7 +42,24 @@
     <div><button id="start">▶ 开始</button></div>
     <p id="error" aria-live="polite"></p>
   </div>
-  <div id="status"></div>
+  <div id="status" aria-live="polite"></div>
+  <button id="panel-toggle" type="button" aria-expanded="false" aria-controls="controls">☰ 控制</button>
+  <aside id="controls" aria-label="电视播放控制" hidden>
+    <h2>播放控制</h2>
+    <p id="now-playing">暂无正在播放的歌曲</p>
+    <p id="progress">0:00 / 0:00</p>
+    <div class="actions">
+      <button id="pause-resume" type="button">⏸ 暂停</button>
+      <button id="restart" type="button" title="当前歌曲从零开始，不增加演唱次数">↺ 从头重播</button>
+      <button id="skip" type="button">⏭ 跳过切歌</button>
+    </div>
+    <div class="actions"><button id="replay-next" type="button" title="唱完当前歌曲后安排下一首重唱，视为管理员轮次">↻ 下一首重唱</button></div>
+    <label>音量 <input id="volume" type="range" min="0" max="100" value="100" aria-label="音量"></label>
+    <h2 style="margin-top:16px">接下来</h2>
+    <ul id="next-list"><li>正在获取队列……</li></ul>
+    <p id="control-error" role="alert"></p>
+  </aside>
+  <div id="next-tip" aria-live="polite" hidden></div>
   <script src="/tv.js" defer></script>
 </body>
 </html>
