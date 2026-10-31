@@ -22,6 +22,8 @@ class RenderOptions(BaseModel):
     crf: int = Field(default=23, ge=0, le=40)
     # Second-pass size targeting is optional: prioritize first-pass quality.
     compact_video: bool = False
+    # Explicit opt-in cap for a bandwidth-constrained video path (audio is copied).
+    max_video_kbps: int | None = Field(default=None, ge=300, le=12000)
     preset: str = Field(default="medium", pattern=r"^(ultrafast|fast|medium|slow)$")
     output_dir: str = ""
 
@@ -76,11 +78,16 @@ def render(video, bundle, info, settings, options, output_name=None, *, timeout_
             f"-c:a:{i}",
             "copy" if codec in ("aac", "mp3", "ac3", "eac3", "alac") else "aac",
         ]
+    cmd += ["-c:v", "libx264", "-crf", str(options.crf)]
+    if options.max_video_kbps is not None:
+        # One-second VBV buffer bounds short spikes without touching audio.
+        cmd += [
+            "-maxrate",
+            f"{options.max_video_kbps}k",
+            "-bufsize",
+            f"{options.max_video_kbps}k",
+        ]
     cmd += [
-        "-c:v",
-        "libx264",
-        "-crf",
-        str(options.crf),
         "-preset",
         options.preset,
         "-pix_fmt",
@@ -119,9 +126,17 @@ def render(video, bundle, info, settings, options, output_name=None, *, timeout_
             "-b:v",
             str(video_bps),
             "-maxrate",
-            str(int(video_bps * 1.2)),
+            str(
+                min(int(video_bps * 1.2), options.max_video_kbps * 1000)
+                if options.max_video_kbps is not None
+                else int(video_bps * 1.2)
+            ),
             "-bufsize",
-            str(video_bps * 2),
+            str(
+                min(video_bps * 2, options.max_video_kbps * 1000)
+                if options.max_video_kbps is not None
+                else video_bps * 2
+            ),
             "-preset",
             options.preset,
             "-pix_fmt",

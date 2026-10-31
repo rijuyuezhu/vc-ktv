@@ -139,7 +139,11 @@ def render_upstream_video(
     # isolated child directory and does not mutate the original source.
     options = {
         "style": preset_style(preset),
-        "render_options": RenderOptions(compact_video=compact_video),
+        "render_options": RenderOptions(
+            compact_video=compact_video,
+            max_video_kbps=int(os.environ.get("VC_KTV_VIDEO_MAXRATE_KBPS", "0"))
+            or None,
+        ),
     }
     options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "quality")
     if progress is not None:
