@@ -410,6 +410,11 @@ class Store:
         users = {x["id"]: x for x in self.rows("SELECT * FROM guests")}
         # Simulate future turns so the displayed order reflects selection policy.
         tally = {k: u["plays"] + u["fair_offset"] for k, u in users.items()}
+        # During playback, project the ordinary finish/skip turn before
+        # predicting the next claim. Preview must never persist that turn.
+        current = self.current() if not persist else None
+        if current and not current["fair_exempt"]:
+            tally[current["requester"]] += 1
         # Only people with a playable song can compete for a turn. Historical
         # inactivity must not accumulate unlimited "missing" rounds.
         # Admin-chosen priority songs are fictitious admin turns. They cannot
@@ -430,6 +435,8 @@ class Store:
             "SELECT value FROM room_state WHERE name='last_requester'"
         ).fetchone()
         previous = last[0] if last else ""
+        if current and not current["fair_exempt"]:
+            previous = current["requester"]
         output = []
         while ready:
             head = {}
