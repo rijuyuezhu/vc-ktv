@@ -71,3 +71,115 @@ def test_tv_token_can_only_be_issued_by_admin(tmp_path):
             ]
             == 1
         )
+
+
+def test_tv_preload_is_read_only_and_tracks_queue_changes(tmp_path):
+    app = create_app(
+        root=tmp_path / "room",
+        password="pw",
+        secret=b"secret-test-key",
+        auto_prepare=False,
+    )
+    app.state.events.create("测试场次", "123456")
+
+    async def lookup(bvid, page):
+        return {
+            "bvid": bvid,
+            "page": page,
+            "title": "test song",
+            "uploader": "UP",
+            "cover": "",
+            "duration": 180,
+        }
+
+    app.state.lookup = lookup
+    app.state.probe = lambda source: 180
+    with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "访客")
+        assert (
+            admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        url = "/api/tv/preload"
+        assert guest.get(url).status_code == 422
+        assert guest.get(url, params={"token": "wrong"}).status_code == 401
+        assert guest.get(url, params={"token": token}).json()["candidate"] is None
+
+        songs = []
+        for i in range(3):
+            song = guest.post("/api/songs", json={"bvid": f"BV000000000{i}"}).json()[
+                "id"
+            ]
+            assert (
+                admin.post(
+                    f"/api/admin/songs/{song}/media",
+                    files={"file": ("test.mp4", f"media-{i}".encode(), "video/mp4")},
+                ).status_code
+                == 200
+            )
+            songs.append(song)
+
+        assert (
+            guest.post("/api/tv/next", params={"token": token}).json()["active"]["id"]
+            == songs[0]
+        )
+        before = app.state.store.rows(
+            "SELECT id,status,priority_next FROM songs ORDER BY id"
+        )
+        stats = app.state.store.rows("SELECT plays,fair_offset FROM guests")
+        for _ in range(3):
+            candidate = guest.get(url, params={"token": token}).json()["candidate"]
+            assert candidate["id"] == songs[1]
+            assert guest.get(candidate["media_url"]).content == b"media-1"
+        assert (
+            app.state.store.rows(
+                "SELECT id,status,priority_next FROM songs ORDER BY id"
+            )
+            == before
+        )
+        assert app.state.store.rows("SELECT plays,fair_offset FROM guests") == stats
+
+        assert admin.post(f"/api/admin/songs/{songs[2]}/pin-next").status_code == 200
+        pinned = guest.get(url, params={"token": token}).json()["candidate"]
+        assert pinned["id"] == songs[2]
+        assert (
+            admin.post(
+                f"/api/admin/songs/{songs[2]}/media",
+                files={"file": ("test.mp4", b"replaced-video", "video/mp4")},
+            ).status_code
+            == 200
+        )
+        updated = guest.get(url, params={"token": token}).json()["candidate"]
+        assert updated["id"] == songs[2]
+        assert updated["media_file"] != pinned["media_file"]
+        assert guest.get(updated["media_url"]).content == b"replaced-video"
+        assert (
+            guest.post(
+                "/api/tv/finish", params={"token": token}, json={"song_id": songs[0]}
+            ).status_code
+            == 200
+        )
+        assert (
+            guest.post("/api/tv/next", params={"token": token}).json()["active"]["id"]
+            == songs[2]
+        )
+
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "manual"}).status_code
+            == 409
+        )  # Not while a song is playing.
+        assert (
+            guest.get(url, params={"token": token}).json()["candidate"]["id"]
+            == songs[1]
+        )
+        assert (
+            guest.post(
+                "/api/tv/finish", params={"token": token}, json={"song_id": songs[2]}
+            ).status_code
+            == 200
+        )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "manual"}).status_code
+            == 200
+        )
+        assert guest.get(url, params={"token": token}).json()["candidate"] is None

@@ -9,6 +9,7 @@
     *{box-sizing:border-box}
     body{margin:0;background:#07090d;color:#edf5ff;font-family:system-ui,"Noto Sans CJK SC",sans-serif;overflow:hidden}
     video{width:100vw;height:100vh;object-fit:contain;background:#000}
+    video.preloading{position:fixed;inset:0;opacity:0;pointer-events:none}
     #cover{position:fixed;inset:0;background:radial-gradient(circle at 45% 35%,#21364d,#080c13 65%);display:grid;place-content:center;text-align:center;gap:16px}
     #cover.hidden{display:none}h1{font-size:clamp(34px,6vw,76px);margin:0;letter-spacing:-2px}
     p{font-size:clamp(15px,2.1vw,24px);color:#a4b8cd;margin:0 auto;max-width:780px}
@@ -19,6 +20,7 @@
 </head>
 <body>
   <video id="video" playsinline preload="auto"></video>
+  <video id="preload" class="preloading" playsinline preload="auto"></video>
   <div id="cover">
     <h1>♪ VC KTV</h1>
     <p id="subtitle">开始播放后自动切歌</p>

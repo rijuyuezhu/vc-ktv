@@ -1929,6 +1929,28 @@ def create_app(
         require_tv(token)
         return {**store.state(), "active": active_view()}
 
+    @app.get("/api/tv/preload")
+    def tv_preload(token: str):
+        require_tv(token)
+        with store.lock:
+            if store.playback_mode() != "browser" or not store.current():
+                return {"candidate": None}
+            # A preview, never a claim: do not advance fair counts or song state.
+            queue = store.fair_queue()
+            if not queue:
+                return {"candidate": None}
+            song = queue[0]
+            media = store.db.execute(
+                "SELECT media_file FROM songs WHERE id=?", (song["id"],)
+            ).fetchone()
+            return {
+                "candidate": {
+                    "id": song["id"],
+                    "media_file": media[0],
+                    "media_url": signed_media(song),
+                }
+            }
+
     @app.post("/api/tv/next")
     def tv_next(token: str):
         require_tv(token)
