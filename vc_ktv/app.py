@@ -36,6 +36,7 @@ from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
+from .timed_lyrics import offset_timeline, provider_timeline
 
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
 MAX_UPLOAD = 512 * 1024 * 1024
@@ -81,6 +82,11 @@ class GuestLyricChoice(BaseModel):
     text: str = Field(min_length=10, max_length=12_000)
     ticket: str = Field(min_length=10, max_length=256)
     source: str = Field(min_length=2, max_length=20)
+    timing_mode: Literal["align", "provider"] = "align"
+    timed_lrc: str = Field(default="", max_length=16_000)
+    source_lrc_raw: str = Field(default="", max_length=24_000)
+    timing_ticket: str = ""
+    offset_ms: int = Field(default=0, ge=-60_000, le=60_000)
 
 
 class Login(BaseModel):
@@ -282,6 +288,10 @@ class Store:
             ("prep_timing", "TEXT NOT NULL DEFAULT '{}'"),
             ("priority_next", "INTEGER NOT NULL DEFAULT 0"),
             ("replay_of", "INTEGER"),
+            ("lyric_timing_mode", "TEXT NOT NULL DEFAULT 'align'"),
+            ("provider_lrc", "TEXT NOT NULL DEFAULT ''"),
+            ("source_lrc_raw", "TEXT NOT NULL DEFAULT ''"),
+            ("lyric_offset_ms", "INTEGER NOT NULL DEFAULT 0"),
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
@@ -303,6 +313,7 @@ class Store:
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
                    s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.replay_of,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
+                   s.lyric_timing_mode,s.lyric_offset_ms,
                    g.name AS nickname,g.id AS requester_id,s.lyrics != '' AS has_lyrics
             FROM songs s JOIN guests g ON g.id=s.requester
             WHERE s.status IN ('waiting','rendering','ready','playing')
@@ -1155,7 +1166,17 @@ def create_app(
             bail(404, "找不到你提交的歌曲")
         return dict(song)
 
-    def save_guest_lyrics(song_id: int, requester: str, lyrics: str, source: str):
+    def save_guest_lyrics(
+        song_id: int,
+        requester: str,
+        lyrics: str,
+        source: str,
+        *,
+        timing_mode="align",
+        provider_lrc="",
+        source_lrc_raw="",
+        offset_ms=0,
+    ):
         with store.lock:
             current = store.db.execute(
                 "SELECT * FROM songs WHERE id=? AND requester=?",
@@ -1170,8 +1191,18 @@ def create_app(
             )
             store.db.execute(
                 "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,"
+                "lyric_timing_mode=?,provider_lrc=?,source_lrc_raw=?,lyric_offset_ms=?,"
                 "skip_subtitles=0,prep_stage='queued',prep_error='' WHERE id=?",
-                (lyrics, source, next_state, song_id),
+                (
+                    lyrics,
+                    source,
+                    next_state,
+                    timing_mode,
+                    provider_lrc,
+                    source_lrc_raw,
+                    offset_ms,
+                    song_id,
+                ),
             )
             store.db.commit()
         return {"ok": True, "id": song_id, "status": next_state}
@@ -1196,6 +1227,7 @@ def create_app(
                 bail(409, "原视频尚未准备好")
             store.db.execute(
                 "UPDATE songs SET skip_subtitles=1,lyric_choice='',lyric_source='',"
+                "lyric_timing_mode='align',provider_lrc='',source_lrc_raw='',lyric_offset_ms=0,"
                 "media_file=CASE WHEN ? THEN source_file ELSE media_file END,"
                 "prep_state=?,prep_stage=?,prep_stage_at=?,prep_error='' WHERE id=?",
                 (
@@ -1247,6 +1279,16 @@ def create_app(
                     f"{events.active_id}:{song_id}:{candidate['source']}:{original_digest}",
                     30 * 60,
                 )
+            if timed := candidate.get("timed_lrc"):
+                raw = candidate["source_lrc_raw"]
+                payload = hashlib.sha256(
+                    (candidate["text"] + "\0" + timed + "\0" + raw).encode()
+                ).hexdigest()
+                candidate["timing_ticket"] = sign(
+                    "lyrictime",
+                    f"{events.active_id}:{song_id}:{candidate['source']}:{payload}",
+                    30 * 60,
+                )
         return {"query": term, "candidates": candidates}
 
     @app.post("/api/songs/{song_id}/lyrics/select")
@@ -1266,6 +1308,32 @@ def create_app(
             bail(400, "歌词来源不受支持")
         if len(body.text.splitlines()) < 2:
             bail(400, "歌词候选无效")
+        if body.timing_mode == "provider":
+            payload = hashlib.sha256(
+                (
+                    body.text + "\0" + body.timed_lrc + "\0" + body.source_lrc_raw
+                ).encode()
+            ).hexdigest()
+            if read_signed(body.timing_ticket, "lyrictime") != (
+                f"{events.active_id}:{song_id}:{body.source}:{payload}"
+            ):
+                bail(403, "来源时间轴已失效，请重新选择歌词")
+            if provider_timeline(body.source_lrc_raw, body.text) != body.timed_lrc:
+                bail(400, "来源时间轴与已选歌词不匹配")
+            try:
+                offset_timeline(body.timed_lrc, body.offset_ms, song["duration"])
+            except ValueError as error:
+                bail(400, str(error))
+            return save_guest_lyrics(
+                song_id,
+                song["requester"],
+                body.text,
+                body.source,
+                timing_mode="provider",
+                provider_lrc=body.timed_lrc,
+                source_lrc_raw=body.source_lrc_raw,
+                offset_ms=body.offset_ms,
+            )
         return save_guest_lyrics(song_id, song["requester"], body.text, body.source)
 
     @app.post("/api/songs/{song_id}/lyrics/upload")
@@ -1911,8 +1979,17 @@ def create_app(
                 new_media = links[0].name
                 new_source = links[-1].name if source != media else new_media
                 store.db.execute(
-                    "UPDATE songs SET media_file=?,source_file=? WHERE id=?",
-                    (new_media, new_source, new_id),
+                    "UPDATE songs SET media_file=?,source_file=?,lyric_timing_mode=?,"
+                    "provider_lrc=?,source_lrc_raw=?,lyric_offset_ms=? WHERE id=?",
+                    (
+                        new_media,
+                        new_source,
+                        row["lyric_timing_mode"],
+                        row["provider_lrc"],
+                        row["source_lrc_raw"],
+                        row["lyric_offset_ms"],
+                        new_id,
+                    ),
                 )
                 store.db.commit()
             except BaseException:
@@ -2055,6 +2132,7 @@ def create_app(
                           s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
                           s.played_at,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
+                          s.lyric_timing_mode,s.lyric_offset_ms,
                           g.id AS requester_id,g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.id=?""",

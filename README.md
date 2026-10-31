@@ -47,5 +47,6 @@ uv run python -m vc_ktv
 - [开发约定](docs/DEVELOPMENT.md)
 - [安全边界](docs/SECURITY.md)
 - [4 Mbps 受限网络的码率实验](docs/PERFORMANCE_4MBPS.md)
+- [可选来源逐句 LRC 与偏移校准](docs/PROVIDER_LRC.md)
 
 本项目是私人测试原型，不提供公网投屏服务或原生乐播 SDK。视频和歌词版权属于各权利人，请仅处理有权使用的素材。音频分离、对齐及字幕渲染代码基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) 修改，固定来源、Apache-2.0 许可及归属见 [第三方说明](third_party/autoassrenderer/README.md)；模型也适用各自条款。本仓库目前未授予对外开源许可。

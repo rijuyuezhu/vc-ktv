@@ -14,6 +14,7 @@ from ktv_app.lyric_names import title_variants
 from ktv_app.text_normalization import clean_lyric_text
 
 from .lyric_sources import vcpedia_lyric_candidates
+from .timed_lyrics import provider_timeline
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "VC-KTV/0.5 (guest lyrics search)"}
@@ -31,6 +32,9 @@ def _candidate(
     if len(text.splitlines()) < 2:
         return None
     result = {"title": title, "source": source, "text": text, "url": url}
+    if timed := provider_timeline(raw, text):
+        result["timed_lrc"] = timed
+        result["source_lrc_raw"] = raw
     unfiltered = clean_lyric_text(raw, keep_leading_credits=True).strip()[:12_000]
     if unfiltered != text and len(unfiltered.splitlines()) >= 2:
         # Users can inspect and restore questionable leading credits.
@@ -75,7 +79,7 @@ async def _lrclib(query: str) -> list[dict]:
             continue
         title, lyrics = (
             row.get("trackName"),
-            row.get("plainLyrics") or row.get("syncedLyrics"),
+            row.get("syncedLyrics") or row.get("plainLyrics"),
         )
         if not isinstance(title, str):
             continue

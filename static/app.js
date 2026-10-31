@@ -305,6 +305,10 @@ async function refreshSongDetail(){
   appendText(panel,"small",song.nickname+"  "+duration(song.duration),"muted");
   addMediaActions(panel,song,true);
   appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
+  if(song.lyric_timing_mode==="provider"){
+    const ms=Number(song.lyric_offset_ms||0);
+    appendText(panel,"small",`来源逐句时间轴（未声学校验，偏移 ${ms>=0?"+":""}${(ms/1000).toFixed(1)} 秒，无逐字高亮）`,"muted");
+  }
   if(isAdminPath()){
     const names={download:"下载",extract:"提取音频",kim:"人声分离",
       align:"歌词对齐",subtitles:"字幕生成",render:"视频烧录"};
@@ -409,9 +413,9 @@ function addLyricCandidates(candidates, songId, sequence){
     appendText(details,"summary","展开完整歌词");
     appendText(details,"pre",candidate.text);
     card.append(details);
-    const useLyrics=(text,ticket,button)=>guarded(async()=>{
+    const useLyrics=(text,ticket,button,extra={})=>guarded(async()=>{
       await api("/api/songs/"+songId+"/lyrics/select","POST",{
-        text,ticket,source:candidate.source
+        text,ticket,source:candidate.source,...extra
       });
       selectionRequest++;
       abortLyricRequests();
@@ -422,6 +426,31 @@ function addLyricCandidates(candidates, songId, sequence){
     },button);
     const button=appendText(card,"button","使用这一版歌词","btn primary");
     button.onclick=()=>useLyrics(candidate.text,candidate.ticket,button);
+    if(candidate.timed_lrc && candidate.timing_ticket){
+      const timed=document.createElement("details");
+      appendText(timed,"summary","可选：沿用来源逐句时间轴（不重新对齐）");
+      appendText(timed,"div","仅在原音视频与歌词来源是同一版本时适用；逐行显示，没有逐字高亮。请核对前奏和剪辑，并检查偏移。","muted");
+      const preview=candidate.timed_lrc.split("\n");
+      appendText(timed,"pre",[...preview.slice(0,3),...(preview.length>4?["…",preview.at(-1)]:preview.slice(3))].join("\n"));
+      const label=appendText(timed,"label","偏移（秒，视频比歌词晚则填正数）");
+      const offset=document.createElement("input");
+      offset.type="number";offset.min="-60";offset.max="60";offset.step="0.1";offset.value="0";
+      offset.setAttribute("aria-label","歌词时间偏移，单位秒");
+      label.append(offset);
+      const useTimed=appendText(timed,"button","沿用逐句时间轴","btn");
+      useTimed.onclick=()=>{
+        const value=Number(offset.value);
+        if(!offset.value||!Number.isFinite(value)||value < -60||value > 60){
+          toast("偏移需在 -60 到 60 秒内");return;
+        }
+        useLyrics(candidate.text,candidate.ticket,useTimed,{
+          timing_mode:"provider",timed_lrc:candidate.timed_lrc,
+          source_lrc_raw:candidate.source_lrc_raw,timing_ticket:candidate.timing_ticket,
+          offset_ms:Math.round(value*1000)
+        });
+      };
+      card.append(timed);
+    }
     if(candidate.unfiltered_text && candidate.unfiltered_ticket){
       const original=document.createElement("details");
       appendText(original,"summary","查看清理前的制作信息");
