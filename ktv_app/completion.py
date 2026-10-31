@@ -408,6 +408,13 @@ def complete_block_gaps(timeline, vocal_start=None, vocal_end=None):
             diagnostics={
                 "boundary_policy": "tifa_endpoints_only_v3",
                 "effective_audio_bounds": [a, b],
+                "asr_line_hints": {
+                    lid: hint
+                    for lid, hint in result.diagnostics.get(
+                        "asr_line_hints", {}
+                    ).items()
+                    if lid in block["line_ids"]
+                },
             },
         )
         start = (
@@ -581,9 +588,21 @@ def complete_anchor_gaps(timeline, vocal_start=None, vocal_end=None):
                 }
             )
             continue
-        # Only long instrumental/unknown edge gaps get a bounded extrapolation.
-        # Ordinary gaps use the complete previous.end -> next.start interval.
-        if native and b - a > max(8, chars * 1.2):
+        # For a completely unanchored sentence across a long gap, prefer
+        # independent, agreeing ASR placement over extrapolating it immediately
+        # after the preceding lyric. Its words remain explicitly *estimated*.
+        long_gap = native and b - a > max(8, chars * 1.2)
+        line_indices = {li for li, _ in run["items"]}
+        if long_gap and before and after and len(line_indices) == 1:
+            li = next(iter(line_indices))
+            line = result.lines[li]
+            hint = result.diagnostics.get("asr_line_hints", {}).get(line.id)
+            if hint and all(u.start is None for u in line.units):
+                start, end = max(a, hint["start"]), min(b, hint["end"])
+                if end - start >= 0.5:
+                    a, b = start, end
+                    reason = "two_pass_asr_bounded_estimate"
+        if long_gap and reason != "two_pass_asr_bounded_estimate":
             b = a + min(b - a, chars * rate)
             reason = "long_gap_bounded_after_failed_local_retry"
         cursor = a
@@ -607,10 +626,20 @@ def complete_anchor_gaps(timeline, vocal_start=None, vocal_end=None):
                 "reason": reason,
             }
         )
+    asr_bounded = {
+        line_id
+        for change in changes
+        if change["reason"] == "two_pass_asr_bounded_estimate"
+        for line_id in change["line_ids"]
+    }
     for line in result.lines:
         line.display_kind = "karaoke"
         if any(u.timing_source == "estimated" for u in line.units):
-            line.completion_note = "仅缺失词在固定相邻锚点之间按有效字符数插值；首尾不足时先合并重试。估算需试听。"
+            line.completion_note = (
+                "双遍 ASR 仅提供近似句子区间；逐字时间仍是估算，非 TIFA 原生时间，需试听。"
+                if line.id in asr_bounded
+                else "仅缺失词在固定相邻锚点之间按有效字符数插值；首尾不足时先合并重试。估算需试听。"
+            )
     result = quality(result)
     # After filling all words, these are exactly first source word.start and last.end.
     for line in result.lines:

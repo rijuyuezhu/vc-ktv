@@ -159,3 +159,90 @@ def test_zero_space_missing_sentence_is_not_forced_into_millisecond_sweeps():
     assert out.lines[1].end - out.lines[1].start >= 1
     assert out.lines[0].units[0].end == 12
     assert out.diagnostics["auto_completion"]["released_conflicting_anchors"]
+
+
+def test_two_pass_asr_hint_delays_unanchored_post_interlude_sentence():
+    lines = [
+        Line(
+            id="before", text="前一句", units=[unit("前一句", 0, 8, 11, id="before-u")]
+        ),
+        Line(id="missing", text="间奏后第一句"),
+        Line(
+            id="after", text="后一句", units=[unit("后一句", 0, 46, 49, id="after-u")]
+        ),
+    ]
+    source = timeline(lines)
+    without_hint = complete_timeline(source, rolling=True)
+    assert without_hint.lines[1].start == 11
+    assert without_hint.lines[1].end < 20
+    source.diagnostics["asr_line_hints"] = {
+        "missing": {"start": 39, "end": 43, "coverage": 0.7, "similarity": 0.8}
+    }
+    result = complete_timeline(source, rolling=True)
+    assert result.lines[1].start == 39 and result.lines[1].end == 43
+    assert all(u.timing_source == "estimated" for u in result.lines[1].units)
+    assert result.lines[0].units[0].start == 8
+    assert result.lines[2].units[0].start == 46
+    assert result.diagnostics["auto_completion"]["changes"][0]["reason"] == (
+        "two_pass_asr_bounded_estimate"
+    )
+    windows = display_windows(result, Style())
+    assert windows["missing"]["start"] >= 37
+    assert not any(w["start"] <= 30 < w["end"] for w in windows.values())
+    assert not remove_estimates(result).lines[1].units
+
+
+def test_asr_hints_do_not_change_short_gaps_or_partly_anchored_lines():
+    short = timeline(
+        [
+            Line(id="a", text="甲", units=[unit("甲", 0, 10, 11, id="a1")]),
+            Line(id="b", text="乙丙"),
+            Line(id="c", text="丁", units=[unit("丁", 0, 14, 15, id="c1")]),
+        ]
+    )
+    short.diagnostics["asr_line_hints"] = {"b": {"start": 12, "end": 13}}
+    result = complete_timeline(short, rolling=True)
+    assert result.lines[1].start == 11 and result.lines[1].end == 14
+    mixed = timeline(
+        [
+            Line(id="a", text="甲", units=[unit("甲", 0, 10, 11, id="a2")]),
+            Line(id="b", text="乙丙", units=[unit("乙", 0), unit("丙", 1, 42, 43)]),
+            Line(id="c", text="丁", units=[unit("丁", 0, 46, 47, id="c2")]),
+        ]
+    )
+    mixed.diagnostics["asr_line_hints"] = {"b": {"start": 40, "end": 42}}
+    result = complete_timeline(mixed, rolling=True)
+    assert result.lines[1].units[0].start < 20
+    assert result.lines[1].units[1].start == 42
+
+
+def test_block_completion_receives_only_source_scoped_asr_hints():
+    base = timeline(
+        [
+            Line(id="a", text="甲", units=[unit("甲", 0, 8, 11, id="aa")]),
+            Line(id="b", text="缺失句"),
+            Line(id="c", text="丁", units=[unit("丁", 0, 46, 49, id="cc")]),
+        ]
+    )
+    base.diagnostics.update(
+        {
+            "alignment_blocks": [
+                {
+                    "id": "0",
+                    "line_ids": ["a", "b", "c"],
+                    "effective_audio_bounds": [0, 60],
+                }
+            ],
+            "asr_line_hints": {
+                "b": {"start": 38, "end": 42},
+                "other": {"start": 2, "end": 4},
+            },
+        }
+    )
+    result = complete_timeline(base, rolling=True)
+    assert result.lines[1].start == 38
+    assert result.lines[1].end == 42
+    assert (
+        result.diagnostics["auto_completion"]["changes"][0]["reason"]
+        == "two_pass_asr_bounded_estimate"
+    )
