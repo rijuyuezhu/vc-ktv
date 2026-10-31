@@ -20,10 +20,15 @@ import threading
 import time
 from pathlib import Path
 
-from ktv_app.rendering import RenderOptions
+from ktv_app.media import probe
+from ktv_app.rendering import RenderOptions, render
+from ktv_app.subtitles import write_bundle
+from ktv_app.timeline import Line, Timeline, Unit
 
 from .bilibili_media import QUALITY_HEIGHTS, public_media_download
+from .karaoke import parse_lrc
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
+from .timed_lyrics import offset_timeline
 from .upstream_pipeline import make_karaoke_video, spark_settings
 
 log = logging.getLogger(__name__)
@@ -154,6 +159,97 @@ def render_upstream_video(
     shutil.copyfile(result.video, destination)
     shutil.copyfile(result.ass.parent / "lyrics.lrc", archive / "aligned.lrc")
     return json.loads(result.report.read_text(encoding="utf-8"))
+
+
+def render_provider_video(
+    source: Path,
+    timed_lrc: str,
+    offset_ms: int,
+    destination: Path,
+    archive: Path,
+    duration: float,
+    *,
+    compact_video: bool = False,
+    preset: StylePreset = DEFAULT_PRESET,
+) -> dict:
+    """Render explicitly chosen line timestamps, without loading GPU models."""
+    archive.mkdir(exist_ok=True, parents=True)
+    shifted = offset_timeline(timed_lrc, offset_ms, duration)
+    (archive / "aligned.lrc").write_text(shifted, encoding="utf-8")
+    (archive / "provider_timing.json").write_text(
+        json.dumps(
+            {
+                "mode": "provider_line_only",
+                "offset_ms": offset_ms,
+                "verified_against_audio": False,
+                "not_word_aligned": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    # Provider start/end is line-level; there is NO word/character sweep.
+    rows = parse_lrc(shifted)
+    lines = []
+    for i, row in enumerate(rows):
+        start = row["start"]
+        next_start = rows[i + 1]["start"] if i + 1 < len(rows) else duration
+        lines.append(
+            Line(
+                id=f"provider-{i}",
+                text=row["text"],
+                start=start,
+                end=min(next_start, start + 8),
+                completion_note="来源逐句时间未经过声学验证",
+                units=[
+                    Unit(
+                        id=f"provider-{i}-text",
+                        text=row["text"],
+                        source_start=0,
+                        source_end=len(row["text"]),
+                        timing_source="estimated",
+                    )
+                ],
+            )
+        )
+    bundle = archive / "provider_subtitles"
+    write_bundle(
+        Timeline(
+            duration=duration,
+            model="provider_line_only",
+            lines=lines,
+            diagnostics={
+                "timing_source": "provider_lrc",
+                "offset_ms": offset_ms,
+                "verified_against_audio": False,
+            },
+        ),
+        preset_style(preset),
+        bundle,
+    )
+    options = RenderOptions(
+        compact_video=compact_video,
+        max_video_kbps=int(os.environ.get("VC_KTV_VIDEO_MAXRATE_KBPS", "0")) or None,
+    )
+    # Reuse the same audio-preserving encoder, style/bitrate and container as
+    # the full-quality route; only the model alignment stages are skipped.
+    video = render(
+        source,
+        bundle,
+        probe(source, spark_settings()),
+        spark_settings(),
+        options,
+        "karaoke.mp4",
+    )
+    shutil.copyfile(video, destination)
+    return {
+        "mode": "provider_line_only",
+        "lines": len(rows),
+        "offset_ms": offset_ms,
+        "verified_against_audio": False,
+    }
 
 
 class AutoPrep:
@@ -399,6 +495,7 @@ class AutoPrep:
         preset = row.get("style_preset", DEFAULT_PRESET)
         compact_video = row.get("compact_video", False)
         metadata = {
+            "lyric_timing_mode": row.get("lyric_timing_mode", "align"),
             "subtitle_style": preset,
             "compact_video": compact_video,
             "song_id": song_id,
@@ -448,14 +545,39 @@ class AutoPrep:
                             self.store.db.commit()
 
                 options["progress"] = progress
-            report = self.enhance(
-                source, lyrics, target, archive, float(row["duration"]), **options
-            )
+            if row.get("lyric_timing_mode") == "provider":
+                (archive / "source-provider.lrc").write_text(
+                    row["source_lrc_raw"], encoding="utf-8"
+                )
+                (archive / "confirmed_lyrics.txt").write_text(lyrics, encoding="utf-8")
+                current_stage, stage_started = "render", time.monotonic()
+                with self.store.lock:
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_stage='render',prep_stage_at=? "
+                        "WHERE id=? AND status='ready' AND prep_state='aligning'",
+                        (int(time.time()), song_id),
+                    )
+                    self.store.db.commit()
+                report = render_provider_video(
+                    source,
+                    row["provider_lrc"],
+                    row["lyric_offset_ms"],
+                    target,
+                    archive,
+                    float(row["duration"]),
+                    compact_video=compact_video,
+                    preset=preset,
+                )
+            else:
+                report = self.enhance(
+                    source, lyrics, target, archive, float(row["duration"]), **options
+                )
             metadata["outcome"] = "rendered"
             metadata["report"] = report
             with self.store.lock:
                 latest = self.store.db.execute(
-                    "SELECT status,source_file,media_file,prep_state,lyric_choice FROM songs WHERE id=?",
+                    "SELECT status,source_file,media_file,prep_state,lyric_choice,"
+                    "lyric_timing_mode,provider_lrc,lyric_offset_ms FROM songs WHERE id=?",
                     (song_id,),
                 ).fetchone()
                 if (
@@ -464,6 +586,10 @@ class AutoPrep:
                     and latest["source_file"] == row["source_file"]
                     and latest["prep_state"] == "aligning"
                     and latest["lyric_choice"] == lyrics
+                    and latest["lyric_timing_mode"]
+                    == row.get("lyric_timing_mode", "align")
+                    and latest["provider_lrc"] == row.get("provider_lrc", "")
+                    and latest["lyric_offset_ms"] == row.get("lyric_offset_ms", 0)
                 ):
                     self.store.db.execute(
                         "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
