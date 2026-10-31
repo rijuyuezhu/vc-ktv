@@ -1821,21 +1821,42 @@ def create_app(
             store.db.commit()
         return {"ok": True, "id": song_id, "priority_next": True}
 
-    @app.post("/api/admin/songs/{song_id}/replay")
-    def replay_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
-        require_admin(vc_admin)
+    def schedule_replay(song_id: int, *, current_only=False):
         with store.lock:
+            if current_only and (
+                not store.current() or store.current()["id"] != song_id
+            ):
+                bail(409, "当前歌曲已发生变化")
             row = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
             if (
-                row["status"] != "played"
+                row["status"] != ("playing" if current_only else "played")
                 or row["prep_state"] not in ("done", "manual", "original")
                 or not row["media_file"]
             ):
-                bail(409, "只能重唱本场已唱完且有成片的歌曲")
+                bail(409, "只能重唱当前正在播放或本场已唱完的成片")
+            if current_only:
+                # Repeated TV taps must never create multiple replay requests.
+                existing = store.db.execute(
+                    "SELECT id FROM songs WHERE replay_of=? AND status='ready' ORDER BY id LIMIT 1",
+                    (song_id,),
+                ).fetchone()
+                if existing:
+                    store.db.execute(
+                        "UPDATE songs SET priority_next=0 WHERE priority_next=1"
+                    )
+                    store.db.execute(
+                        "UPDATE songs SET priority_next=1 WHERE id=?", (existing["id"],)
+                    )
+                    store.db.commit()
+                    return {
+                        "id": existing["id"],
+                        "status": "ready",
+                        "priority_next": True,
+                    }
             media = store.media / Path(row["media_file"]).name
             if not media.is_file():
                 bail(404, "成片已丢失")
@@ -1901,6 +1922,11 @@ def create_app(
                 raise
         return {"id": new_id, "status": "ready", "priority_next": True}
 
+    @app.post("/api/admin/songs/{song_id}/replay")
+    def replay_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        return schedule_replay(song_id)
+
     @app.post("/api/admin/next")
     def next_song(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
@@ -1942,6 +1968,14 @@ def create_app(
     def tv_state(token: str):
         require_tv(token)
         return {**store.state(), "active": active_view()}
+
+    @app.post("/api/tv/replay-next")
+    def tv_replay_next(body: Finish, token: str):
+        require_tv(token)
+        with store.lock:
+            if store.playback_mode() != "browser":
+                bail(409, "当前使用手动投屏，请在管理后台操作")
+            return schedule_replay(body.song_id, current_only=True)
 
     @app.get("/api/tv/preload")
     def tv_preload(token: str):

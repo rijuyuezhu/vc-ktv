@@ -183,3 +183,158 @@ def test_tv_preload_is_read_only_and_tracks_queue_changes(tmp_path):
             == 200
         )
         assert guest.get(url, params={"token": token}).json()["candidate"] is None
+
+
+def test_tv_replay_next_is_scoped_idempotent_and_preserves_fairness(tmp_path):
+    app = create_app(
+        root=tmp_path / "room", password="pw", secret=b"tv-next", auto_prepare=False
+    )
+    app.state.events.create("TV Room", "123456")
+    with TestClient(app) as admin, TestClient(app) as a, TestClient(app) as b:
+        join_and_register(a, "A")
+        join_and_register(b, "B")
+        assert (
+            admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        store = app.state.store
+        for name in ("A", "B"):
+            guest_id = store.rows("SELECT id FROM guests WHERE name=?", (name,))[0][
+                "id"
+            ]
+            with store.lock:
+                for idx in range(2):
+                    path = store.media / f"{name}-{idx}.mp4"
+                    path.write_bytes(f"{name}{idx}".encode())
+                    store.db.execute(
+                        """INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at,
+                        status,prep_state,media_file,source_file)
+                        VALUES('BV0000000001',1,?,'up','',90,?,?,'ready','manual',?,?)""",
+                        (name, guest_id, idx, path.name, path.name),
+                    )
+                store.db.commit()
+        current = a.post("/api/tv/next", params={"token": token}).json()["active"]
+        assert current["nickname"] == "A"
+        state = a.get("/api/tv/state", params={"token": token}).json()
+        assert state["queue"][0]["nickname"] == "B"
+        before = store.rows("SELECT plays,fair_offset FROM guests ORDER BY name")
+        route = "/api/tv/replay-next"
+        assert (
+            a.post(
+                route, params={"token": "bad"}, json={"song_id": current["id"]}
+            ).status_code
+            == 401
+        )
+        assert (
+            a.post(route, params={"token": token}, json={"song_id": 999}).status_code
+            == 409
+        )
+        first = a.post(route, params={"token": token}, json={"song_id": current["id"]})
+        assert first.status_code == 200, first.text
+        new_id = first.json()["id"]
+        assert new_id != current["id"]
+        assert (
+            a.post(
+                route, params={"token": token}, json={"song_id": current["id"]}
+            ).json()["id"]
+            == new_id
+        )
+        assert store.rows(
+            "SELECT id FROM songs WHERE replay_of=?", (current["id"],)
+        ) == [{"id": new_id}]
+        assert (
+            store.rows("SELECT plays,fair_offset FROM guests ORDER BY name") == before
+        )
+        # Admin can override the next slot; a repeat tap moves the SAME replay back.
+        other_id = store.rows("SELECT id FROM songs WHERE title='B' ORDER BY id")[0][
+            "id"
+        ]
+        assert admin.post(f"/api/admin/songs/{other_id}/pin-next").status_code == 200
+        assert (
+            a.post(
+                route, params={"token": token}, json={"song_id": current["id"]}
+            ).json()["id"]
+            == new_id
+        )
+        assert (
+            a.get("/api/tv/state", params={"token": token}).json()["queue"][0]["id"]
+            == new_id
+        )
+        assert (
+            a.post(
+                "/api/tv/finish",
+                params={"token": token},
+                json={"song_id": current["id"]},
+            ).status_code
+            == 200
+        )
+        assert (
+            a.post(
+                route, params={"token": token}, json={"song_id": current["id"]}
+            ).status_code
+            == 409
+        )
+        assert (
+            a.post("/api/tv/next", params={"token": token}).json()["active"]["id"]
+            == new_id
+        )
+        assert (
+            a.post(
+                "/api/tv/finish", params={"token": token}, json={"song_id": new_id}
+            ).status_code
+            == 200
+        )
+        assert store.rows("SELECT plays,fair_offset FROM guests ORDER BY name") == [
+            {"plays": 1, "fair_offset": 0},
+            {"plays": 0, "fair_offset": 0},
+        ]
+        assert store.rows(
+            "SELECT replay_of,fair_exempt FROM songs WHERE id=?", (new_id,)
+        ) == [{"replay_of": current["id"], "fair_exempt": 1}]
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "manual"}).status_code
+            == 200
+        )
+        other = admin.post("/api/admin/next").json()["active"]
+        assert other is not None
+        assert (
+            a.post(
+                route, params={"token": token}, json={"song_id": other["id"]}
+            ).status_code
+            == 409
+        )
+
+
+def test_tv_live_next_up_tracks_three_people_pin_and_cancel(tmp_path):
+    from tests.test_fair_capped_two import party, ready
+
+    app, guests, admin, stack = party(tmp_path, ["A", "B", "C"])
+    with stack:
+        store = app.state.store
+        for name in guests:
+            ready(store, name, 2)
+        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        first = admin.post("/api/admin/next").json()["active"]
+        assert first["nickname"] == "A"
+        before = store.rows("SELECT plays,fair_offset FROM guests ORDER BY name")
+        get_queue = lambda: (
+            guests["A"].get("/api/tv/state", params={"token": token}).json()["queue"]
+        )
+        assert get_queue()[0]["nickname"] == "B"
+        target = next(x for x in get_queue() if x["nickname"] == "C")
+        assert (
+            admin.post(f"/api/admin/songs/{target['id']}/pin-next").status_code == 200
+        )
+        assert get_queue()[0]["id"] == target["id"]
+        assert guests["C"].post(f"/api/songs/{target['id']}/cancel").status_code == 200
+        assert get_queue()[0]["nickname"] == "B"
+        assert (
+            store.rows("SELECT plays,fair_offset FROM guests ORDER BY name") == before
+        )
+        assert (
+            admin.post(
+                "/api/admin/finish", json={"song_id": first["id"], "reason": "skip"}
+            ).status_code
+            == 200
+        )
+        assert admin.post("/api/admin/next").json()["active"]["nickname"] == "B"

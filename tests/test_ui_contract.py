@@ -34,3 +34,12 @@ def test_app_ui_omits_middle_dot_separator():
     root = Path(__file__).resolve().parents[1] / "static"
     for file in ("index.html", "app.js", "tv.html", "tv.js"):
         assert "·" not in (root / file).read_text()
+
+
+def test_tv_control_panel_selectors_exist():
+    root = Path(__file__).resolve().parents[1] / "static"
+    document = IdCollector()
+    document.feed((root / "tv.html").read_text())
+    js = (root / "tv.js").read_text()
+    referenced = set(re.findall(r'getElementById\("([a-z0-9-]+)"\)', js))
+    assert referenced <= document.ids, sorted(referenced - document.ids)
