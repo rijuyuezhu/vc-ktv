@@ -30,6 +30,7 @@ let replayInFlight=false;
 let panelTimer=null;
 let tipTimer=null;
 let nextKey=null;
+let lastEndTipKey=null;
 let playbackMode="browser";
 function showPanel(){
   panel.hidden=false;toggle.setAttribute("aria-expanded","true");
@@ -70,6 +71,14 @@ async function syncQueue(){
       hint("下一首更新："+queue[0].title+" / "+queue[0].nickname);
     }
     nextKey=key;
+    const remaining=video.duration-video.currentTime;
+    if(activeId!==null&&queue.length&&remaining>0&&remaining<=20){
+      const endKey=activeId+":"+queue[0].id;
+      if(lastEndTipKey!==endKey){
+        lastEndTipKey=endKey;
+        hint("即将播放："+queue[0].title+" / "+queue[0].nickname);
+      }
+    }
     nextList.replaceChildren();
     if(!queue.length){
       const empty=document.createElement("li");empty.textContent="暂无下一首可播放歌曲";nextList.append(empty);
@@ -150,6 +159,7 @@ async function next(){
     const answer=await api("/api/tv/next","POST");
     if(!answer.active){status.textContent="正在等待下一首歌……";cover.classList.remove("hidden");return;}
     activeId=answer.active.id;
+    lastEndTipKey=null;
     if(preloaded&&preloadKey(preloaded)===preloadKey(answer.active)&&!standby.error){
       const old=video;
       video=standby;
