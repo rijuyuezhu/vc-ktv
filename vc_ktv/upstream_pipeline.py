@@ -328,7 +328,12 @@ def make_karaoke_video(
         except Exception as error:
             record_failure("render", error)
             emit("字幕烧录失败，改用较低资源的编码参数再试一次")
-            safe_render = RenderOptions(preset="ultrafast", crf=28, compact_video=False)
+            safe_render = RenderOptions(
+                preset="ultrafast",
+                crf=28,
+                compact_video=False,
+                max_video_kbps=render_options.max_video_kbps,
+            )
             final = render(source, bundle, info, settings, safe_render, "karaoke.mp4")
             # The subtitle export precedes rendering; also record any retry.
             report_path = bundle / "export_report.json"

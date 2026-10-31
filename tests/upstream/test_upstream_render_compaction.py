@@ -7,10 +7,10 @@ from ktv_app import rendering
 
 
 def render_setup(
-    tmp_path, monkeypatch, first_size, compact_size=None, *, enabled=False
+    tmp_path, monkeypatch, first_size, compact_size=None, *, enabled=False, cap=None
 ):
     folder = tmp_path / "subtitles"
-    folder.mkdir()
+    folder.mkdir(parents=True)
     (folder / "lyrics.ass").write_text("[Script Info]\n")
     source = tmp_path / "source.mp4"
     source.write_bytes(b"original-data")
@@ -43,7 +43,7 @@ def render_setup(
         folder,
         info,
         settings,
-        rendering.RenderOptions(compact_video=enabled),
+        rendering.RenderOptions(compact_video=enabled, max_video_kbps=cap),
         "karaoke.mp4",
     )
     return source, folder, output, calls
@@ -97,3 +97,28 @@ def test_default_keeps_large_first_render_without_second_pass(tmp_path, monkeypa
     assert len(calls) == 1
     assert output.stat().st_size == 103_622_915
     assert not (folder / "karaoke.compact.mp4").exists()
+
+
+def test_opt_in_stream_cap_preserves_audio_and_defaults_to_unlimited(
+    tmp_path, monkeypatch
+):
+    _, _, _, original = render_setup(tmp_path / "normal", monkeypatch, 80_000_000)
+    assert "-maxrate" not in original[0]
+    _, _, _, capped = render_setup(
+        tmp_path / "limited", monkeypatch, 40_000_000, cap=3000
+    )
+    assert capped[0][capped[0].index("-maxrate") + 1] == "3000k"
+    assert capped[0][capped[0].index("-bufsize") + 1] == "3000k"
+    assert capped[0][capped[0].index("-c:a:0") + 1] == "copy"
+    assert capped[0][capped[0].index("-crf") + 1] == "23"
+
+
+def test_compact_rerender_also_respects_opt_in_cap(tmp_path, monkeypatch):
+    _, _, _, calls = render_setup(
+        tmp_path, monkeypatch, 95_000_000, 27_000_000, enabled=True, cap=3000
+    )
+    assert len(calls) == 2
+    assert calls[0][calls[0].index("-maxrate") + 1] == "3000k"
+    assert int(calls[1][calls[1].index("-maxrate") + 1]) <= 3_000_000
+    assert int(calls[1][calls[1].index("-bufsize") + 1]) <= 3_000_000
+    assert calls[1][calls[1].index("-c:a:0") + 1] == "copy"

@@ -169,3 +169,31 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
             ).fetchone()[0]
             == "done"
         )
+
+
+def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path):
+    import pytest
+
+    from vc_ktv.autoprep import render_upstream_video
+
+    def stop_before_models(video, lyrics, folder, settings, **kwargs):
+        assert kwargs["render_options"].max_video_kbps == 3000
+        assert kwargs["render_options"].compact_video is False
+        raise RuntimeError("captured options")
+
+    monkeypatch.setenv("VC_KTV_VIDEO_MAXRATE_KBPS", "3000")
+    monkeypatch.setattr(autoprep, "make_karaoke_video", stop_before_models)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"no models invoked")
+    with pytest.raises(RuntimeError, match="captured options"):
+        render_upstream_video(source, "one\ntwo", tmp_path / "out.mp4", tmp_path, 2)
+
+    monkeypatch.delenv("VC_KTV_VIDEO_MAXRATE_KBPS")
+
+    def check_default(video, lyrics, folder, settings, **kwargs):
+        assert kwargs["render_options"].max_video_kbps is None
+        raise RuntimeError("default unlimited")
+
+    monkeypatch.setattr(autoprep, "make_karaoke_video", check_default)
+    with pytest.raises(RuntimeError, match="default unlimited"):
+        render_upstream_video(source, "one\ntwo", tmp_path / "out.mp4", tmp_path, 2)
