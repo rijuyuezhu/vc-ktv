@@ -409,10 +409,9 @@ function addLyricCandidates(candidates, songId, sequence){
     appendText(details,"summary","展开完整歌词");
     appendText(details,"pre",candidate.text);
     card.append(details);
-    const button=appendText(card,"button","使用这一版歌词","btn primary");
-    button.onclick=()=>guarded(async()=>{
+    const useLyrics=(text,ticket,button)=>guarded(async()=>{
       await api("/api/songs/"+songId+"/lyrics/select","POST",{
-        text:candidate.text,ticket:candidate.ticket,source:candidate.source
+        text,ticket,source:candidate.source
       });
       selectionRequest++;
       abortLyricRequests();
@@ -421,6 +420,16 @@ function addLyricCandidates(candidates, songId, sequence){
       toast("✓ 歌词已选择");
       await refresh();
     },button);
+    const button=appendText(card,"button","使用这一版歌词","btn primary");
+    button.onclick=()=>useLyrics(candidate.text,candidate.ticket,button);
+    if(candidate.unfiltered_text && candidate.unfiltered_ticket){
+      const original=document.createElement("details");
+      appendText(original,"summary","查看清理前的制作信息");
+      appendText(original,"pre",candidate.unfiltered_text);
+      const restore=appendText(original,"button","使用清理前版本","btn");
+      restore.onclick=()=>useLyrics(candidate.unfiltered_text,candidate.unfiltered_ticket,restore);
+      card.append(original);
+    }
     panel.append(card);
   });
   updateLyricSearchStatus();

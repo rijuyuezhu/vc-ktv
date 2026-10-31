@@ -31,6 +31,10 @@ def _candidate(
     if len(text.splitlines()) < 2:
         return None
     result = {"title": title, "source": source, "text": text, "url": url}
+    unfiltered = clean_lyric_text(raw, keep_leading_credits=True).strip()[:12_000]
+    if unfiltered != text and len(unfiltered.splitlines()) >= 2:
+        # Users can inspect and restore questionable leading credits.
+        result["unfiltered_text"] = unfiltered
     if artist:
         result["artist"] = artist
     return result

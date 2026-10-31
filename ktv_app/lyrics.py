@@ -33,9 +33,12 @@ def contextual_languages(texts):
     return languages
 
 
-def preprocess(text, language="auto"):
+def preprocess(text, language="auto", *, confirmed=False):
     lines = []
-    for index, display in enumerate(clean_lyric_text(text).split("\n")):
+    # A selected/edited candidate is authoritative. Do not silently strip
+    # credits the user deliberately restored during candidate selection.
+    cleaned = clean_lyric_text(text, keep_leading_credits=confirmed)
+    for index, display in enumerate(cleaned.split("\n")):
         normalized, normalization_changes = normalize_lyrics(display)
         if not canonical(normalized):
             continue

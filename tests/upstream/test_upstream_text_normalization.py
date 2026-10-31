@@ -13,7 +13,7 @@ def test_source_timing_is_stripped_without_reordering_or_expanding_repeats():
         "[00:01.00]<00:01.00>心里[爱你]<00:02.00>\n"
         "[00:50.00]先唱这一句\n[chorus]\n作词：某人"
     )
-    expected = "先唱这一句\n心里[爱你]\n先唱这一句"
+    expected = "先唱这一句\n心里[爱你]\n先唱这一句\n作词：某人"
     assert clean_lyric_text(source) == expected
     assert clean_lyric_text(expected) == expected
     lines = preprocess(source)
