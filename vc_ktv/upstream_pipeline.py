@@ -131,7 +131,7 @@ def make_karaoke_video(
             confirmed_lyrics, encoding="utf-8"
         )
         try:
-            lines = preprocess(confirmed_lyrics)
+            lines = preprocess(confirmed_lyrics, confirmed=True)
         except Exception as error:
             record_failure("preprocess", error)
             lines = None

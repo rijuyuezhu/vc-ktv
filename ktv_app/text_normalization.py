@@ -14,13 +14,28 @@ def strip_lyric_timestamps(text):
     return re.sub(r"<\d+:\d+(?:[.,:]\d+)*>", "", text)
 
 
-def clean_lyric_text(text):
-    """Discard source timing and metadata without sorting or expanding lines.
+# Only remove confident production credit keys in the opening header.
+# Once the first sung line appears, even a lyric beginning with "作曲：" is kept.
+CREDIT_FIELD = (
+    r"(?:作词|作詞|作曲|编曲|編曲|词曲|詞曲|填词|填詞|词|詞|曲|歌|歌手|"
+    r"演唱|制作人|製作人|制作|製作|策划|策劃|混音|母带|母帶|"
+    r"调校|調校|调教|調教|画师|畫師|曲绘|曲繪|"
+    r"和声|和聲|封面|插画|插畫|动画|動畫|视频|視頻|"
+    r"Lyrics|Composer|Arrangement|Mixing|Mastering|Vocal|Illustration|PV|MV)"
+)
+LEADING_CREDIT = re.compile(
+    rf"^{CREDIT_FIELD}(?:\s*[/／&+＋]\s*{CREDIT_FIELD})*\s*[:：]\s*\S",
+    re.I,
+)
 
-    Explicit repeated lines and non-timing brackets remain in source order.
-    Pronunciation normalization is separate from the displayed lyric text.
+
+def clean_lyric_text(text, *, keep_leading_credits=False):
+    """Strip source timing, and optionally confident *leading* credits only.
+
+    Preserve source order, repeats, and lyric lines after the first verse.
     """
     lines = []
+    started = False
     for raw in text.replace("\r", "").split("\n"):
         display = strip_lyric_timestamps(raw)
         display = re.sub(
@@ -32,12 +47,13 @@ def clean_lyric_text(text):
             display,
             flags=re.I,
         ).strip()
-        if not display or re.match(
-            r"^(作词|作詞|作曲|编曲|編曲|制作人|製作人|词|詞|曲|歌手|演唱|歌|Lyrics|Composer)\s*[:：]",
-            display,
-            re.I,
-        ):
+        if not display:
             continue
+        if not started and LEADING_CREDIT.match(display):
+            if keep_leading_credits:
+                lines.append(display)
+            continue
+        started = True
         lines.append(display)
     return "\n".join(lines)
 

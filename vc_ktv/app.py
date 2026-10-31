@@ -1240,6 +1240,13 @@ def create_app(
                 f"{events.active_id}:{song_id}:{candidate['source']}:{digest}",
                 30 * 60,
             )
+            if original := candidate.get("unfiltered_text"):
+                original_digest = hashlib.sha256(original.encode()).hexdigest()
+                candidate["unfiltered_ticket"] = sign(
+                    "lyric",
+                    f"{events.active_id}:{song_id}:{candidate['source']}:{original_digest}",
+                    30 * 60,
+                )
         return {"query": term, "candidates": candidates}
 
     @app.post("/api/songs/{song_id}/lyrics/select")
