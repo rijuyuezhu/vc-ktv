@@ -12,6 +12,7 @@ const restart=document.getElementById("restart");
 const skip=document.getElementById("skip");
 const replayNext=document.getElementById("replay-next");
 const volume=document.getElementById("volume");
+const smoothBuffer=document.getElementById("smooth-buffer");
 const nowPlaying=document.getElementById("now-playing");
 const progress=document.getElementById("progress");
 const nextList=document.getElementById("next-list");
@@ -32,6 +33,62 @@ let tipTimer=null;
 let nextKey=null;
 let lastEndTipKey=null;
 let playbackMode="browser";
+const START_BUFFER_SECONDS=12;
+const START_BUFFER_WAIT_MS=12000;
+let warmup=null;
+let warmupTimer=null;
+let smoothPlayback=false;
+try{smoothPlayback=localStorage.getItem("vcktv-smooth-buffer")==="1";}catch{}
+smoothBuffer.checked=smoothPlayback;
+smoothBuffer.onchange=()=>{
+  smoothPlayback=smoothBuffer.checked;
+  try{localStorage.setItem("vcktv-smooth-buffer",smoothPlayback?"1":"0");}catch{}
+  if(!smoothPlayback&&warmup){
+    cancelWarmup();
+    video.play().catch(()=>{status.textContent="请手动点击继续播放";});
+  }
+};
+function bufferedAhead(element){
+  for(let i=0;i<element.buffered.length;i++){
+    if(element.buffered.start(i)<=element.currentTime+0.05&&
+       element.currentTime<=element.buffered.end(i)){
+      return Math.max(0,element.buffered.end(i)-element.currentTime);
+    }
+  }
+  return 0;
+}
+function cancelWarmup(){
+  clearTimeout(warmupTimer);
+  warmupTimer=null;
+  warmup=null;
+}
+function playAfterBuffer(song){
+  cancelWarmup();
+  const element=video;
+  const request={id:song.id,element};
+  const startedAt=performance.now();
+  warmup=request;
+  const tick=async()=>{
+    if(warmup!==request||activeId!==song.id||video!==element)return;
+    const remaining=Number.isFinite(element.duration)?
+      Math.max(0,element.duration-element.currentTime):START_BUFFER_SECONDS;
+    const target=Math.min(START_BUFFER_SECONDS,remaining);
+    const ahead=bufferedAhead(element);
+    if(ahead>=target||performance.now()-startedAt>=START_BUFFER_WAIT_MS||element.error){
+      cancelWarmup();
+      status.textContent=song.title+"  "+song.nickname;
+      try{await element.play();}catch(e){
+        if(activeId!==song.id||video!==element)return;
+        status.textContent="请点击画面以允许播放声音";
+        cover.classList.remove("hidden");start.textContent="▶ 恢复播放";
+      }
+    }else{
+      status.textContent=song.title+"  缓冲中 "+Math.floor(ahead)+"/"+Math.ceil(target)+" 秒";
+      warmupTimer=setTimeout(tick,250);
+    }
+  };
+  tick();
+}
 function showPanel(){
   panel.hidden=false;toggle.setAttribute("aria-expanded","true");
   clearTimeout(panelTimer);
@@ -122,16 +179,12 @@ function preloadKey(song){return song.id+":"+song.media_file;}
 async function checkPreload(){
   if(!started||activeId===null||inFlight||preloadInFlight||!Number.isFinite(video.duration))return;
   const remaining=video.duration-video.currentTime;
-  if(remaining>Math.min(60,video.duration/2)||remaining<=0)return;
-  // Do not compete with an already-stalling current video for bandwidth.
-  let buffered=0;
-  for(let i=0;i<video.buffered.length;i++){
-    if(video.buffered.start(i)<=video.currentTime&&video.currentTime<=video.buffered.end(i)){
-      buffered=video.buffered.end(i)-video.currentTime;
-      break;
-    }
-  }
-  if(buffered<Math.min(10,remaining))return;
+  if(remaining<=0)return;
+  const ahead=bufferedAhead(video);
+  // Aggressive preloading must not starve the current 4 Mbps stream.
+  if(smoothPlayback&&preloaded&&ahead<Math.min(8,remaining))clearPreload();
+  if(remaining>Math.min(smoothPlayback?120:60,video.duration/2))return;
+  if(ahead<Math.min(smoothPlayback?20:10,remaining))return;
   const now=performance.now();
   if(now-lastProbe<8000)return;
   lastProbe=now;
@@ -159,6 +212,7 @@ async function next(){
     const answer=await api("/api/tv/next","POST");
     if(!answer.active){status.textContent="正在等待下一首歌……";cover.classList.remove("hidden");return;}
     activeId=answer.active.id;
+    cancelWarmup();
     lastEndTipKey=null;
     if(preloaded&&preloadKey(preloaded)===preloadKey(answer.active)&&!standby.error){
       const old=video;
@@ -177,15 +231,19 @@ async function next(){
     cover.classList.add("hidden");
     updateControls();
     syncQueue();
-    try{await video.play();}catch(e){
-      status.textContent="请点击画面以允许播放声音";
-      cover.classList.remove("hidden");start.textContent="▶ 恢复播放";
+    if(smoothPlayback)playAfterBuffer(answer.active);
+    else{
+      try{await video.play();}catch(e){
+        status.textContent="请点击画面以允许播放声音";
+        cover.classList.remove("hidden");start.textContent="▶ 恢复播放";
+      }
     }
   }catch(e){fail(e);}finally{inFlight=false;}
 }
 async function complete(reason=""){
   if(activeId===null||finishing)return;
   finishing=true;
+  cancelWarmup();
   const id=activeId;
   activeId=null;
   video.removeAttribute("src");
@@ -212,7 +270,10 @@ for(const element of [video,standby]){
 }
 start.onclick=async()=>{
   started=true;error.textContent="";
-  if(activeId!==null){cover.classList.add("hidden");try{await video.play();}catch(e){fail(e);}return;}
+  if(activeId!==null){
+    cancelWarmup();cover.classList.add("hidden");
+    try{await video.play();}catch(e){fail(e);}return;
+  }
   await next();
 };
 setInterval(async()=>{
@@ -223,13 +284,13 @@ setInterval(checkPreload,8000);
 
 pauseResume.onclick=async()=>{
   if(activeId===null||playbackMode!=="browser")return;
-  if(video.paused){try{await video.play();}catch(e){controlError.textContent=e.message;}}
+  if(video.paused){cancelWarmup();try{await video.play();}catch(e){controlError.textContent=e.message;}}
   else video.pause();
   showPanel();updateControls();
 };
 restart.onclick=async()=>{
   if(activeId===null||finishing||playbackMode!=="browser")return;
-  video.currentTime=0;
+  cancelWarmup();video.currentTime=0;
   try{await video.play();}catch(e){controlError.textContent=e.message;}
   showPanel();updateControls();
 };
