@@ -43,24 +43,39 @@ const TVOverlay={
       row.style.width=(width*.92)+"px";
       row.style.right="auto";
       row.style.fontSize=Math.max(14,fontSize*height/720)+"px";
+      row.style.fontFamily=`"${(this.style.font||"Noto Sans CJK SC").replace(/["'\\]/g,"")}",sans-serif`;
+      row.style.setProperty("--ktv-base",this.style.base||"#FFFFFF");
+      row.style.setProperty("--ktv-stroke",Math.max(0,(this.style.outline??3)*2*height/720)+"px");
       const id=line?.id||"";
       if(row.dataset.lineId!==id){
         row.dataset.lineId=id;
         row.replaceChildren();
         row._timed=[];
         if(line){
+          const shadow=document.createElement("div");shadow.className="html-caption-outline";
+          shadow.setAttribute("aria-hidden","true");
+          const fill=document.createElement("div");fill.className="html-caption-fill";
           const text=Array.from(line.text||"");
           let pos=0;
           for(const unit of line.units||[]){
             const end=Math.max(pos,Math.min(text.length,unit.source_end||pos));
-            const span=document.createElement("span");span.textContent=text.slice(pos,end).join("");
+            const value=text.slice(pos,end).join("");
+            const outlinePart=document.createElement("span");outlinePart.textContent=value;
+            shadow.append(outlinePart);
+            const span=document.createElement("span");span.textContent=value;
             if(Number.isFinite(unit.start)&&Number.isFinite(unit.end)&&unit.end>unit.start){
               span.className="html-caption-sweep";
               row._timed.push({span,unit});
             }
-            row.append(span);pos=end;
+            fill.append(span);pos=end;
           }
-          if(pos<text.length){const tail=document.createElement("span");tail.textContent=text.slice(pos).join("");row.append(tail);}
+          if(pos<text.length){
+            const value=text.slice(pos).join("");
+            const outlinePart=document.createElement("span");outlinePart.textContent=value;
+            const tail=document.createElement("span");tail.textContent=value;
+            shadow.append(outlinePart);fill.append(tail);
+          }
+          row.append(shadow,fill);
         }
       }
       for(const {span,unit} of row._timed||[]){

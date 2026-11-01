@@ -206,14 +206,17 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
   color: #fff;
   text-align: center;
   overflow: hidden;
+  font-family: "Noto Sans CJK SC", sans-serif;
   font-weight: 700;
   font-size: 19px;
-  text-shadow: 0 1px 3px #000, 0 -1px 3px #000;
 }
+.style-preview > span { -webkit-text-stroke: 1.5px #121212; paint-order: stroke fill; text-shadow: 0 1px 2px #000; }
 .style-preview > span:first-child { color: #ffd53d; }
-.style-preview.large { font-size: 25px; text-shadow: 0 2px 5px #000, 0 -2px 5px #000; }
+.style-preview.large { font-size: 25px; }
+.style-preview.large > span { -webkit-text-stroke: 2.5px #121212; }
 .style-preview.large > span:first-child { color: #ffe45e; }
 .style-preview.compact { font-size: 16px; }
+.style-preview.compact > span { -webkit-text-stroke: 1px #121212; }
 .style-preview.compact .style-preview-second { display: none; }
 
 /* Keep BV copy beside download, even when the media is not ready. */
