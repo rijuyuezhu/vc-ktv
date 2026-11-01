@@ -123,6 +123,10 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .advanced[open] summary { color: var(--ink); }
 .advanced .input-row { margin: 12px 0; }
 .guest-lyrics-dialog { max-width: min(720px,96vw); max-height: 88vh; overflow-y: auto; }
+.netease-review-dialog { width: min(720px,96vw); max-height: 88vh; overflow-y: auto; }
+.netease-review-lines { display: flex; flex-direction: column; gap: 5px; margin: 15px 0; }
+.netease-review-line { text-align: left; width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); font: inherit; font-size: 14px; font-weight: 400; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
+.netease-review-line.kept { background: #fff0a8; color: #493c00; border-color: #dfbb43; }
 .lyric-options { display: flex; flex-direction: column; gap: 12px; margin: 18px 0; }
 .lyric-option { display: flex; flex-direction: column; gap: 9px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
 .lyric-option-header { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }

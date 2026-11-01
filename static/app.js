@@ -391,6 +391,60 @@ async function openLyricPicker(songId,title,query){
   if(!$("guest-lyrics-dialog").open)$("guest-lyrics-dialog").showModal();
   await searchGuestLyrics();
 }
+function openNeteaseReview(candidate, useLyrics){
+  const dialog=$("netease-review-dialog");
+  const original=candidate.unfiltered_text||candidate.text;
+  const lines=original.split("\n");
+  // Existing cleanup only removes leading production credits.
+  const defaultLines=candidate.text.split("\n");
+  const removed=Math.max(0,lines.length-defaultLines.length);
+  const chosen=new Set(lines.map((_,i)=>i).filter(i=>i>=removed));
+  const rows=$("netease-review-lines");
+  rows.replaceChildren();
+  const count=$("netease-review-count");
+  const update=()=>{
+    count.textContent=`已保留 ${chosen.size} / ${lines.length} 行`;
+    for(const button of rows.children){
+      const kept=chosen.has(Number(button.dataset.index));
+      button.classList.toggle("kept",kept);
+      button.setAttribute("aria-pressed",String(kept));
+    }
+  };
+  lines.forEach((line,i)=>{
+    const row=appendText(rows,"button",line,"netease-review-line");
+    row.type="button";row.dataset.index=String(i);
+    row.onclick=()=>{if(chosen.has(i))chosen.delete(i);else chosen.add(i);update();};
+  });
+  update();
+  $("netease-review-provider").hidden=!(candidate.timed_lrc&&candidate.timing_ticket);
+  $("netease-review-offset").value="0";
+  const options=()=>({
+    selection_text:original,
+    selection_ticket:candidate.unfiltered_ticket||candidate.ticket,
+    selected_lines:[...chosen].sort((a,b)=>a-b)
+  });
+  const submit=(button,timed)=>{
+    if(chosen.size<2){toast("至少保留两行歌词",true);return;}
+    const extra=options();
+    if(timed){
+      const offset=$("netease-review-offset").value;
+      const seconds=Number(offset);
+      if(!offset||!Number.isFinite(seconds)||seconds< -60||seconds>60){
+        toast("偏移需在 -60 到 60 秒内",true);return;
+      }
+      Object.assign(extra,{
+        timing_mode:"provider",timed_lrc:candidate.timed_lrc,
+        source_lrc_raw:candidate.source_lrc_raw,timing_ticket:candidate.timing_ticket,
+        offset_ms:Math.round(seconds*1000)
+      });
+    }
+    useLyrics(candidate.text,candidate.ticket,button,extra);
+  };
+  $("netease-review-align").onclick=()=>submit($("netease-review-align"),false);
+  $("netease-review-timed").onclick=()=>submit($("netease-review-timed"),true);
+  $("netease-review-back").onclick=()=>dialog.close();
+  dialog.showModal();
+}
 function addLyricCandidates(candidates, songId, sequence){
   if(sequence!==selectionRequest || selectingSongId!==songId)return;
   const panel=$("guest-lyrics-results");
@@ -420,10 +474,18 @@ function addLyricCandidates(candidates, songId, sequence){
       selectionRequest++;
       abortLyricRequests();
       selectingSongId=null;
+      if($("netease-review-dialog").open)$("netease-review-dialog").close();
       $("guest-lyrics-dialog").close();
       toast("✓ 歌词已选择");
       await refresh();
     },button);
+    if(candidate.source==="网易云音乐"){
+      const review=appendText(card,"button","逐行校正并使用","btn primary");
+      review.onclick=()=>openNeteaseReview(candidate,useLyrics);
+      card.append(review);
+      panel.append(card);
+      return;
+    }
     const button=appendText(card,"button","使用这一版歌词","btn primary");
     button.onclick=()=>useLyrics(candidate.text,candidate.ticket,button);
     if(candidate.timed_lrc && candidate.timing_ticket){

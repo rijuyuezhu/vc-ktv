@@ -36,7 +36,7 @@ from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
-from .timed_lyrics import offset_timeline, provider_timeline
+from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
 
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
 MAX_UPLOAD = 512 * 1024 * 1024
@@ -87,6 +87,9 @@ class GuestLyricChoice(BaseModel):
     source_lrc_raw: str = Field(default="", max_length=24_000)
     timing_ticket: str = ""
     offset_ms: int = Field(default=0, ge=-60_000, le=60_000)
+    selection_text: str = Field(default="", max_length=12_000)
+    selection_ticket: str = ""
+    selected_lines: list[int] | None = Field(default=None, max_length=400)
 
 
 class Login(BaseModel):
@@ -1308,6 +1311,26 @@ def create_app(
             bail(400, "歌词来源不受支持")
         if len(body.text.splitlines()) < 2:
             bail(400, "歌词候选无效")
+        chosen = body.text
+        if body.selected_lines is not None:
+            if body.source != "网易云音乐":
+                bail(400, "逐行校正仅支持网易云音乐")
+            original_digest = hashlib.sha256(body.selection_text.encode()).hexdigest()
+            if read_signed(body.selection_ticket, "lyric") != (
+                f"{events.active_id}:{song_id}:{body.source}:{original_digest}"
+            ):
+                bail(403, "校正歌词已失效，请重新搜索")
+            lines = body.selection_text.splitlines()
+            selected = body.selected_lines
+            if (
+                len(selected) < 2
+                or any(not 0 <= index < len(lines) for index in selected)
+                or selected != sorted(set(selected))
+            ):
+                bail(400, "请至少保留两行，且不能调整歌词顺序")
+            chosen = "\n".join(lines[index] for index in selected)
+            if len(chosen) > 12_000:
+                bail(400, "歌词过长")
         if body.timing_mode == "provider":
             payload = hashlib.sha256(
                 (
@@ -1320,21 +1343,26 @@ def create_app(
                 bail(403, "来源时间轴已失效，请重新选择歌词")
             if provider_timeline(body.source_lrc_raw, body.text) != body.timed_lrc:
                 bail(400, "来源时间轴与已选歌词不匹配")
+            timed = body.timed_lrc
             try:
-                offset_timeline(body.timed_lrc, body.offset_ms, song["duration"])
+                if body.selected_lines is not None:
+                    timed = project_provider_timeline(
+                        body.source_lrc_raw, body.selection_text, body.selected_lines
+                    )
+                offset_timeline(timed, body.offset_ms, song["duration"])
             except ValueError as error:
                 bail(400, str(error))
             return save_guest_lyrics(
                 song_id,
                 song["requester"],
-                body.text,
+                chosen,
                 body.source,
                 timing_mode="provider",
-                provider_lrc=body.timed_lrc,
+                provider_lrc=timed,
                 source_lrc_raw=body.source_lrc_raw,
                 offset_ms=body.offset_ms,
             )
-        return save_guest_lyrics(song_id, song["requester"], body.text, body.source)
+        return save_guest_lyrics(song_id, song["requester"], chosen, body.source)
 
     @app.post("/api/songs/{song_id}/lyrics/upload")
     async def guest_upload_lrc(

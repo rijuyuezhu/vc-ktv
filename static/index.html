@@ -250,6 +250,24 @@
     <p class="muted">上传文件的时间戳仅用于识别歌词行，最终字幕仍会重新对齐。</p>
 
   </dialog>
+  <dialog id="netease-review-dialog" class="netease-review-dialog" aria-labelledby="netease-review-title">
+    <div class="section-head">
+      <h2 id="netease-review-title">逐行校正网易云歌词</h2>
+      <button id="netease-review-back" class="btn subtle" type="button">返回</button>
+    </div>
+    <p class="muted">点击每一行切换是否保留。标黄的行将用于制作歌词，普通颜色的行将删除；已按现有规则预先选好。</p>
+    <div id="netease-review-lines" class="netease-review-lines"></div>
+    <p id="netease-review-count" class="muted" aria-live="polite"></p>
+    <div class="input-row">
+      <button id="netease-review-align" class="btn primary" type="button">确认并重新对齐</button>
+    </div>
+    <div id="netease-review-provider" hidden>
+      <p class="muted">沿用网易云时间轴仅适用于同一音源，不适合演唱会或改编版；逐字渐变为等分估算。保留的歌词都需要原始时间戳。</p>
+      <label for="netease-review-offset">时间偏移（秒）</label>
+      <input id="netease-review-offset" type="number" min="-60" max="60" step="0.1" value="0">
+      <button id="netease-review-timed" class="btn neutral" type="button">确认并沿用来源时间轴</button>
+    </div>
+  </dialog>
   <dialog id="lyrics-dialog">
     <form method="dialog"><div class="section-head"><h2>编辑参考歌词</h2><button class="btn subtle">关闭</button></div></form>
 
