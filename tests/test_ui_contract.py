@@ -131,3 +131,23 @@ def test_netease_review_is_not_a_second_simultaneous_modal():
     assert '$("guest-lyrics-dialog").close();' in js
     assert '$("netease-review-dialog").addEventListener("close"' in js
     assert "if(dialog.open)return;" in js
+
+
+def test_html_tv_paints_separate_stroke_under_animated_lyrics():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "tv.html").read_text()
+    script = (root / "tv-overlay.js").read_text()
+    for css in (
+        ".html-caption-outline",
+        "-webkit-text-stroke:",
+        ".html-caption-fill",
+        ".html-caption-sweep",
+        "-webkit-text-fill-color:transparent",
+    ):
+        assert css in html
+    assert 'shadow.className="html-caption-outline"' in script
+    assert 'fill.className="html-caption-fill"' in script
+    assert "this.style.outline??3" in script
+    assert 'this.style.font||"Noto Sans CJK SC"' in script
+    assert 'this.style.base||"#FFFFFF"' in script
+    assert 'this.style.highlight||"#FFD53D"' in script
