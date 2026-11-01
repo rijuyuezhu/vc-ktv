@@ -307,7 +307,7 @@ async function refreshSongDetail(){
   appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
   if(song.lyric_timing_mode==="provider"){
     const ms=Number(song.lyric_offset_ms||0);
-    appendText(panel,"small",`来源逐句时间轴（未声学校验，偏移 ${ms>=0?"+":""}${(ms/1000).toFixed(1)} 秒，无逐字高亮）`,"muted");
+    appendText(panel,"small",`来源逐句时间轴（偏移 ${ms>=0?"+":""}${(ms/1000).toFixed(1)} 秒，逐字渐变为等分估算）`,"muted");
   }
   if(isAdminPath()){
     const names={download:"下载",extract:"提取音频",kim:"人声分离",
@@ -429,7 +429,7 @@ function addLyricCandidates(candidates, songId, sequence){
     if(candidate.timed_lrc && candidate.timing_ticket){
       const timed=document.createElement("details");
       appendText(timed,"summary","可选：沿用来源逐句时间轴（不重新对齐）");
-      appendText(timed,"div","仅在原音视频与歌词来源是同一版本时适用；逐行显示，没有逐字高亮。请核对前奏和剪辑，并检查偏移。","muted");
+      appendText(timed,"div","仅适用于与歌词来源（如网易云音乐）同一音源的歌曲；不适合演唱会、翻唱或改编版。此模式会把每句时间平均分给各字产生渐变，并非真实逐字对齐；想要更准确的高亮请选择普通歌词对齐。请核对前奏与时间偏移。","muted");
       const preview=candidate.timed_lrc.split("\n");
       appendText(timed,"pre",[...preview.slice(0,3),...(preview.length>4?["…",preview.at(-1)]:preview.slice(3))].join("\n"));
       const label=appendText(timed,"label","偏移（秒，视频比歌词晚则填正数）");
