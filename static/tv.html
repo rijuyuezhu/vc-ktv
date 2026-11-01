@@ -14,11 +14,16 @@
     #cover.hidden{display:none}h1{font-size:clamp(34px,6vw,76px);margin:0;letter-spacing:-2px}
     p{font-size:clamp(15px,2.1vw,24px);color:#a4b8cd;margin:0 auto;max-width:780px}
     button{border:0;border-radius:14px;background:#4f5bd5;padding:15px 25px;font-size:21px;color:#fff;font-weight:700;cursor:pointer}
-    #status{position:fixed;bottom:12px;left:18px;color:#b9cee2;background:#0007;padding:6px 12px;border-radius:8px;pointer-events:none}
+    #song-banner{position:fixed;left:18px;bottom:12px;z-index:2;width:min(660px,calc(100vw - 36px));padding:5px;background:#080e17d9;border:1px solid #ffffff26;border-radius:11px;color:#edf5ff;pointer-events:none}
+    .song-banner-row{display:flex;align-items:center;gap:10px;min-width:0;padding:5px 9px;border-radius:6px;font-size:clamp(13px,1.5vw,17px);line-height:1.45}
+    .song-banner-label{flex:none;width:50px;color:#a4b8cd;font-size:.82em}
+    .song-banner-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    #next-up-row{transition:background .25s,color .25s}
+    #next-up-row.highlight{background:#395f92;color:#fff}
     #error{color:#ffb1ac;max-width:780px}
     #panel-toggle{position:fixed;right:16px;top:16px;z-index:7;padding:10px 14px;font-size:17px;background:#151b27ce}
     #controls{position:fixed;right:16px;top:68px;z-index:7;width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 84px);overflow:auto;padding:18px;border-radius:18px;background:#111b29eb;box-shadow:0 8px 28px #000a}
-    #controls[hidden],#next-tip[hidden]{display:none}
+    #controls[hidden]{display:none}
     #controls h2{font-size:18px;margin:0 0 8px}
     #controls p{font-size:14px;margin:0 0 12px;text-align:left;color:#d2dfed}
     #controls .actions{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
@@ -29,7 +34,6 @@
     #progress{font-variant-numeric:tabular-nums}
     #next-list{list-style:none;padding:0;margin:6px 0;font-size:14px}
     #next-list li{padding:6px 0;border-bottom:1px solid #ffffff17;overflow-wrap:anywhere}
-    #next-tip{position:fixed;bottom:64px;right:18px;max-width:min(520px,85vw);padding:10px 15px;border-radius:10px;background:#111b29df;color:#fff;pointer-events:none}
     @media(max-width:560px){#controls{top:62px;max-height:calc(100vh - 74px)}}
   </style>
 </head>
@@ -42,7 +46,10 @@
     <div><button id="start">▶ 开始</button></div>
     <p id="error" aria-live="polite"></p>
   </div>
-  <div id="status" aria-live="polite"></div>
+  <div id="song-banner" aria-label="播放队列">
+    <div class="song-banner-row"><span class="song-banner-label">当前</span><span class="song-banner-value" id="status" aria-live="polite">等待播放</span></div>
+    <div class="song-banner-row" id="next-up-row"><span class="song-banner-label">下一首</span><span class="song-banner-value" id="next-up" aria-live="polite">正在获取队列……</span></div>
+  </div>
   <button id="panel-toggle" type="button" aria-expanded="false" aria-controls="controls">☰ 控制</button>
   <aside id="controls" aria-label="电视播放控制" hidden>
     <h2>播放控制</h2>
@@ -60,7 +67,6 @@
     <ul id="next-list"><li>正在获取队列……</li></ul>
     <p id="control-error" role="alert"></p>
   </aside>
-  <div id="next-tip" aria-live="polite" hidden></div>
   <script src="/tv.js" defer></script>
 </body>
 </html>

@@ -43,3 +43,15 @@ def test_tv_control_panel_selectors_exist():
     js = (root / "tv.js").read_text()
     referenced = set(re.findall(r'getElementById\("([a-z0-9-]+)"\)', js))
     assert referenced <= document.ids, sorted(referenced - document.ids)
+
+
+def test_tv_now_next_banner_has_no_popup():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "tv.html").read_text()
+    js = (root / "tv.js").read_text()
+    assert 'id="song-banner"' in html
+    assert 'id="next-up-row"' in html
+    assert 'id="next-up"' in html
+    assert 'id="next-tip"' not in html
+    assert "nextTip" not in js
+    assert "updateNextSong(queue[0])" in js
