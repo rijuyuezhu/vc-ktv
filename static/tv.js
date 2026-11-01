@@ -12,6 +12,9 @@ const restart=document.getElementById("restart");
 const skip=document.getElementById("skip");
 const replayNext=document.getElementById("replay-next");
 const volume=document.getElementById("volume");
+const banner=document.getElementById("song-banner");
+const bannerTransparency=document.getElementById("banner-transparency");
+const bannerTransparencyValue=document.getElementById("banner-transparency-value");
 const smoothBuffer=document.getElementById("smooth-buffer");
 const nowPlaying=document.getElementById("now-playing");
 const progress=document.getElementById("progress");
@@ -37,6 +40,22 @@ const START_BUFFER_SECONDS=12;
 const START_BUFFER_WAIT_MS=12000;
 let warmup=null;
 let warmupTimer=null;
+function setBannerTransparency(value){
+  const transparency=Math.max(0,Math.min(100,Number(value)||0));
+  banner.style.setProperty("--banner-opacity",String(1-transparency/100));
+  bannerTransparency.value=String(transparency);
+  bannerTransparencyValue.textContent=transparency+"%";
+}
+let savedTransparency=15;
+try{
+  const saved=localStorage.getItem("vcktv-banner-transparency");
+  if(saved!==null&&saved.trim()!==""&&Number.isFinite(Number(saved)))savedTransparency=Number(saved);
+}catch{}
+setBannerTransparency(savedTransparency);
+bannerTransparency.oninput=()=>{
+  setBannerTransparency(bannerTransparency.value);
+  try{localStorage.setItem("vcktv-banner-transparency",bannerTransparency.value);}catch{}
+};
 let smoothPlayback=false;
 try{smoothPlayback=localStorage.getItem("vcktv-smooth-buffer")==="1";}catch{}
 smoothBuffer.checked=smoothPlayback;
@@ -76,14 +95,14 @@ function playAfterBuffer(song){
     const ahead=bufferedAhead(element);
     if(ahead>=target||performance.now()-startedAt>=START_BUFFER_WAIT_MS||element.error){
       cancelWarmup();
-      status.textContent=song.title+"  "+song.nickname;
+      status.textContent=songLabel(song);
       try{await element.play();}catch(e){
         if(activeId!==song.id||video!==element)return;
         status.textContent="请点击画面以允许播放声音";
         cover.classList.remove("hidden");start.textContent="▶ 恢复播放";
       }
     }else{
-      status.textContent=song.title+"  缓冲中 "+Math.floor(ahead)+"/"+Math.ceil(target)+" 秒";
+      status.textContent=songLabel(song)+"  缓冲中 "+Math.floor(ahead)+"/"+Math.ceil(target)+" 秒";
       warmupTimer=setTimeout(tick,250);
     }
   };
@@ -103,10 +122,11 @@ panel.onpointerleave=()=>{
   clearTimeout(panelTimer);
   panelTimer=setTimeout(()=>{if(!panel.matches(":focus-within"))hidePanel();},4000);
 };
+function songLabel(song){return song.title+"  "+song.nickname;}
 function updateNextSong(song){
   const key=song?JSON.stringify([song.id,song.title,song.nickname]):"";
   if(nextKey===key)return;
-  nextUp.textContent=song?song.title+" / "+song.nickname:"暂无下一首可播放歌曲";
+  nextUp.textContent=song?songLabel(song):"暂无下一首可播放歌曲";
   if(nextKey!==null){
     nextUpRow.classList.add("highlight");
     clearTimeout(highlightTimer);
@@ -137,10 +157,10 @@ async function syncQueue(){
     }
     for(const [index,song] of queue.entries()){
       const li=document.createElement("li");
-      li.textContent=(index+1)+". "+song.title+" / "+song.nickname;
+      li.textContent=(index+1)+". "+songLabel(song);
       nextList.append(li);
     }
-    nowPlaying.textContent=state.current?state.current.title+" / "+state.current.nickname:"暂无正在播放的歌曲";
+    nowPlaying.textContent=state.current?songLabel(state.current):"暂无正在播放的歌曲";
     if(!started)status.textContent=state.current?nowPlaying.textContent:"等待播放";
     if(playbackMode==="manual")controlError.textContent="当前为手动投屏模式，请到管理后台控制";
     else if(controlError.textContent.includes("手动投屏"))controlError.textContent="";
@@ -222,7 +242,7 @@ async function next(){
     }
     preloadFailed=null;
     lastProbe=-Infinity;
-    status.textContent=answer.active.title+"  "+answer.active.nickname;
+    status.textContent=songLabel(answer.active);
     cover.classList.add("hidden");
     updateControls();
     syncQueue();

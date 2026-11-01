@@ -14,14 +14,14 @@
     #cover.hidden{display:none}h1{font-size:clamp(34px,6vw,76px);margin:0;letter-spacing:-2px}
     p{font-size:clamp(15px,2.1vw,24px);color:#a4b8cd;margin:0 auto;max-width:780px}
     button{border:0;border-radius:14px;background:#4f5bd5;padding:15px 25px;font-size:21px;color:#fff;font-weight:700;cursor:pointer}
-    #song-banner{position:fixed;left:18px;bottom:12px;z-index:2;width:min(660px,calc(100vw - 36px));padding:5px;background:#080e17d9;border:1px solid #ffffff26;border-radius:11px;color:#edf5ff;pointer-events:none}
+    #song-banner{position:fixed;left:18px;bottom:12px;z-index:2;width:min(660px,calc(100vw - 36px));padding:5px;background:rgba(8,14,23,var(--banner-opacity,.85));border:1px solid #ffffff26;border-radius:11px;color:#edf5ff;pointer-events:none}
     .song-banner-row{display:flex;align-items:center;gap:10px;min-width:0;padding:5px 9px;border-radius:6px;font-size:clamp(13px,1.5vw,17px);line-height:1.45}
     .song-banner-label{flex:none;width:50px;color:#a4b8cd;font-size:.82em}
     .song-banner-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     #next-up-row{transition:background .25s,color .25s}
     #next-up-row.highlight{background:#395f92;color:#fff}
     #error{color:#ffb1ac;max-width:780px}
-    #panel-toggle{position:fixed;right:16px;top:16px;z-index:7;padding:10px 14px;font-size:17px;background:#151b27ce}
+    #panel-toggle{position:fixed;right:16px;top:16px;z-index:7;padding:10px 14px;font-size:17px;background:#151b2780}
     #controls{position:fixed;right:16px;top:68px;z-index:7;width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 84px);overflow:auto;padding:18px;border-radius:18px;background:#111b29eb;box-shadow:0 8px 28px #000a}
     #controls[hidden]{display:none}
     #controls h2{font-size:18px;margin:0 0 8px}
@@ -31,6 +31,7 @@
     #controls button:disabled{opacity:.45;cursor:not-allowed}
     #controls label{display:flex;gap:10px;align-items:center;font-size:14px}
     #controls input{flex:1;min-width:0}
+    #banner-transparency{width:100%}
     #progress{font-variant-numeric:tabular-nums}
     #next-list{list-style:none;padding:0;margin:6px 0;font-size:14px}
     #next-list li{padding:6px 0;border-bottom:1px solid #ffffff17;overflow-wrap:anywhere}
@@ -62,6 +63,8 @@
     </div>
     <div class="actions"><button id="replay-next" type="button" title="唱完当前歌曲后安排下一首重唱，视为管理员轮次">↻ 下一首重唱</button></div>
     <label>音量 <input id="volume" type="range" min="0" max="100" value="100" aria-label="音量"></label>
+    <label for="banner-transparency">底部信息框透明度 <output id="banner-transparency-value" for="banner-transparency">15%</output></label>
+    <input id="banner-transparency" type="range" min="0" max="100" step="5" value="15" aria-label="底部信息框透明度">
     <label><input id="smooth-buffer" type="checkbox" style="flex:none"> 稳播模式（起播前缓冲，最长等 12 秒）</label>
     <h2 style="margin-top:16px">接下来</h2>
     <ul id="next-list"><li>正在获取队列……</li></ul>
