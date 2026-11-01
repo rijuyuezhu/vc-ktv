@@ -263,7 +263,6 @@ def test_default_auto_renderer_selects_upstream_quality_mode(tmp_path, monkeypat
 
     def fake_pipeline(video, lyrics, work, settings, *, style, mode, render_options):
         assert mode == "quality"
-        assert render_options.compact_video is False
         assert style.size == 48 and style.mode == "double"
         assert video == source
         assert lyrics == "DUDUDU\n你好"

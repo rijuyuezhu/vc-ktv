@@ -47,5 +47,6 @@ jobs:
         run: |
           node --check static/app.js
           node --check static/tv.js
-          node --test tests/test_tv_buffering.cjs
+          node --check static/tv-overlay.js
+          node --test tests/test_tv_buffering.cjs tests/test_tv_html_overlay.cjs
           node --check experiments/bilibili-overlay/overlay.js

@@ -34,7 +34,8 @@ function tvHarness(){
     return nodes.get(id);
   }
   const context={
-    document:{getElementById:el,createElement:()=>({textContent:""})},location:{search:"?token=test"},
+    document:{getElementById:el,createElement:()=>({textContent:""}),querySelectorAll:()=>[]},location:{search:"?token=test"},
+    TVOverlay:{reset(){},draw(){},setup(){},setOffset(){}},requestAnimationFrame:()=>0,
     URLSearchParams,performance:{now:()=>now},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},
     setTimeout:(fn,delay)=>{const id=nextTimer++;timers.set(id,{fn,at:now+delay});return id;},

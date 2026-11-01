@@ -74,7 +74,8 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
             "video_quality": 720,
-            "compact_video": False,
+            "max_bandwidth_mbps": 3.0,
+            "tv_html_overlay": False,
             "orders_paused": False,
         }
         store = app.state.store
@@ -196,7 +197,8 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
             "video_quality": 720,
-            "compact_video": False,
+            "max_bandwidth_mbps": 3.0,
+            "tv_html_overlay": False,
             "orders_paused": False,
         }
     reopened = create_app(
@@ -211,7 +213,8 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         "allow_unsubtitled": False,
         "subtitle_style": "classic",
         "video_quality": 720,
-        "compact_video": False,
+        "max_bandwidth_mbps": 3.0,
+        "tv_html_overlay": False,
         "orders_paused": False,
     }
     with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
