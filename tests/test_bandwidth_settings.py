@@ -1,4 +1,4 @@
-"""Opt-in second-pass encoding, effective on the next subtitle job claim."""
+"""Per-event bandwidth budget, snapshotted on subtitle job claim."""
 
 import json
 import sqlite3
@@ -40,44 +40,44 @@ def test_compression_admin_only_default_off_persists_and_resets_between_events(
     first = app.state.events.create("First", "000001")
     with TestClient(app) as owner, TestClient(app) as guest:
         login(owner)
-        assert owner.get("/api/admin/settings").json()["compact_video"] is False
+        assert owner.get("/api/admin/settings").json()["max_bandwidth_mbps"] == 3.0
         assert guest.get("/api/admin/settings").status_code == 401
-        assert update(guest, compact_video=True).status_code == 401
-        result = update(owner, compact_video=True)
+        assert update(guest, max_bandwidth_mbps=4.5).status_code == 401
+        result = update(owner, max_bandwidth_mbps=4.5)
         assert result.status_code == 200
-        assert result.json()["compact_video"] is True
-        # Legacy clients with no compact_video field must preserve the setting.
+        assert result.json()["max_bandwidth_mbps"] == 4.5
+        # Legacy clients with no max_bandwidth_mbps field must preserve the setting.
         assert (
             update(owner, subtitle_style="large", video_quality=480).status_code == 200
         )
-        assert owner.get("/api/admin/settings").json()["compact_video"] is True
-        assert update(owner, compact_video="definitely").status_code == 422
-        assert update(owner, compact_video=False).json()["compact_video"] is False
-        assert update(owner, compact_video=True).json()["compact_video"] is True
+        assert owner.get("/api/admin/settings").json()["max_bandwidth_mbps"] == 4.5
+        assert update(owner, max_bandwidth_mbps="definitely").status_code == 422
+        assert update(owner, max_bandwidth_mbps=3.0).json()["max_bandwidth_mbps"] == 3.0
+        assert update(owner, max_bandwidth_mbps=4.5).json()["max_bandwidth_mbps"] == 4.5
         with sqlite3.connect(
             tmp_path / "ktv" / "sessions" / first["id"] / "room.sqlite3"
         ) as db:
             assert (
                 db.execute(
-                    "SELECT value FROM room_state WHERE name='compact_video'"
+                    "SELECT value FROM room_state WHERE name='max_bandwidth_mbps'"
                 ).fetchone()[0]
-                == "1"
+                == "4.5"
             )
         assert owner.post("/api/admin/events/close").status_code == 200
         assert (
             owner.post("/api/admin/events", json={"name": "Second"}).status_code == 200
         )
-        assert owner.get("/api/admin/settings").json()["compact_video"] is False
+        assert owner.get("/api/admin/settings").json()["max_bandwidth_mbps"] == 3.0
     restarted = make_app(tmp_path)
-    assert restarted.state.store.settings()["compact_video"] is False
+    assert restarted.state.store.settings()["max_bandwidth_mbps"] == 3.0
     with sqlite3.connect(
         tmp_path / "ktv" / "sessions" / first["id"] / "room.sqlite3"
     ) as db:
         assert (
             db.execute(
-                "SELECT value FROM room_state WHERE name='compact_video'"
+                "SELECT value FROM room_state WHERE name='max_bandwidth_mbps'"
             ).fetchone()[0]
-            == "1"
+            == "4.5"
         )
 
 
@@ -121,7 +121,7 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
     def fake_pipeline(
         video, lyrics, folder, settings, *, style, mode, render_options, progress
     ):
-        received.append(render_options.compact_video)
+        received.append(render_options.max_video_kbps)
         assert style.mode in ("double", "single")
         assert mode == "quality"
         assert video == original.resolve()
@@ -142,26 +142,26 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
     with TestClient(app) as owner:
         login(owner)
         first = worker.claim()
-        assert first["compact_video"] is False
-        assert update(owner, compact_video=True).status_code == 200
+        assert first["max_bandwidth_mbps"] == 3.0
+        assert update(owner, max_bandwidth_mbps=4.5).status_code == 200
         # Changing the setting does not mutate the already claimed attempt.
         worker.prepare_subtitles(first)
         worker.busy.clear()
         second = worker.claim()
-        assert second["compact_video"] is True
-        assert update(owner, compact_video=False).status_code == 200
+        assert second["max_bandwidth_mbps"] == 4.5
+        assert update(owner, max_bandwidth_mbps=3.0).status_code == 200
         worker.prepare_subtitles(second)
         worker.busy.clear()
         third = worker.claim()
-        assert third["compact_video"] is False
+        assert third["max_bandwidth_mbps"] == 3.0
         worker.prepare_subtitles(third)
-    assert received == [False, True, False]
+    assert received == [2616, 4116, 2616]
     assert original.read_bytes() == b"source untouched"
-    for row, expected in ((first, False), (second, True), (third, False)):
+    for row, expected in ((first, 3.0), (second, 4.5), (third, 3.0)):
         archive = next((store.media / f"{row['id']}-auto-alignment").glob("attempt-*"))
         assert (
-            json.loads((archive / "attempt.json").read_text())["compact_video"]
-            is expected
+            json.loads((archive / "attempt.json").read_text())["max_bandwidth_mbps"]
+            == expected
         )
         assert (
             store.db.execute(
@@ -177,11 +177,10 @@ def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path)
     from vc_ktv.autoprep import render_upstream_video
 
     def stop_before_models(video, lyrics, folder, settings, **kwargs):
-        assert kwargs["render_options"].max_video_kbps == 3000
-        assert kwargs["render_options"].compact_video is False
+        assert kwargs["render_options"].max_video_kbps == 2616
         raise RuntimeError("captured options")
 
-    monkeypatch.setenv("VC_KTV_VIDEO_MAXRATE_KBPS", "3000")
+    monkeypatch.setenv("VC_KTV_VIDEO_MAXRATE_KBPS", "12000")
     monkeypatch.setattr(autoprep, "make_karaoke_video", stop_before_models)
     source = tmp_path / "source.mp4"
     source.write_bytes(b"no models invoked")
@@ -191,9 +190,16 @@ def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path)
     monkeypatch.delenv("VC_KTV_VIDEO_MAXRATE_KBPS")
 
     def check_default(video, lyrics, folder, settings, **kwargs):
-        assert kwargs["render_options"].max_video_kbps is None
-        raise RuntimeError("default unlimited")
+        assert kwargs["render_options"].max_video_kbps == 4116
+        raise RuntimeError("custom budget")
 
     monkeypatch.setattr(autoprep, "make_karaoke_video", check_default)
-    with pytest.raises(RuntimeError, match="default unlimited"):
-        render_upstream_video(source, "one\ntwo", tmp_path / "out.mp4", tmp_path, 2)
+    with pytest.raises(RuntimeError, match="custom budget"):
+        render_upstream_video(
+            source,
+            "one\ntwo",
+            tmp_path / "out.mp4",
+            tmp_path,
+            2,
+            max_bandwidth_mbps=4.5,
+        )

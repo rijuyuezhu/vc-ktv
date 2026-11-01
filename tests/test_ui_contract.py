@@ -102,3 +102,23 @@ def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     assert "selected_lines:" in js and "selection_ticket:" in js
     assert ".netease-review-line.kept" in css
     assert "background: #fff0a8" in css
+
+
+def test_tv_html_overlay_and_bandwidth_ui_controls():
+    root = Path(__file__).resolve().parents[1] / "static"
+    admin = (root / "index.html").read_text()
+    admin_js = (root / "app.js").read_text()
+    tv = (root / "tv.html").read_text()
+    player = (root / "tv.js").read_text()
+    assert 'id="tv-html-overlay"' in admin
+    assert 'id="max-bandwidth-mbps"' in admin
+    assert 'id="compact-video"' not in admin
+    assert '"tv_html_overlay"' not in admin  # UI binds via JS.
+    assert "tv_html_overlay:" in admin_js
+    assert "max_bandwidth_mbps:" in admin_js
+    assert 'id="html-captions"' in tv
+    assert "tv-overlay.js" in tv
+    assert 'id="offset-controls"' in tv
+    assert all(f'data-offset="{d}"' in tv for d in (-50, -10, -1, 1, 10, 50))
+    assert "loadOverlay(answer.active)" in player
+    assert "resetOverlay()" in player

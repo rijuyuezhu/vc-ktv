@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 from ktv_app.media import probe
-from ktv_app.rendering import RenderOptions, render
+from ktv_app.rendering import RenderOptions, capped_h264_args, render
 from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Line, Timeline, Unit
 
@@ -128,6 +128,57 @@ def media_download(
     return public_media_download(bvid, page, directory, max_height=max_height)
 
 
+def prepare_tv_source(
+    source: Path, archive: Path, duration: float, bandwidth_mbps: float
+) -> None:
+    """Only transcode high-average-bitrate original video into a private TV cache."""
+    if (
+        duration <= 0
+        or source.stat().st_size * 8 <= duration * bandwidth_mbps * 800_000
+    ):
+        return
+    destination = archive / "tv-source.mp4"
+    temporary = archive / "tv-source.tmp.mp4"
+    try:
+        subprocess.run(
+            [
+                os.environ.get("KTV_FFMPEG", "ffmpeg"),
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                str(source),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-map_metadata",
+                "0",
+                "-vf",
+                "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-c:a",
+                "copy",
+                *capped_h264_args(stream_video_kbps(bandwidth_mbps)),
+                str(temporary),
+            ],
+            check=True,
+            timeout=1800,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        if temporary.stat().st_size < 1024:
+            raise ValueError("invalid compressed source")
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def stream_video_kbps(bandwidth_mbps: float) -> int:
+    """Reserve 384 kbps for copied audio and MP4 overhead."""
+    return max(300, round(bandwidth_mbps * 1000) - 384)
+
+
 def render_upstream_video(
     source: Path,
     lyrics: str,
@@ -136,7 +187,7 @@ def render_upstream_video(
     duration: float,
     *,
     preset: StylePreset = DEFAULT_PRESET,
-    compact_video: bool = False,
+    max_bandwidth_mbps: float = 3.0,
     progress=None,
 ) -> dict:
     """Run the selected alignment pipeline; no implicit fallback or retiming."""
@@ -145,9 +196,7 @@ def render_upstream_video(
     options = {
         "style": preset_style(preset),
         "render_options": RenderOptions(
-            compact_video=compact_video,
-            max_video_kbps=int(os.environ.get("VC_KTV_VIDEO_MAXRATE_KBPS", "0"))
-            or None,
+            max_video_kbps=stream_video_kbps(max_bandwidth_mbps),
         ),
     }
     options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "quality")
@@ -169,7 +218,7 @@ def render_provider_video(
     archive: Path,
     duration: float,
     *,
-    compact_video: bool = False,
+    max_bandwidth_mbps: float = 3.0,
     preset: StylePreset = DEFAULT_PRESET,
 ) -> dict:
     """Render explicitly chosen line timestamps, without loading GPU models."""
@@ -237,8 +286,7 @@ def render_provider_video(
         bundle,
     )
     options = RenderOptions(
-        compact_video=compact_video,
-        max_video_kbps=int(os.environ.get("VC_KTV_VIDEO_MAXRATE_KBPS", "0")) or None,
+        max_video_kbps=stream_video_kbps(max_bandwidth_mbps),
     )
     # Reuse the same audio-preserving encoder, style/bitrate and container as
     # the full-quality route; only the model alignment stages are skipped.
@@ -360,7 +408,8 @@ class AutoPrep:
                     # Later admin changes affect only subsequent jobs.
                     settings = self.store.settings()
                     claimed["style_preset"] = settings["subtitle_style"]
-                    claimed["compact_video"] = settings["compact_video"]
+                    claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
+                    claimed["tv_html_overlay"] = settings["tv_html_overlay"]
                 return claimed
             return None
 
@@ -501,11 +550,11 @@ class AutoPrep:
         archive.mkdir(parents=True)
         target = self.store.media / f"{song_id}-auto-{secrets.token_hex(6)}.mp4"
         preset = row.get("style_preset", DEFAULT_PRESET)
-        compact_video = row.get("compact_video", False)
+        max_bandwidth_mbps = row.get("max_bandwidth_mbps", 3.0)
         metadata = {
             "lyric_timing_mode": row.get("lyric_timing_mode", "align"),
             "subtitle_style": preset,
-            "compact_video": compact_video,
+            "max_bandwidth_mbps": max_bandwidth_mbps,
             "song_id": song_id,
             "source_file": row["source_file"],
             "lyric_source": row["lyric_source"],
@@ -514,7 +563,7 @@ class AutoPrep:
         try:
             options = {"preset": preset}
             if self.enhance is render_upstream_video:
-                options["compact_video"] = compact_video
+                options["max_bandwidth_mbps"] = max_bandwidth_mbps
                 stage_names = {
                     "读取原视频并提取音频": "extract",
                     "Kim 分离用于推理的人声": "kim",
@@ -573,13 +622,24 @@ class AutoPrep:
                     target,
                     archive,
                     float(row["duration"]),
-                    compact_video=compact_video,
+                    max_bandwidth_mbps=max_bandwidth_mbps,
                     preset=preset,
                 )
             else:
                 report = self.enhance(
                     source, lyrics, target, archive, float(row["duration"]), **options
                 )
+            if row.get("tv_html_overlay"):
+                try:
+                    prepare_tv_source(
+                        source, archive, float(row["duration"]), max_bandwidth_mbps
+                    )
+                    metadata["tv_source_ready"] = True
+                except (OSError, ValueError, subprocess.SubprocessError) as error:
+                    log.warning(
+                        "TV source compression failed for song #%s: %s", song_id, error
+                    )
+                    metadata["tv_source_ready"] = False
             metadata["outcome"] = "rendered"
             metadata["report"] = report
             with self.store.lock:

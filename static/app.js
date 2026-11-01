@@ -939,21 +939,24 @@ async function refreshEvents(){
     $("subtitle-style").value=settings.subtitle_style;
     $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
-    $("compact-video").checked=settings.compact_video;
+    $("max-bandwidth-mbps").value=String(settings.max_bandwidth_mbps);
     $("pause-orders").checked=settings.orders_paused;
+    $("tv-html-overlay").checked=settings.tv_html_overlay;
   }else if(document.activeElement!==$("queue-policy")&&
            document.activeElement!==$("allow-unsubtitled")&&
            document.activeElement!==$("subtitle-style")&&
            document.activeElement!==$("video-quality")&&
-           document.activeElement!==$("compact-video")&&
+           document.activeElement!==$("max-bandwidth-mbps")&&
            document.activeElement!==$("pause-orders")&&
+           document.activeElement!==$("tv-html-overlay")&&
            document.activeElement!==$("settings-save-btn")){
     $("queue-policy").value=settings.queue_policy;
     $("subtitle-style").value=settings.subtitle_style;
     $("video-quality").value=String(settings.video_quality);
     $("allow-unsubtitled").checked=settings.allow_unsubtitled;
-    $("compact-video").checked=settings.compact_video;
+    $("max-bandwidth-mbps").value=String(settings.max_bandwidth_mbps);
     $("pause-orders").checked=settings.orders_paused;
+    $("tv-html-overlay").checked=settings.tv_html_overlay;
   }
   updateStylePreview();
 }
@@ -967,8 +970,9 @@ $("settings-save-btn").onclick=()=>guarded(async()=>{
     allow_unsubtitled:$("allow-unsubtitled").checked,
     subtitle_style:$("subtitle-style").value,
     video_quality:Number($("video-quality").value),
-    compact_video:$("compact-video").checked,
-    orders_paused:$("pause-orders").checked
+    max_bandwidth_mbps:Number($("max-bandwidth-mbps").value),
+    orders_paused:$("pause-orders").checked,
+    tv_html_overlay:$("tv-html-overlay").checked
   });
   adminStateKey=null;
   listKeys.clear();

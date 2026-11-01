@@ -185,9 +185,14 @@
               暂停点歌
             </label>
             <label class="toggle">
-              <input id="compact-video" type="checkbox">
-              二次压缩成片至约 30 MB（默认关闭）
+              <input id="tv-html-overlay" type="checkbox">
+              电视播放本地原片，叠加实时卡拉 OK 字幕
             </label>
+            <div>
+              <label for="max-bandwidth-mbps">在线播放带宽预算（Mbps，默认 3）</label>
+              <input id="max-bandwidth-mbps" type="number" min="1" max="12" step="0.1" value="3">
+              <p class="muted">烧录版与本地原片在线播放缓存共用，预留音频带宽。新设置对下一次制作生效。</p>
+            </div>
           </div>
           <div id="style-preview" class="style-preview classic" aria-label="字幕风格示意预览">
             <span>♫ 示例歌词正在演唱</span>

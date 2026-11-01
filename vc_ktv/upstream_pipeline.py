@@ -331,7 +331,6 @@ def make_karaoke_video(
             safe_render = RenderOptions(
                 preset="ultrafast",
                 crf=28,
-                compact_video=False,
                 max_video_kbps=render_options.max_video_kbps,
             )
             final = render(source, bundle, info, settings, safe_render, "karaoke.mp4")

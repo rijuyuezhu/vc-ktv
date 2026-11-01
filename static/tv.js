@@ -22,6 +22,42 @@ const nextList=document.getElementById("next-list");
 const nextUp=document.getElementById("next-up");
 const nextUpRow=document.getElementById("next-up-row");
 const controlError=document.getElementById("control-error");
+const captions=document.getElementById("html-captions");
+const offsetControls=document.getElementById("offset-controls");
+const offsetValue=document.getElementById("offset-value");
+let offsetTenths=0;
+let activeOverlay=false;
+let activeBakedUrl=null;
+function overlaySource(song){return song.html_overlay?.source_url||null;}
+function mediaSource(song){return overlaySource(song)||song.media_url;}
+function resetOverlay(){
+  TVOverlay.reset();activeOverlay=false;offsetTenths=0;
+  offsetValue.textContent="+0.0 秒";offsetControls.hidden=true;
+}
+for(const button of document.querySelectorAll("[data-offset]")){
+  button.onclick=()=>{
+    if(!activeOverlay)return;
+    offsetTenths=Math.max(-600,Math.min(600,offsetTenths+Number(button.dataset.offset)));
+    TVOverlay.setOffset(offsetTenths);
+    offsetValue.textContent=(offsetTenths>=0?"+":"")+(offsetTenths/10).toFixed(1)+" 秒";
+    TVOverlay.draw(video.currentTime,video);
+    showPanel();
+  };
+}
+async function loadOverlay(song){
+  resetOverlay();
+  if(!song.html_overlay)return false;
+  try{
+    const resp=await fetch(song.html_overlay.timeline_url,{cache:"no-store"});
+    if(!resp.ok)throw Error("字幕数据不可用");
+    TVOverlay.setup(await resp.json(),captions);
+    activeOverlay=true;offsetControls.hidden=false;
+    return true;
+  }catch{
+    resetOverlay();return false;
+  }
+}
+
 const token=new URLSearchParams(location.search).get("token");
 let activeId=null;
 let started=false;
@@ -191,7 +227,10 @@ function clearPreload(){
     standby.load();
   }
 }
-function preloadKey(song){return song.id+":"+song.media_file;}
+function preloadKey(song){
+  // Signed URLs change expiry between polls. Compare stable media identity instead.
+  return JSON.stringify([song.id,song.media_file,song.source_file||"",Boolean(song.html_overlay)]);
+}
 async function checkPreload(){
   if(!started||activeId===null||inFlight||preloadInFlight||!Number.isFinite(video.duration))return;
   const remaining=video.duration-video.currentTime;
@@ -215,7 +254,7 @@ async function checkPreload(){
     clearPreload();
     if(preloadFailed===key)return;
     preloaded=candidate;
-    standby.src=candidate.media_url;
+    standby.src=mediaSource(candidate);
     standby.load();
   }catch{
     // Speculative loading must never interrupt the current song.
@@ -229,7 +268,11 @@ async function next(){
     if(!answer.active){status.textContent="正在等待下一首歌……";cover.classList.remove("hidden");return;}
     activeId=answer.active.id;
     cancelWarmup();
-    if(preloaded&&preloadKey(preloaded)===preloadKey(answer.active)&&!standby.error){
+    activeBakedUrl=answer.active.media_url;
+    const useOverlay=await loadOverlay(answer.active);
+    const sourceUrl=useOverlay?mediaSource(answer.active):answer.active.media_url;
+    if(preloaded&&Boolean(preloaded.html_overlay)===useOverlay&&
+       preloadKey(preloaded)===preloadKey(answer.active)&&!standby.error){
       const old=video;
       video=standby;
       standby=old;
@@ -238,7 +281,7 @@ async function next(){
       preloaded=null;
     }else{
       clearPreload();
-      video.src=answer.active.media_url;
+      video.src=sourceUrl;
     }
     preloadFailed=null;
     lastProbe=-Infinity;
@@ -259,6 +302,7 @@ async function complete(reason=""){
   if(activeId===null||finishing)return;
   finishing=true;
   cancelWarmup();
+  resetOverlay();activeBakedUrl=null;
   const id=activeId;
   activeId=null;
   video.removeAttribute("src");
@@ -277,7 +321,14 @@ for(const element of [video,standby]){
       clearPreload();
       return;
     }
-    if(activeId!==null){status.textContent="媒体无法播放，正在跳过这一首……";complete("skip");}
+    if(activeId!==null){
+      if(activeOverlay&&activeBakedUrl){
+        const fallback=activeBakedUrl;const position=video.currentTime;
+        resetOverlay();activeBakedUrl=null;video.src=fallback;
+        video.addEventListener("loadedmetadata",()=>{video.currentTime=position;video.play().catch(fail);},{once:true});
+        status.textContent="原片不可播放，已回退烧录版";
+      }else{status.textContent="媒体无法播放，正在跳过这一首……";complete("skip");}
+    }
   });
   element.addEventListener("timeupdate",()=>{if(element===video){checkPreload();updateControls();}});
   element.addEventListener("play",()=>{if(element===video)updateControls();});
@@ -327,3 +378,6 @@ replayNext.onclick=async()=>{
 volume.oninput=()=>{video.volume=standby.volume=Number(volume.value)/100;showPanel();};
 setInterval(syncQueue,3500);
 syncQueue();updateControls();
+
+function overlayFrame(){if(activeOverlay)TVOverlay.draw(video.currentTime,video);requestAnimationFrame(overlayFrame);}
+requestAnimationFrame(overlayFrame);

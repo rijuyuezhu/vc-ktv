@@ -113,8 +113,9 @@ class PlaybackSettings(BaseModel):
     subtitle_style: StylePreset | None = None
     video_quality: Literal[720, 480] | None = None
     # Optional to preserve older admin clients' current per-event setting.
-    compact_video: bool | None = None
+    max_bandwidth_mbps: float | None = Field(default=None, ge=1, le=12)
     orders_paused: bool | None = None
+    tv_html_overlay: bool | None = None
 
 
 class EventCreate(BaseModel):
@@ -329,7 +330,7 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','compact_video','orders_paused')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay')"
             )
         }
         return {
@@ -337,8 +338,9 @@ class Store:
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
             "subtitle_style": values.get("subtitle_style", "classic"),
             "video_quality": int(values.get("video_quality", "720")),
-            "compact_video": values.get("compact_video", "0") == "1",
+            "max_bandwidth_mbps": float(values.get("max_bandwidth_mbps", "3")),
             "orders_paused": values.get("orders_paused", "0") == "1",
+            "tv_html_overlay": values.get("tv_html_overlay", "0") == "1",
         }
 
     def playback_mode(self):
@@ -353,8 +355,9 @@ class Store:
         allow_unsubtitled: bool,
         subtitle_style: StylePreset | None = None,
         video_quality: Literal[720, 480] | None = None,
-        compact_video: bool | None = None,
+        max_bandwidth_mbps: float | None = None,
         orders_paused: bool | None = None,
+        tv_html_overlay: bool | None = None,
     ):
         with self.lock:
             for key, value in (
@@ -378,17 +381,23 @@ class Store:
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     (str(video_quality),),
                 )
-            if compact_video is not None:
+            if max_bandwidth_mbps is not None:
                 self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('compact_video',?) "
+                    "INSERT INTO room_state(name,value) VALUES('max_bandwidth_mbps',?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    ("1" if compact_video else "0",),
+                    (str(max_bandwidth_mbps),),
                 )
             if orders_paused is not None:
                 self.db.execute(
                     "INSERT INTO room_state(name,value) VALUES('orders_paused',?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     ("1" if orders_paused else "0",),
+                )
+            if tv_html_overlay is not None:
+                self.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES('tv_html_overlay',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    ("1" if tv_html_overlay else "0",),
                 )
             self.db.commit()
             return self.settings()
@@ -770,6 +779,65 @@ def create_app(
     def signed_media(song: dict) -> str:
         return f"/media/{song['id']}?token={quote(sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
 
+    def overlay_bundle(song: dict):
+        """Find the latest completed source-matching bundle, never stale attempts."""
+        if not song.get("source_file") or song.get("prep_state") != "done":
+            return None
+        root = store.media / f"{song['id']}-auto-alignment"
+        for attempt in sorted(root.glob("attempt-*/attempt.json"), reverse=True):
+            try:
+                info = json.loads(attempt.read_text(encoding="utf-8"))
+                if (
+                    info.get("outcome") != "rendered"
+                    or info.get("source_file") != song["source_file"]
+                ):
+                    continue
+                for name in ("pipeline/subtitles", "provider_subtitles"):
+                    folder = attempt.parent / name
+                    if all(
+                        (folder / f).is_file()
+                        for f in ("timeline.json", "display_plan.json", "style.json")
+                    ):
+                        return folder
+            except (OSError, ValueError, TypeError):
+                continue
+        return None
+
+    def overlay_archive(bundle: Path) -> Path:
+        return bundle.parent.parent if bundle.name == "subtitles" else bundle.parent
+
+    def overlay_view(song: dict):
+        if not store.settings()["tv_html_overlay"]:
+            return None
+        source = store.media / Path(song.get("source_file") or "").name
+        bundle = overlay_bundle(song)
+        if (
+            not source.is_file()
+            or not bundle
+            or not float(song.get("duration") or 0) > 0
+        ):
+            return None
+        # Never stream a high-bitrate source over the 4 Mbps proxy by accident.
+        limit = store.settings()["max_bandwidth_mbps"]
+        if source.stat().st_size * 8 > float(song["duration"] or 0) * limit * 800_000:
+            cache = overlay_archive(bundle) / "tv-source.mp4"
+            if not cache.is_file():
+                return None
+            try:
+                metadata = json.loads(
+                    (overlay_archive(bundle) / "attempt.json").read_text()
+                )
+                if float(metadata.get("max_bandwidth_mbps", 0)) > limit:
+                    return None
+            except (OSError, ValueError, TypeError):
+                return None
+        media_token = quote(sign("media", f"{events.active_id}:{song['id']}", 8 * 3600))
+        tv_token = quote(sign("overlay", f"{events.active_id}:{song['id']}", 8 * 3600))
+        return {
+            "source_url": f"/media/{song['id']}/source?token={media_token}",
+            "timeline_url": f"/api/tv/subtitles/{song['id']}?token={tv_token}",
+        }
+
     def active_view():
         song = store.current()
         if not song:
@@ -780,6 +848,7 @@ def create_app(
             (song["id"],),
         )[0]
         info["media_url"] = signed_media(info)
+        info["html_overlay"] = overlay_view(info)
         return info
 
     @app.middleware("http")
@@ -961,8 +1030,9 @@ def create_app(
                 body.allow_unsubtitled,
                 body.subtitle_style,
                 body.video_quality,
-                body.compact_video,
+                body.max_bandwidth_mbps,
                 body.orders_paused,
+                body.tv_html_overlay,
             )
 
     @app.get("/api/admin/events")
@@ -2094,13 +2164,15 @@ def create_app(
                 return {"candidate": None}
             song = queue[0]
             media = store.db.execute(
-                "SELECT media_file FROM songs WHERE id=?", (song["id"],)
+                "SELECT * FROM songs WHERE id=?", (song["id"],)
             ).fetchone()
             return {
                 "candidate": {
                     "id": song["id"],
-                    "media_file": media[0],
+                    "media_file": media["media_file"],
+                    "source_file": media["source_file"],
                     "media_url": signed_media(song),
+                    "html_overlay": overlay_view(dict(media)),
                 }
             }
 
@@ -2244,6 +2316,70 @@ def create_app(
             content_disposition_type="attachment",
             headers={"Cache-Control": "private, no-store"},
         )
+
+    @app.get("/media/{song_id}/source")
+    def serve_source(song_id: int, token: str = ""):
+        if (
+            not events.active_id
+            or read_signed(token, "media") != f"{events.active_id}:{song_id}"
+        ):
+            bail(403, "媒体链接无效或已过期")
+        with store.lock:
+            row = store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row or not row["source_file"]:
+                bail(404, "原视频不存在")
+            song = dict(row)
+            # Refuse source if it would exceed the admin's selected budget.
+            if not overlay_view(song):
+                bail(409, "原片模式不可用，请使用烧录版")
+            path = store.media / Path(song["source_file"]).name
+            if (
+                path.stat().st_size * 8
+                > float(song["duration"] or 0)
+                * store.settings()["max_bandwidth_mbps"]
+                * 800_000
+            ):
+                path = overlay_archive(overlay_bundle(song)) / "tv-source.mp4"
+            if not path.is_file():
+                bail(404, "原视频文件缺失")
+        return FileResponse(
+            path,
+            media_type=MEDIA_MIMES.get(path.suffix, "video/mp4"),
+            content_disposition_type="inline",
+        )
+
+    @app.get("/api/tv/subtitles/{song_id}")
+    def tv_subtitles(song_id: int, token: str):
+        if (
+            not events.active_id
+            or read_signed(token, "overlay") != f"{events.active_id}:{song_id}"
+        ):
+            bail(403, "字幕链接无效或已过期")
+        with store.lock:
+            row = store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            folder = overlay_bundle(dict(row))
+        if folder is None:
+            bail(404, "当前歌曲没有可用的逐字字幕")
+        try:
+            return {
+                "timeline": json.loads(
+                    (folder / "timeline.json").read_text(encoding="utf-8")
+                ),
+                "plan": json.loads(
+                    (folder / "display_plan.json").read_text(encoding="utf-8")
+                ),
+                "style": json.loads(
+                    (folder / "style.json").read_text(encoding="utf-8")
+                ),
+            }
+        except (OSError, ValueError):
+            bail(404, "字幕数据不可用")
 
     @app.get("/media/{song_id}")
     def serve_media(song_id: int, token: str = ""):
