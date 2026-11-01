@@ -23,9 +23,6 @@ def path_setting(name, default):
 
 @dataclass
 class Settings:
-    projects: Path = field(
-        default_factory=lambda: path_setting("KTV_PROJECTS", ROOT / "ktv_projects")
-    )
     tifa_source: Path = field(
         default_factory=lambda: path_setting(
             "TIFA_SOURCE", ROOT / "models/forced_alignment/sources/TIFA"
@@ -81,9 +78,6 @@ class Settings:
         default_factory=lambda: path_setting(
             "KTV_ASR_MODEL", ROOT / "models/Qwen3-ASR-1.7B"
         )
-    )
-    lyrics_url: str = field(
-        default_factory=lambda: os.getenv("KTV_LYRICS_API", "https://lrclib.net/api")
     )
 
     def __post_init__(self):

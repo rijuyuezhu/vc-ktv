@@ -73,3 +73,11 @@ These are local performance modifications, not changes to upstream model
 weights or authorization to replace source-verified word timestamps. For
 same-video, same-lyrics validation and the versioned raw profile location see
 `docs/PERFORMANCE_TIFA_OPTIMIZATION.md`.
+
+## VC KTV #32 post-migration dead project-UI cleanup
+
+Relative to the **unchanged** pinned source `39cedb317c9e11add83e9a72c31368cabd8416d4` (checked against GitHub files at that commit), `ktv_app/workflow.py` now retains the `AlignmentOptions` validated CUDA/Kim/TIFA contract but drops its unused former project-step/UI reporting helpers: `steps`, `alignment_identity`, and `timing_evidence`. Those functions were not imported by the `vc_ktv/` adapter, `ktv_app/`, scripts, or tests. The upstream module was already adapted in earlier integration to remove the unused fixed `max_tifa_input_seconds=90` input; that change is **not** introduced here.
+
+`ktv_app/config.py` removes its unused project-storage root (`Settings.projects` / `KTV_PROJECTS`) and old web lyrics API knob (`Settings.lyrics_url` / `KTV_LYRICS_API`), neither read by the VC KTV engine, application, or tests. Existing asset/runtime paths, `Settings.tool()`, FFmpeg, TIFA/Kim/Qwen controls and platform path handling are untouched. The actual guest lyrics search uses `vc_ktv/lyric_selection.py`, not this unused upstream settings field.
+
+This cleanup removes dead UI/project code only; it does **not** consolidate stage-specific process launches or caches. The existing separation/Qwen/TIFA stages have distinct runtime environments, cache identities, failure evidence and latency considerations; combining them without a measured reduction in duplicated work would expand scope and risk regressions. Windows-compatible pinned-source defaults likewise remain, rather than adding a Linux-only fork. Subsequent upstream merges must review these two local reductions and retain the historical performance/alignment deviations documented above. No upstream pointer or model assets were changed.
