@@ -122,3 +122,11 @@ def test_tv_html_overlay_and_bandwidth_ui_controls():
     assert all(f'data-offset="{d}"' in tv for d in (-50, -10, -1, 1, 10, 50))
     assert "loadOverlay(answer.active)" in player
     assert "resetOverlay()" in player
+
+
+def test_netease_review_is_not_a_second_simultaneous_modal():
+    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    assert "suspendingLyricPicker=true" in js
+    assert '$("guest-lyrics-dialog").close();' in js
+    assert '$("netease-review-dialog").addEventListener("close"' in js
+    assert "if(dialog.open)return;" in js
