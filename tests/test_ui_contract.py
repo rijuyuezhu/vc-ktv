@@ -82,3 +82,23 @@ def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
         "普通歌词对齐",
     ):
         assert warning in js
+
+
+def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    css = (root / "style.css").read_text()
+    for key in (
+        "netease-review-dialog",
+        "netease-review-lines",
+        "netease-review-count",
+        "netease-review-align",
+        "netease-review-timed",
+        "netease-review-back",
+    ):
+        assert f'id="{key}"' in html
+    assert "openNeteaseReview(candidate,useLyrics)" in js
+    assert "selected_lines:" in js and "selection_ticket:" in js
+    assert ".netease-review-line.kept" in css
+    assert "background: #fff0a8" in css

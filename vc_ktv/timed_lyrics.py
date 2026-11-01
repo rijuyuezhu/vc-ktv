@@ -55,6 +55,29 @@ def provider_timeline(raw: str, confirmed: str) -> str | None:
     return "\n".join(normalized)
 
 
+def project_provider_timeline(raw: str, original_text: str, selected: list[int]) -> str:
+    """Project selected source lines onto their actual LRC stamps, never retime them."""
+    all_lines = clean_lyric_text(raw, keep_leading_credits=True).splitlines()
+    if all_lines != original_text.splitlines():
+        raise ValueError("校正歌词与原始来源不匹配")
+    stamped = []
+    for raw_line in raw.splitlines():
+        display = clean_lyric_text(raw_line, keep_leading_credits=True)
+        if not display:
+            continue
+        rows = parse_lrc(raw_line) if LINE_STAMP.match(raw_line.strip()) else []
+        if len(rows) > 1 or (rows and (rows[0]["text"] != display or rows[0]["units"])):
+            raise ValueError("来源歌词包含无法校正的时间标签")
+        stamped.append(rows[0]["start"] if rows else None)
+    if len(stamped) != len(all_lines):
+        raise ValueError("来源歌词行数与时间轴不匹配")
+    if any(stamped[index] is None for index in selected):
+        raise ValueError("保留的歌词中有无时间戳行，请改用普通歌词对齐")
+    return "\n".join(
+        f"[{_stamp(stamped[index])}]{all_lines[index]}" for index in selected
+    )
+
+
 def _timestamp(stamp: str) -> float:
     match = re.fullmatch(r"(\d{1,3}):([0-5]\d)(?:\.(\d{1,3}))?", stamp)
     if not match:
