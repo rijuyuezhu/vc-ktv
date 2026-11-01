@@ -102,6 +102,7 @@ def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     assert "selected_lines:" in js and "selection_ticket:" in js
     assert ".netease-review-line.kept" in css
     assert "background: #fff0a8" in css
+    assert ">直接使用网易云时间轴</button>" in html
 
 
 def test_tv_html_overlay_and_bandwidth_ui_controls():
