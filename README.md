@@ -18,7 +18,7 @@
 需要 Linux、Python 3.12、uv、FFmpeg（含 libass 和 libx264）及 Noto CJK 字体。模型和 CUDA 环境不随仓库分发，未安装时可下载原视频，是否允许无字幕播放由管理员决定。
 
 ```bash
-sudo apt-get install ffmpeg fonts-noto-cjk
+sudo apt-get install ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
 git clone "$REPOSITORY_URL" vc-ktv
 cd vc-ktv
 uv sync --locked --group dev
@@ -39,6 +39,8 @@ uv run python -m vc_ktv
 
 开发校验：`uv run pre-commit run --all-files`、`uv run pytest -q`。服务采用现有 `main` 的静态前端，不需要单独构建前端。
 
+字幕字体：启动自动制作时会检查 **Noto Sans CJK SC Bold**，缺失时记录警告；每次导出在 `export_report.json` 的 `font_diagnostics` 中记录 Fontconfig 字体检查、未覆盖字符的 Unicode 编码以及诊断警告（缺字不改写歌词）。可在服务机器上执行 `fc-match 'Noto Sans CJK SC:style=Bold'` 验证。HTML 字幕使用设备字体，依次选择 Noto Sans CJK SC、Noto Sans SC、微软雅黑、苹方等系统字体；字体缺失时仍可显示，但不同字体的字宽可能不同于烧录版本。服务端另安装 `fonts-noto-color-emoji` 提供浏览器常见 Emoji/符号字形的补充覆盖；libass 不一定能渲染彩色 Emoji 字体，因此字形检查不会把纯彩色 Emoji 字体算作烧录端的可靠回退。项目不打包完整 CJK Web 字体。
+
 ## 文档
 
 - [场次与数据管理](docs/EVENTS.md)
@@ -50,4 +52,4 @@ uv run python -m vc_ktv
 - [可选来源逐句 LRC 与偏移校准](docs/PROVIDER_LRC.md)
 - [B 站 CDN 与 HTML 歌词叠加独立实验](docs/BILIBILI_CDN_RESEARCH.md)
 
-本项目是私人测试原型，不提供公网投屏服务或原生乐播 SDK。视频和歌词版权属于各权利人，请仅处理有权使用的素材。音频分离、对齐及字幕渲染代码基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) 修改，固定来源、Apache-2.0 许可及归属见 [第三方说明](third_party/autoassrenderer/README.md)；模型也适用各自条款。本仓库目前未授予对外开源许可。
+本项目是私人测试原型，不提供公网投屏服务或原生乐播 SDK。视频和歌词版权属于各权利人，请仅处理有权使用的素材。音频分离、对齐及字幕渲染代码基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) 修改，固定来源、Apache-2.0 许可及归属见 [第三方说明](third_party/autoassrenderer/README.md)；模型也适用各自条款。本仓库代码采用根目录 [LICENSE](LICENSE) 中的 Apache-2.0 许可；第三方内容仍遵循各自许可。

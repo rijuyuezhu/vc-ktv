@@ -40,7 +40,7 @@ test("HTML karaoke uses separate dark outline and live white/yellow fill",()=>{
   assert.match(words(row)[1].style.backgroundImage,/0%/);
   assert.equal(row.style["--ktv-base"],"#FFFFFF");
   assert.equal(row.style["--ktv-stroke"],"6px");
-  assert.equal(row.style.fontFamily,'"Noto Sans CJK SC",sans-serif');
+  assert.equal(row.style.fontFamily,'"Noto Sans CJK SC","Noto Sans SC","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif');
   overlay.setOffset(10);
   overlay.draw(3);
   assert.match(words(row)[0].style.backgroundImage,/0%/);
@@ -111,4 +111,12 @@ test("changing time updates gradient but does not rebuild text DOM each frame",(
   overlay.draw(4);
   assert.equal(words(root.children[1])[0],before);
   assert.match(before.style.backgroundImage,/100%/);
+});
+
+test("HTML subtitle font has explicit cross-platform Chinese fallbacks",()=>{
+  const {overlay,root}=harness();
+  overlay.setup({timeline,plan,style:{...style,font:"Custom Font"}},root);
+  overlay.draw(3);
+  assert.equal(root.children[1].style.fontFamily,
+    '"Custom Font","Noto Sans SC","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif');
 });
