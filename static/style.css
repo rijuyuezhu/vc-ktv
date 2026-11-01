@@ -206,7 +206,7 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
   color: #fff;
   text-align: center;
   overflow: hidden;
-  font-family: "Noto Sans CJK SC", sans-serif;
+  font-family: "Noto Sans CJK SC", "Noto Sans SC", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
   font-weight: 700;
   font-size: 19px;
 }

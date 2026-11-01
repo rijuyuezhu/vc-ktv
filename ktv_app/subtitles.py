@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from .completion import remove_estimates
+from .font_support import font_diagnostics
 from .timeline import Style, Timeline, canonical
 
 
@@ -272,6 +273,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     (folder / "display_plan.json").write_text(
         json.dumps(windows, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    fonts = font_diagnostics(style.font, [line.text for line in timeline.lines])
+    warnings.extend(
+        {"reason": issue, "source": "fontconfig"} for issue in fonts["warnings"]
+    )
     report = {
         "policy": "saved_timestamps_rolling_estimates"
         if style.auto_complete
@@ -299,6 +304,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         "untimed_units": sum(u.start is None for l in timeline.lines for u in l.units),
         "unmatched_lines": len(unmatched),
         "warnings": warnings,
+        "font_diagnostics": fonts,
         "no_timed_subtitles": not bool(events),
         "note": (
             "使用第三步已保存的时间戳；估算字词也滚动，但不计入模型覆盖率。双行在下一句高亮过半时替换上一句。导出不执行补齐或对齐。"

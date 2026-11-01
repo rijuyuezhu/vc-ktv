@@ -35,7 +35,7 @@ jobs:
       - name: Install media test dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg fonts-noto-cjk
+          sudo apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
 
       - name: Python tests
         run: uv run --no-sync pytest -q

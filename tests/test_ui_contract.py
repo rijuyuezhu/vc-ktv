@@ -160,3 +160,17 @@ def test_tv_html_font_and_baseline_calibrated_to_ass():
     assert "const ASS_FONT_TO_CSS=0.69" in script
     assert "const ASS_BASELINE_ADJUST=0.075" in script
     assert "assY-scaledFontSize*ASS_BASELINE_ADJUST" in script
+
+
+def test_tv_font_fallback_and_admin_preview_share_family_list():
+    root = Path(__file__).resolve().parents[1] / "static"
+    overlay = (root / "tv-overlay.js").read_text()
+    css = (root / "style.css").read_text()
+    for family in (
+        "Noto Sans SC",
+        "Microsoft YaHei",
+        "PingFang SC",
+        "Hiragino Sans GB",
+    ):
+        assert f'"{family}"' in overlay
+        assert f'"{family}"' in css

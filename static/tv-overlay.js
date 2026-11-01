@@ -5,6 +5,8 @@
 const ASS_FONT_TO_CSS=0.69;
 // CSS text ink sits slightly below libass's bottom-aligned glyphs.
 const ASS_BASELINE_ADJUST=0.075;
+// Common Windows/macOS Chinese fonts when the ASS font isn't installed locally.
+const CJK_FONT_FALLBACK='"Noto Sans SC","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif';
 const TVOverlay={
   timeline:null,plan:null,style:null,offset:0,root:null,
   reset(){
@@ -50,7 +52,7 @@ const TVOverlay={
       row.style.width=(width*.92)+"px";
       row.style.right="auto";
       row.style.fontSize=scaledFontSize+"px";
-      row.style.fontFamily=`"${(this.style.font||"Noto Sans CJK SC").replace(/["'\\]/g,"")}",sans-serif`;
+      row.style.fontFamily=`"${(this.style.font||"Noto Sans CJK SC").replace(/["'\\]/g,"")}",${CJK_FONT_FALLBACK}`;
       row.style.setProperty("--ktv-base",this.style.base||"#FFFFFF");
       row.style.setProperty("--ktv-stroke",Math.max(0,(this.style.outline??3)*2*height/720)+"px");
       const id=line?.id||"";
