@@ -16,7 +16,8 @@ const smoothBuffer=document.getElementById("smooth-buffer");
 const nowPlaying=document.getElementById("now-playing");
 const progress=document.getElementById("progress");
 const nextList=document.getElementById("next-list");
-const nextTip=document.getElementById("next-tip");
+const nextUp=document.getElementById("next-up");
+const nextUpRow=document.getElementById("next-up-row");
 const controlError=document.getElementById("control-error");
 const token=new URLSearchParams(location.search).get("token");
 let activeId=null;
@@ -29,9 +30,8 @@ let preloadInFlight=false;
 let lastProbe=-Infinity;
 let replayInFlight=false;
 let panelTimer=null;
-let tipTimer=null;
 let nextKey=null;
-let lastEndTipKey=null;
+let highlightTimer=null;
 let playbackMode="browser";
 const START_BUFFER_SECONDS=12;
 const START_BUFFER_WAIT_MS=12000;
@@ -103,9 +103,16 @@ panel.onpointerleave=()=>{
   clearTimeout(panelTimer);
   panelTimer=setTimeout(()=>{if(!panel.matches(":focus-within"))hidePanel();},4000);
 };
-function hint(message){
-  nextTip.textContent=message;nextTip.hidden=false;
-  clearTimeout(tipTimer);tipTimer=setTimeout(()=>{nextTip.hidden=true;},4200);
+function updateNextSong(song){
+  const key=song?JSON.stringify([song.id,song.title,song.nickname]):"";
+  if(nextKey===key)return;
+  nextUp.textContent=song?song.title+" / "+song.nickname:"暂无下一首可播放歌曲";
+  if(nextKey!==null){
+    nextUpRow.classList.add("highlight");
+    clearTimeout(highlightTimer);
+    highlightTimer=setTimeout(()=>nextUpRow.classList.remove("highlight"),2200);
+  }
+  nextKey=key;
 }
 function clock(seconds){
   if(!Number.isFinite(seconds))return "0:00";
@@ -123,19 +130,7 @@ async function syncQueue(){
     const state=await api("/api/tv/state");
     playbackMode=state.playback_mode||"browser";
     const queue=(state.queue||[]).slice(0,3);
-    const key=JSON.stringify(queue.map(s=>[s.id,s.title,s.nickname]));
-    if(nextKey!==null&&key!==nextKey&&queue.length){
-      hint("下一首更新："+queue[0].title+" / "+queue[0].nickname);
-    }
-    nextKey=key;
-    const remaining=video.duration-video.currentTime;
-    if(activeId!==null&&queue.length&&remaining>0&&remaining<=20){
-      const endKey=activeId+":"+queue[0].id;
-      if(lastEndTipKey!==endKey){
-        lastEndTipKey=endKey;
-        hint("即将播放："+queue[0].title+" / "+queue[0].nickname);
-      }
-    }
+    updateNextSong(queue[0]);
     nextList.replaceChildren();
     if(!queue.length){
       const empty=document.createElement("li");empty.textContent="暂无下一首可播放歌曲";nextList.append(empty);
@@ -146,6 +141,7 @@ async function syncQueue(){
       nextList.append(li);
     }
     nowPlaying.textContent=state.current?state.current.title+" / "+state.current.nickname:"暂无正在播放的歌曲";
+    if(!started)status.textContent=state.current?nowPlaying.textContent:"等待播放";
     if(playbackMode==="manual")controlError.textContent="当前为手动投屏模式，请到管理后台控制";
     else if(controlError.textContent.includes("手动投屏"))controlError.textContent="";
     if(preloaded&&(!queue.length||preloaded.id!==queue[0].id))clearPreload();
@@ -213,7 +209,6 @@ async function next(){
     if(!answer.active){status.textContent="正在等待下一首歌……";cover.classList.remove("hidden");return;}
     activeId=answer.active.id;
     cancelWarmup();
-    lastEndTipKey=null;
     if(preloaded&&preloadKey(preloaded)===preloadKey(answer.active)&&!standby.error){
       const old=video;
       video=standby;
