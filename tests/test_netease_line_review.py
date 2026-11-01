@@ -195,3 +195,50 @@ def test_provider_timing_without_credits_can_filter_a_middle_lyric(tmp_path):
         assert record["provider_lrc"] == (
             "[00:01.00]第一句歌词\n[00:09.00]最后一句歌词"
         )
+
+
+def test_netease_source_with_spaces_after_timestamps_keeps_real_stamps(tmp_path):
+    # Reproduction shape from BV1o4Md66E7t: NetEase credits include a space
+    # after each [mm:ss.xxx] marker, but the displayed lines are stripped.
+    raw = (
+        "[00:00.000] 作词 : 某人\n"
+        "[00:01.000] 作曲 : 某人\n"
+        "[00:02.000] 编曲 : 某人\n"
+        "[00:05.000] 第一句\n"
+        "[00:10.000] 第二句\n"
+        "[00:15.000] 第三句"
+    )
+    app = make_guest(tmp_path, raw)
+    with TestClient(app) as guest:
+        song_id, candidate = candidate_and_song(guest)
+        assert candidate["text"] == "第一句\n第二句\n第三句"
+        assert candidate["unfiltered_text"].splitlines()[:3] == [
+            "作词 : 某人",
+            "作曲 : 某人",
+            "编曲 : 某人",
+        ]
+        assert candidate.get("timed_lrc")
+        response = guest.post(
+            f"/api/songs/{song_id}/lyrics/select",
+            json=payload(candidate, [3, 4, 5], timed=True),
+        )
+        assert response.status_code == 200, response.text
+        result = app.state.store.rows(
+            "SELECT lyric_choice,provider_lrc,lyric_timing_mode FROM songs WHERE id=?",
+            (song_id,),
+        )[0]
+        assert result == {
+            "lyric_choice": "第一句\n第二句\n第三句",
+            "provider_lrc": "[00:05.00]第一句\n[00:10.00]第二句\n[00:15.00]第三句",
+            "lyric_timing_mode": "provider",
+        }
+        # Selecting a time-stamped credit is also valid; don't drop its timing.
+        second = guest.post(
+            f"/api/songs/{song_id}/lyrics/select",
+            json=payload(candidate, [0, 3, 5], timed=True),
+        )
+        assert second.status_code == 200, second.text
+        selected = app.state.store.rows(
+            "SELECT provider_lrc FROM songs WHERE id=?", (song_id,)
+        )[0]["provider_lrc"]
+        assert selected.startswith("[00:00.00]作词 : 某人\n")
