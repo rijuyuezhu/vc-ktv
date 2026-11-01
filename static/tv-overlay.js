@@ -1,5 +1,10 @@
 "use strict";
 // Uses the same timestamp/slot/style bundle as the burned ASS output.
+// libass/ASS PlayRes uses a different effective font scale from CSS pixels.
+// Calibrated against the same timeline rendered by ffmpeg/libass at 1280x720.
+const ASS_FONT_TO_CSS=0.69;
+// CSS text ink sits slightly below libass's bottom-aligned glyphs.
+const ASS_BASELINE_ADJUST=0.075;
 const TVOverlay={
   timeline:null,plan:null,style:null,offset:0,root:null,
   reset(){
@@ -38,11 +43,13 @@ const TVOverlay={
       const slot=Number(row.dataset.slot);
       const line=selected[slot];
       const y=this.style.position??.86;
-      row.style.top=(top+height*y-(this.style.mode==="double"&&slot===0?fontSize*1.4*height/720:0))+"px";
+      const scaledFontSize=fontSize*ASS_FONT_TO_CSS*height/720;
+      const assY=top+height*y-(this.style.mode==="double"&&slot===0?fontSize*1.4*height/720:0);
+      row.style.top=(assY-scaledFontSize*ASS_BASELINE_ADJUST)+"px";
       row.style.left=(left+width*.04)+"px";
       row.style.width=(width*.92)+"px";
       row.style.right="auto";
-      row.style.fontSize=Math.max(14,fontSize*height/720)+"px";
+      row.style.fontSize=scaledFontSize+"px";
       row.style.fontFamily=`"${(this.style.font||"Noto Sans CJK SC").replace(/["'\\]/g,"")}",sans-serif`;
       row.style.setProperty("--ktv-base",this.style.base||"#FFFFFF");
       row.style.setProperty("--ktv-stroke",Math.max(0,(this.style.outline??3)*2*height/720)+"px");

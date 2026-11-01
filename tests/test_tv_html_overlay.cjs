@@ -68,11 +68,13 @@ test("three admin presets inherit exactly the saved ASS style settings",()=>{
     overlay.setup({timeline,plan:{first:{...plan.first,slot:0}},style:preset},root);
     const viewport={videoWidth:1280,videoHeight:720,getBoundingClientRect:()=>({left:0,top:0,width:1280,height:720})};
     overlay.draw(3,viewport);
-    assert.equal(root.children[0].style.fontSize,preset.size+"px");
+    const expectedFontSize=preset.size*.69;
+    assert.ok(Math.abs(parseFloat(root.children[0].style.fontSize)-expectedFontSize)<.01);
     assert.equal(root.children[0].style["--ktv-stroke"],(preset.outline*2)+"px");
     assert.equal(root.children[0].style["--ktv-base"],preset.base);
     assert.match(words(root.children[0])[0].style.backgroundImage,new RegExp(preset.highlight));
-    assert.equal(root.children[0].style.top,`${720*preset.position-(preset.mode==="double"?preset.size*1.4:0)}px`);
+    const expectedTop=720*preset.position-(preset.mode==="double"?preset.size*1.4:0)-expectedFontSize*.075;
+    assert.ok(Math.abs(parseFloat(root.children[0].style.top)-expectedTop)<.01);
     assert.equal(root.children[1].children.length,0);
   }
 });
@@ -83,7 +85,10 @@ test("subtitle geometry stays within letterboxed original video",()=>{
   overlay.draw(3,tall);
   assert.equal(root.children[1].style.left,"16px");
   assert.equal(root.children[1].style.width,"368px");
-  assert.equal(root.children[1].style.top,"481px");
+  const imageHeight=225; // 1920x1080 letterboxed into 400x800.
+  const fontPx=48*.69*imageHeight/720;
+  const assBaseline=(800-imageHeight)/2+imageHeight*.86;
+  assert.ok(Math.abs(parseFloat(root.children[1].style.top)-(assBaseline-fontPx*.075))<.01);
   assert.equal(words(root.children[1]).map(x=>x.textContent).join(""),"AB");
 });
 test("Python codepoint character spans survive emoji in lyric lines",()=>{

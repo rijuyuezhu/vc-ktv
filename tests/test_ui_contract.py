@@ -151,3 +151,12 @@ def test_html_tv_paints_separate_stroke_under_animated_lyrics():
     assert 'this.style.font||"Noto Sans CJK SC"' in script
     assert 'this.style.base||"#FFFFFF"' in script
     assert 'this.style.highlight||"#FFD53D"' in script
+
+
+def test_tv_html_font_and_baseline_calibrated_to_ass():
+    script = (
+        Path(__file__).resolve().parents[1] / "static" / "tv-overlay.js"
+    ).read_text()
+    assert "const ASS_FONT_TO_CSS=0.69" in script
+    assert "const ASS_BASELINE_ADJUST=0.075" in script
+    assert "assY-scaledFontSize*ASS_BASELINE_ADJUST" in script
