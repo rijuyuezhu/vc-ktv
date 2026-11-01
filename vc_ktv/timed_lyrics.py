@@ -66,7 +66,9 @@ def project_provider_timeline(raw: str, original_text: str, selected: list[int])
         if not display:
             continue
         rows = parse_lrc(raw_line) if LINE_STAMP.match(raw_line.strip()) else []
-        if len(rows) > 1 or (rows and (rows[0]["text"] != display or rows[0]["units"])):
+        if len(rows) > 1 or (
+            rows and (rows[0]["text"].strip() != display or rows[0]["units"])
+        ):
             raise ValueError("来源歌词包含无法校正的时间标签")
         stamped.append(rows[0]["start"] if rows else None)
     if len(stamped) != len(all_lines):
