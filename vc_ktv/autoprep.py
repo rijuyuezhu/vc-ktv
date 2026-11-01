@@ -183,6 +183,7 @@ def render_provider_video(
                 "offset_ms": offset_ms,
                 "verified_against_audio": False,
                 "not_word_aligned": True,
+                "character_timing": "equal_split_estimate",
             },
             ensure_ascii=False,
             indent=2,
@@ -190,27 +191,32 @@ def render_provider_video(
         + "\n",
         encoding="utf-8",
     )
-    # Provider start/end is line-level; there is NO word/character sweep.
+    # The provider gives line starts only; synthesize an evenly timed sweep.
     rows = parse_lrc(shifted)
     lines = []
     for i, row in enumerate(rows):
         start = row["start"]
         next_start = rows[i + 1]["start"] if i + 1 < len(rows) else duration
+        end = min(next_start, start + 8)
+        text = row["text"]
         lines.append(
             Line(
                 id=f"provider-{i}",
-                text=row["text"],
+                text=text,
                 start=start,
-                end=min(next_start, start + 8),
-                completion_note="来源逐句时间未经过声学验证",
+                end=end,
+                completion_note="逐字渐变按来源行时长等分估算，未经过声学验证",
                 units=[
                     Unit(
-                        id=f"provider-{i}-text",
-                        text=row["text"],
-                        source_start=0,
-                        source_end=len(row["text"]),
+                        id=f"provider-{i}-{j}",
+                        text=char,
+                        source_start=j,
+                        source_end=j + 1,
+                        start=start + (end - start) * j / len(text),
+                        end=start + (end - start) * (j + 1) / len(text),
                         timing_source="estimated",
                     )
+                    for j, char in enumerate(text)
                 ],
             )
         )
@@ -224,6 +230,7 @@ def render_provider_video(
                 "timing_source": "provider_lrc",
                 "offset_ms": offset_ms,
                 "verified_against_audio": False,
+                "character_timing": "equal_split_estimate",
             },
         ),
         preset_style(preset),
@@ -249,6 +256,7 @@ def render_provider_video(
         "lines": len(rows),
         "offset_ms": offset_ms,
         "verified_against_audio": False,
+        "character_timing": "equal_split_estimate",
     }
 
 

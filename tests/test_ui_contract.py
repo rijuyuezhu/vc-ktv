@@ -67,3 +67,18 @@ def test_tv_banner_transparency_control_exists():
     assert "background:#111b29eb" in html  # Expanded panel unchanged.
     assert "var(--banner-opacity,.85)" in html
     assert "vcktv-banner-transparency" in js
+
+
+def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
+    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    assert "沿用来源逐句时间轴" in js
+    for warning in (
+        "网易云音乐",
+        "同一音源",
+        "演唱会",
+        "改编版",
+        "逐字渐变",
+        "等分估算",
+        "普通歌词对齐",
+    ):
+        assert warning in js

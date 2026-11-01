@@ -1,6 +1,7 @@
 """Provider timing is deliberately opt-in, authenticated, and line-level only."""
 
 import json
+import re
 import subprocess
 
 import pytest
@@ -262,14 +263,26 @@ def test_opt_in_preparation_bypasses_gpu_and_keeps_original_audio(tmp_path):
         report = json.loads((archive / "provider_timing.json").read_text())
         assert report["mode"] == "provider_line_only"
         assert report["verified_against_audio"] is False
+        assert report["character_timing"] == "equal_split_estimate"
+        timeline = json.loads(
+            (archive / "provider_subtitles" / "timeline.json").read_text()
+        )
+        first_line = timeline["lines"][0]
+        assert len(first_line["units"]) == len(first_line["text"])
+        assert first_line["units"][0]["start"] == pytest.approx(6.0)
+        assert first_line["units"][-1]["end"] == pytest.approx(11.0)
+        assert all(u["timing_source"] == "estimated" for u in first_line["units"])
+        assert all(
+            u["text"] == first_line["text"][i]
+            for i, u in enumerate(first_line["units"])
+        )
         ass = (archive / "provider_subtitles" / "lyrics.ass").read_text(
             encoding="utf-8-sig"
         )
-        assert "第一" in ass
+        assert "第一次演唱的歌词" in re.sub(r"\{[^}]*\}", "", ass)
         assert "Noto Sans CJK SC,38," in ass  # Event subtitle preset still honored.
-        assert (
-            "\\kf" not in ass
-        )  # Source LRC has only line timing; no invented word sweeps.
+        assert ass.count("\\kf") == len(TEXT.replace("\n", ""))
+        assert "equal_split_estimate" in (archive / "provider_timing.json").read_text()
         assert guest.get(f"/api/songs/{song_id}/download").status_code == 200
         detail = guest.get(f"/api/songs/{song_id}/detail").json()
         assert (
