@@ -391,8 +391,10 @@ async function openLyricPicker(songId,title,query){
   if(!$("guest-lyrics-dialog").open)$("guest-lyrics-dialog").showModal();
   await searchGuestLyrics();
 }
+let suspendingLyricPicker=false;
 function openNeteaseReview(candidate, useLyrics){
   const dialog=$("netease-review-dialog");
+  if(dialog.open)return;
   const original=candidate.unfiltered_text||candidate.text;
   const lines=original.split("\n");
   // Existing cleanup only removes leading production credits.
@@ -443,8 +445,19 @@ function openNeteaseReview(candidate, useLyrics){
   $("netease-review-align").onclick=()=>submit($("netease-review-align"),false);
   $("netease-review-timed").onclick=()=>submit($("netease-review-timed"),true);
   $("netease-review-back").onclick=()=>dialog.close();
+  const picker=$("guest-lyrics-dialog");
+  if(picker.open){
+    suspendingLyricPicker=true;
+    picker.close();
+  }
   dialog.showModal();
 }
+$("netease-review-dialog").addEventListener("close",()=>{
+  // Back button and Esc restore the same candidate list, without re-searching.
+  if(selectingSongId!==null&&!$("guest-lyrics-dialog").open){
+    $("guest-lyrics-dialog").showModal();
+  }
+});
 function addLyricCandidates(candidates, songId, sequence){
   if(sequence!==selectionRequest || selectingSongId!==songId)return;
   const panel=$("guest-lyrics-results");
@@ -475,13 +488,16 @@ function addLyricCandidates(candidates, songId, sequence){
       abortLyricRequests();
       selectingSongId=null;
       if($("netease-review-dialog").open)$("netease-review-dialog").close();
-      $("guest-lyrics-dialog").close();
+      if($("guest-lyrics-dialog").open)$("guest-lyrics-dialog").close();
       toast("✓ 歌词已选择");
       await refresh();
     },button);
     if(candidate.source==="网易云音乐"){
       const review=appendText(card,"button","逐行校正并使用","btn primary");
-      review.onclick=()=>openNeteaseReview(candidate,useLyrics);
+      review.type="button";
+      review.onclick=()=>{
+        try{openNeteaseReview(candidate,useLyrics);}catch(e){error(e);}
+      };
       card.append(review);
       panel.append(card);
       return;
@@ -586,6 +602,7 @@ async function searchMoreLyrics(){
   if(sequence===selectionRequest && selectingSongId===songId)button.disabled=false;
 }
 $("guest-lyrics-dialog").addEventListener("close",()=>{
+  if(suspendingLyricPicker){suspendingLyricPicker=false;return;}
   selectingSongId=null;selectionRequest++;abortLyricRequests();
 });
 $("guest-lyrics-skip").onclick=()=>guarded(async()=>{
