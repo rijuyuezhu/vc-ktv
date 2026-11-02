@@ -1,6 +1,6 @@
 # Quality pipeline: bounded two-song throughput experiment
 
-Hardware: Spark-WSL, RTX Spark N1X (64,000 MiB GPU-visible memory), 20 ARM CPU cores. Source: previously archived **original videos and confirmed lyrics**, using the same complete upstream quality pipeline from PR #80 and the same model weights. No song was added to a production queue. The serial and parallel runs have separate work directories.
+Hardware: ARM64/WSL test host with RTX Spark N1X (64,000 MiB GPU-visible memory), 20 ARM CPU cores. Source: previously archived **original videos and confirmed lyrics**, using the same complete upstream quality pipeline from PR #80 and the same model weights. No song was added to a production queue. The serial and parallel runs have separate work directories.
 
 | Song | Sequential complete pipeline | Two simultaneously running pipelines |
 |---|---:|---:|

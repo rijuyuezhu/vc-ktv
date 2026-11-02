@@ -44,7 +44,7 @@
 
 ## 模型路径
 
-Kim、Qwen 和 TIFA 的权重、源码及运行时统一存放在 `~/.local/share/vc-ktv/pipeline/`，不引用仓库下的 `.runtime` 或早期的 `vc-ktv-pipeline-staging`。环境与权重由独立安装命令准备。生产现有 systemd 配置若显式设置 `VC_KTV_PIPELINE_MODE=global-kim`，合并 PR 后仍需另行审核并切换为 `quality`，不能在开发时重启生产。
+Kim、Qwen 和 TIFA 的权重、源码及运行时统一存放在 `~/.local/share/vc-ktv/pipeline/`，不引用仓库下的 `.runtime` 或早期的 `vc-ktv-pipeline-staging`。环境与权重由独立安装命令准备。默认流水线模式是 `quality`；实际服务可能通过 `VC_KTV_PIPELINE_MODE` 覆盖，部署或升级前必须检查运行进程及服务配置，不能使用历史 PR 的生产状态描述推断当前模式。
 
 ## 并行处理
 
@@ -52,11 +52,11 @@ Kim、Qwen 和 TIFA 的权重、源码及运行时统一存放在 `~/.local/shar
 
 各 worker 使用独立的音视频文件和推理进程，数据库任务领取及完成时状态更新受同一场次锁保护。`active_claims` 记录所有正在处理的任务，即使其中一些已经结束，也必须等最后一首完成才允许关闭场次。每首歌始终执行完整 Kim、双遍 Qwen3-ASR、全部非空 ASR 窗口 TIFA、可信歌词大块与接缝修复，以及视频刻录，不跳过任何阶段。
 
-建议在 Spark-WSL 上使用：
+在经过测量的 ARM64/WSL + NVIDIA CUDA 环境中，可选配置：
 
 ```sh
 VC_KTV_PREP_WORKERS=4
 VC_KTV_KIM_SINGLE_FLIGHT=1
 ```
 
-第二个变量让 Kim CUDA 推理同一时间仅运行一个实例（位于正式 pipeline 数据目录的跨进程锁）；其它歌曲的 Qwen、TIFA、下载和 FFmpeg 仍可并行。单首没有其它任务争用时通常比多首并行更快，但并非时延保证。2026-10-30 六首历史歌曲完整质量流水线的实测：串行 2129.646 秒，3 worker 861.527 秒，**4 worker 756.814 秒（2.81× 串行吞吐）**，6 worker 829.072 秒。三种并发方案全部六首 MP4 SHA-256、Qwen 窗口及 TIFA/字幕时间轴与串行基线一致。原始记录：`~/.local/share/vc-ktv/pipeline/benchmarks/20261030-six-song-throughput/REPORT.md`。该实验不修改生产配置；生产升级与模式切换仍需单独审批。
+第二个变量让 Kim CUDA 推理同一时间仅运行一个实例（位于正式 pipeline 数据目录的跨进程锁）；其它歌曲的 Qwen、TIFA、下载和 FFmpeg 仍可并行。单首没有其它任务争用时通常比多首并行更快，但并非时延保证。2026-10-30 六首历史歌曲完整质量流水线的实测：串行 2129.646 秒，3 worker 861.527 秒，**4 worker 756.814 秒（2.81× 串行吞吐）**，6 worker 829.072 秒。三种并发方案全部六首 MP4 SHA-256、Qwen 窗口及 TIFA/字幕时间轴与串行基线一致。原始记录保存在当时测试机器的 `~/.local/share/vc-ktv/pipeline/benchmarks/20261030-six-song-throughput/REPORT.md`，不随源码分发。该实验不修改生产配置；生产升级与模式切换仍需单独审批。

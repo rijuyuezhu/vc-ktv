@@ -1,6 +1,6 @@
 # Quality pipeline: three-song throughput comparison
 
-Hardware: Spark-WSL, RTX Spark N1X (64,000 MiB GPU-visible memory), 20 ARM CPU cores. Inputs: three archived original MP4s and historical user-confirmed lyrics, same model weights as PR #80, no production DB modifications. All stages use **Kim + Qwen3-ASR dual-pass + every nonempty TIFA ASR window + TIFA verified lyric blocks, seam correction and FFmpeg**. Independent fresh work directories and raw per-stage GPU samples; no Fast Mode shortcuts.
+Hardware: ARM64/WSL test host with RTX Spark N1X (64,000 MiB GPU-visible memory), 20 ARM CPU cores. Inputs: three archived original MP4s and historical user-confirmed lyrics, same model weights as PR #80, no production DB modifications. All stages use **Kim + Qwen3-ASR dual-pass + every nonempty TIFA ASR window + TIFA verified lyric blocks, seam correction and FFmpeg**. Independent fresh work directories and raw per-stage GPU samples; no Fast Mode shortcuts.
 
 | Song | Serial quality PR #80 | 3 complete pipelines in parallel |
 |---|---:|---:|
@@ -39,7 +39,7 @@ The admission mechanism only wraps the **Kim CUDA worker subprocess** with a pro
 
 ### Limitations
 
-Single run of three fixed songs on an otherwise idle Spark-WSL; performance depends on song durations, GPU load, CPU pressure and when the queue starts. This benchmark proves output parity for these inputs, not universal deterministic behavior under all GPU loads. Even higher concurrency needs a separate acceptance run. No source files, event state or production config were modified during the benchmark.
+Single run of three fixed songs on an otherwise idle ARM64/WSL test host; performance depends on song durations, GPU load, CPU pressure and when the queue starts. This benchmark proves output parity for these inputs, not universal deterministic behavior under all GPU loads. Even higher concurrency needs a separate acceptance run. No source files, event state or production config were modified during the benchmark.
 
 ## Other infra direction evaluated: Lightning `Trainer` reuse
 
