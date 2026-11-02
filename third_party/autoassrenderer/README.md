@@ -57,22 +57,22 @@ the same pinned source commit in `UPSTREAM.json`. These components only
 fetch **possible source lyrics**; VC KTV's guest explicitly selects the
 version. We keep our own VCPedia retrieval and existing guest ticket logic.
 
-## VC KTV #45 performance-specific deviations from pinned upstream
+## VC KTV #45 performance changes and later quality-mode restoration
 
-The pinned upstream reference stays unchanged. The VC KTV adaptation in
-`ktv_app/aligners/` now:
+The pinned upstream reference stays unchanged. Historical performance
+adaptations in `ktv_app/aligners/` included:
 - passes a single existing `TIFASession` through original-lyric TIFA blocks
   and seam retries (model/G2P process reuse, same block order/ownership checks);
-- skips TIFA timestamps for only Chinese ASR chunks that have **no contiguous
-  two-character match** anywhere in the user's confirmed lyric lines, retaining
-  all independent double-pass Qwen ASR text and falling back to full TIFA
-  timing when verified cuts are insufficient;
+- historically experimented with skipping TIFA timestamps for certain unmatched
+  Chinese ASR chunks (#45); **the default quality mode no longer uses that
+  shortcut** and runs TIFA on every nonempty ASR window (see
+  [AUTOPREP](../../docs/AUTOPREP.md));
 - writes lightweight per-TIFA-task G2P, dataset and inference timing traces.
 
 These are local performance modifications, not changes to upstream model
 weights or authorization to replace source-verified word timestamps. For
-same-video, same-lyrics validation and the versioned raw profile location see
-`docs/PERFORMANCE_TIFA_OPTIMIZATION.md`.
+historical performance validation, consult the associated #45 change history;
+that experiment's original standalone report is not part of this checkout.
 
 ## VC KTV #32 post-migration dead project-UI cleanup
 
