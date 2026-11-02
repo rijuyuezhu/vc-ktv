@@ -15,34 +15,23 @@
 
 ## 安装
 
-需要 Linux、Python 3.12、uv、FFmpeg（含 libass 和 libx264）及 Noto CJK 字体。模型和 CUDA 环境不随仓库分发，未安装时可下载原视频，是否允许无字幕播放由管理员决定。
+需要 Linux、Python 3.12、uv、FFmpeg（libass/libx264）和 Noto CJK 字体。基础服务与完整 CUDA 模型环境独立安装；首次在新机器部署请先阅读 [安装与运行](docs/INSTALL.md)，不要直接套用原作者的服务配置。
 
-```bash
-sudo apt-get install ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
-git clone "$REPOSITORY_URL" vc-ktv
+```sh
+# 以下仓库当前需要 GitHub 访问权限；git、gh、uv 和 FFmpeg 安装见指南
+gh repo clone rijuyuezhu/vc-ktv
 cd vc-ktv
-uv sync --locked --group dev
+uv sync --locked
 ./scripts/setup.sh
-uv run python -m vc_ktv
+uv run --no-sync python -m scripts.check_install --mode base
+VC_KTV_AUTOPREPARE=0 uv run --no-sync python -m vc_ktv
 ```
 
-点歌首页：`http://127.0.0.1:8778/`，管理页面：`http://127.0.0.1:8778/admin/`。配置文件保存在 `~/.config/vc-ktv`，本场数据库和媒体默认在 `~/.local/share/vc-ktv`。
-
-| 环境变量 | 默认值 | 用途 |
-| --- | --- | --- |
-| `VC_KTV_HOST` | `127.0.0.1` | 监听地址 |
-| `VC_KTV_PORT` | `8778` | 监听端口 |
-| `VC_KTV_CONFIG` | `~/.config/vc-ktv` | 私密配置目录 |
-| `VC_KTV_DATA` | `~/.local/share/vc-ktv` | 场次数据库及媒体 |
-| `VC_KTV_AUTOPREPARE` | `1` | 自动准备任务开关 |
-| `VC_KTV_PREP_WORKERS` | `1` | 同时制作的歌曲数，可设置 `1`–`4`，每首立即独立领取，不等待凑满并发数；Spark 实测推荐 `4` 并配合 Kim 单路调度 |
-
-开发校验：`uv run pre-commit run --all-files`、`uv run pytest -q`。服务采用现有 `main` 的静态前端，不需要单独构建前端。
-
-字幕字体：启动自动制作时会检查 **Noto Sans CJK SC Bold**，缺失时记录警告；每次导出在 `export_report.json` 的 `font_diagnostics` 中记录 Fontconfig 字体检查、未覆盖字符的 Unicode 编码以及诊断警告（缺字不改写歌词）。可在服务机器上执行 `fc-match 'Noto Sans CJK SC:style=Bold'` 验证。HTML 字幕使用设备字体，依次选择 Noto Sans CJK SC、Noto Sans SC、微软雅黑、苹方等系统字体；字体缺失时仍可显示，但不同字体的字宽可能不同于烧录版本。服务端另安装 `fonts-noto-color-emoji` 提供浏览器常见 Emoji/符号字形的补充覆盖；libass 不一定能渲染彩色 Emoji 字体，因此字形检查不会把纯彩色 Emoji 字体算作烧录端的可靠回退。项目不打包完整 CJK Web 字体。
+访问 `http://127.0.0.1:8778/` 和 `http://127.0.0.1:8778/admin/`。该命令仅运行基础服务，不会自动下载或制作新歌曲；完整 GPU 字幕部署及模型依赖请按照 [安装指南](docs/INSTALL.md) 逐步设置和验收。开发测试：`uv run pytest -q`、`uv run pre-commit run --all-files`。
 
 ## 文档
 
+- [安装与运行](docs/INSTALL.md)
 - [场次与数据管理](docs/EVENTS.md)
 - [字幕流水线与回退](docs/AUTOPREP.md)
 - [本地模型与部署](docs/SPARK_WSL_PIPELINE.md)

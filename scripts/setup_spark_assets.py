@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Download upstream-pinned Kim/Qwen model assets for Spark-WSL.
+"""Download pinned TIFA/Kim/Qwen assets into a configurable pipeline directory.
 
-All pinned assets are installed directly in VCKTV's permanent pipeline directory.
-The separately provisioned TIFA source/weights remain independent of the repo.
+This installs sources and model files, not CUDA/Python model runtimes.
 """
 
 import argparse
@@ -19,16 +18,23 @@ LOCK = (
     Path(__file__).resolve().parents[1] / "third_party/autoassrenderer/assets.lock.json"
 )
 ASSETS = json.loads(LOCK.read_text(encoding="utf-8"))["assets"]
-CHOICES = {"kim", "qwen", "all"}
+CHOICES = {"tifa", "kim", "qwen", "all"}
 
 
 def selected(group):
     for item in ASSETS:
         name = item["name"]
         if (
-            group in ("kim", "all")
-            and name in ("kim-source.zip", "Kim-MelBandRoformer.ckpt")
-        ) or (group in ("qwen", "all") and name.startswith("qwen-")):
+            (
+                group in ("tifa", "all")
+                and name in ("tifa-source.zip", "TIFA-1.0-ST.zip", "unidic-3.1.0.zip")
+            )
+            or (
+                group in ("kim", "all")
+                and name in ("kim-source.zip", "Kim-MelBandRoformer.ckpt")
+            )
+            or (group in ("qwen", "all") and name.startswith("qwen-"))
+        ):
             yield item
 
 
@@ -123,7 +129,9 @@ def main():
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path.home() / ".local/share/vc-ktv/pipeline",
+        default=Path(
+            os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
+        ).expanduser(),
     )
     args = parser.parse_args()
     for item in selected(args.group):
