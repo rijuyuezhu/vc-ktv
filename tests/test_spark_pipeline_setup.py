@@ -19,9 +19,12 @@ def test_upstream_pin_and_manifest_consistent():
     assert all(c in "0123456789abcdef" for c in pin["commit"])
     assert (root / pin["vendor_package"]).is_dir()
     assert root / pin["model_assets_lock"]
-    assert (
-        len(list(selected("all"))) == len(ASSETS) - 4
-    )  # excludes upstream TIFA and Win32 FFmpeg
+    assert len(list(selected("all"))) == len(ASSETS) - 1  # excludes Windows FFmpeg
+    assert [x["name"] for x in selected("tifa")] == [
+        "tifa-source.zip",
+        "TIFA-1.0-ST.zip",
+        "unidic-3.1.0.zip",
+    ]
     assert [x["name"] for x in selected("kim")] == [
         "kim-source.zip",
         "Kim-MelBandRoformer.ckpt",

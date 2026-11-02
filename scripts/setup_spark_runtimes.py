@@ -10,7 +10,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE_ROOT = Path.home() / ".local/share/vc-ktv/pipeline"
-TIFA_PYTHON = PIPELINE_ROOT / "runtime/tifa/bin/python"
+
+
+def tifa_python(root: Path, override: Path | None = None) -> Path:
+    return override or root / "runtime/tifa/bin/python"
 
 
 def python_output(python, expression):
@@ -22,6 +25,11 @@ def setup(group, staging, shared_python):
         raise ValueError(group)
     target = staging / "runtime" / group
     python = target / "bin/python"
+    if not shared_python.is_file():
+        raise FileNotFoundError(
+            f"TIFA CUDA Python not found: {shared_python}. "
+            "Provision a working CUDA/TIFA runtime before installing overlays."
+        )
     if not python.exists():
         subprocess.run(["uv", "venv", "--python", "3.12", str(target)], check=True)
     shared_packages = python_output(
@@ -97,10 +105,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("group", choices=("kim", "qwen", "all"))
     parser.add_argument("--root", type=Path, default=PIPELINE_ROOT)
-    parser.add_argument("--tifa-python", type=Path, default=TIFA_PYTHON)
+    parser.add_argument("--tifa-python", type=Path)
     args = parser.parse_args()
     for group in ("kim", "qwen") if args.group == "all" else (args.group,):
-        setup(group, args.root, args.tifa_python)
+        setup(group, args.root, tifa_python(args.root, args.tifa_python))
 
 
 if __name__ == "__main__":
