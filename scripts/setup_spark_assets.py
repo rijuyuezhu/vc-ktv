@@ -129,7 +129,9 @@ def main():
     parser.add_argument(
         "--root",
         type=Path,
-        default=Path.home() / ".local/share/vc-ktv/pipeline",
+        default=Path(
+            os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
+        ).expanduser(),
     )
     args = parser.parse_args()
     for item in selected(args.group):

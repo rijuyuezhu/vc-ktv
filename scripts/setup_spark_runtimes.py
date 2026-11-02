@@ -5,11 +5,14 @@ Does not modify the pre-existing production TIFA venv or shared CUDA torch.
 """
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PIPELINE_ROOT = Path.home() / ".local/share/vc-ktv/pipeline"
+PIPELINE_ROOT = Path(
+    os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
+).expanduser()
 
 
 def tifa_python(root: Path, override: Path | None = None) -> Path:
@@ -18,6 +21,14 @@ def tifa_python(root: Path, override: Path | None = None) -> Path:
 
 def python_output(python, expression):
     return subprocess.check_output([str(python), "-c", expression], text=True).strip()
+
+
+def require_cuda(python):
+    if (
+        python_output(python, "import torch; print(torch.cuda.is_available())")
+        != "True"
+    ):
+        raise RuntimeError(f"CUDA torch unavailable in {python}")
 
 
 def setup(group, staging, shared_python):
@@ -30,6 +41,8 @@ def setup(group, staging, shared_python):
             f"TIFA CUDA Python not found: {shared_python}. "
             "Provision a working CUDA/TIFA runtime before installing overlays."
         )
+    # Fail before creating or mutating a runtime overlay.
+    require_cuda(shared_python)
     if not python.exists():
         subprocess.run(["uv", "venv", "--python", "3.12", str(target)], check=True)
     shared_packages = python_output(
@@ -85,14 +98,7 @@ def setup(group, staging, shared_python):
             check=True,
         )
     print(group, python, flush=True)
-    subprocess.run(
-        [
-            str(python),
-            "-c",
-            "import torch; print('cuda=',torch.cuda.is_available(),'torch=',torch.__version__)",
-        ],
-        check=True,
-    )
+    require_cuda(python)
     # The Qwen package eagerly imports Nagisa even for ASR-only inference.
     if group == "qwen":
         subprocess.run(
@@ -107,8 +113,10 @@ def main():
     parser.add_argument("--root", type=Path, default=PIPELINE_ROOT)
     parser.add_argument("--tifa-python", type=Path)
     args = parser.parse_args()
+    root = args.root.expanduser().resolve()
+    override = args.tifa_python.expanduser().resolve() if args.tifa_python else None
     for group in ("kim", "qwen") if args.group == "all" else (args.group,):
-        setup(group, args.root, tifa_python(args.root, args.tifa_python))
+        setup(group, root, tifa_python(root, override))
 
 
 if __name__ == "__main__":

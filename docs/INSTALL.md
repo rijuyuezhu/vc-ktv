@@ -51,9 +51,9 @@ uv run --no-sync python -m scripts.setup_spark_runtimes all
 uv run --no-sync python -m scripts.check_install --mode gpu
 ```
 
-自定义根目录时，在两个 setup 命令及检查命令中使用相同的 `--root` / `--pipeline` 路径，并设置 `VC_KTV_PIPELINE_ROOT`。运行时脚本也支持显式 `--tifa-python /path/to/python`。
+自定义根目录时，设置 `VC_KTV_PIPELINE_ROOT` 可统一两个 setup 命令与应用的默认路径；也可向 setup 显式传入 `--root`、向检查命令传入 `--pipeline`。运行时脚本也支持显式 `--tifa-python /path/to/python`。
 
-**GPU 检查只验证必要文件/可执行文件的存在，不验证 CUDA 设备、模型推理或字幕准确性。** 启用自动准备前，还必须在隔离目录、使用有权处理的样例视频和歌词运行一次 [完整流水线测试](SPARK_WSL_PIPELINE.md)，再根据结果设置 `VC_KTV_AUTOPREPARE=1`。当前实际验证过的组合主要是 Linux ARM64 / WSL + NVIDIA CUDA；其他 CPU/GPU/OS 组合需要独立适配和测试。完整 GPU 自助安装和平台矩阵仍由 [#149](https://github.com/rijuyuezhu/vc-ktv/issues/149) 持续跟进。
+运行时安装脚本会检查共享 TIFA Python 和新装 overlay 是否实际看到 CUDA；但 **GPU 安装检查只验证必要文件/可执行文件的存在，不验证 CUDA 设备、模型推理或字幕准确性。** 启用自动准备前，还必须在隔离目录、使用有权处理的样例视频和歌词运行一次 [完整流水线测试](SPARK_WSL_PIPELINE.md)，再根据结果设置 `VC_KTV_AUTOPREPARE=1`。当前实际验证过的组合主要是 Linux ARM64 / WSL + NVIDIA CUDA；其他 CPU/GPU/OS 组合需要独立适配和测试。完整 GPU 自助安装和平台矩阵仍由 [#149](https://github.com/rijuyuezhu/vc-ktv/issues/149) 持续跟进。
 
 ## 3. 运行配置与可选常驻服务
 

@@ -23,4 +23,4 @@ uv run --no-sync python -m scripts.run_spark_pipeline \
   --out /absolute/path/new-attempt
 ```
 
-该测试会写出对齐时间轴、ASS/LRC、MP4 和尝试报告。恢复方案默认 `quality`，需要 Kim、Qwen3-ASR 和 TIFA。部署时必须检查实际运行进程的 `VC_KTV_PIPELINE_MODE`，不能依赖文档中的旧部署快照；本次修改不会调整当前服务。不要将短样例的成功或相同音轨校验视为长歌曲字幕准确率证明。旧实验过程与详细输出可从 Git 历史和本机隔离归档中查阅。
+该测试会写出对齐时间轴、ASS/LRC、MP4 和尝试报告。当前默认 `quality`，需要 Kim、Qwen3-ASR 和 TIFA。部署时必须检查实际运行进程的 `VC_KTV_PIPELINE_MODE`，不能依赖文档中的旧部署快照；本次修改不会调整当前服务。不要将短样例的成功或相同音轨校验视为长歌曲字幕准确率证明。旧实验过程与详细输出可从 Git 历史和本机隔离归档中查阅。

@@ -38,7 +38,7 @@ def checks(mode: str, config: Path, pipeline: Path) -> list[tuple[bool, str]]:
         family = probe(["fc-match", "-f", "%{family}", "Noto Sans CJK SC:style=Bold"])
         results.append(("Noto Sans CJK" in family, "Noto Sans CJK font"))
     for name in ("admin-password", "token-secret"):
-        results.append(((config / name).is_file(), f"config/{name} exists"))
+        results.append(((config / name).is_file(), f"config/{name}"))
     if mode == "gpu":
         for relative in (
             "models/forced_alignment/sources/TIFA/infer.py",
