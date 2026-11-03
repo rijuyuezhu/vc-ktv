@@ -1979,25 +1979,40 @@ def create_app(
                         )
                 except ValueError as error:
                     bail(400, str(error))
-                store.db.execute(
-                    "UPDATE songs SET status='rendering',render_error='' WHERE id=?",
-                    (song_id,),
-                )
-                store.db.commit()
+                try:
+                    store.db.execute(
+                        "UPDATE songs SET status='rendering',render_error='' WHERE id=?",
+                        (song_id,),
+                    )
+                    store.db.commit()
+                except BaseException:
+                    store.db.rollback()
+                    raise
                 rendering.set()
-                render_thread = threading.Thread(
-                    target=render_worker,
-                    args=(
-                        events.active(),
-                        song_id,
-                        source,
-                        row["lyrics"],
-                        row["duration"],
-                        body.lead,
-                    ),
-                    daemon=True,
-                )
-                render_thread.start()
+                try:
+                    render_thread = threading.Thread(
+                        target=render_worker,
+                        args=(
+                            events.active(),
+                            song_id,
+                            source,
+                            row["lyrics"],
+                            row["duration"],
+                            body.lead,
+                        ),
+                        daemon=True,
+                    )
+                    render_thread.start()
+                except BaseException:
+                    # No worker was launched to clear rendering or release the
+                    # slot. Restore the state before returning an error.
+                    rendering.clear()
+                    store.db.execute(
+                        "UPDATE songs SET status='ready' WHERE id=? AND status='rendering'",
+                        (song_id,),
+                    )
+                    store.db.commit()
+                    raise
                 return {"id": song_id, "status": "rendering", "lead": body.lead}
         except BaseException:
             render_slot.release()
