@@ -632,20 +632,26 @@ class AutoPrep:
                     # At most one DB write per stage transition; the source
                     # audio and finished video are never affected by telemetry.
                     with self.store.lock:
-                        cur = self.store.db.execute(
-                            "UPDATE songs SET prep_stage=?,prep_stage_at=?,prep_timing=? "
-                            "WHERE id=? AND status='ready' AND prep_state='aligning' "
-                            "AND prep_stage!=?",
-                            (
-                                stage,
-                                int(time.time()),
-                                json.dumps(stages),
-                                song_id,
-                                stage,
-                            ),
-                        )
-                        if cur.rowcount:
-                            self.store.db.commit()
+                        try:
+                            cur = self.store.db.execute(
+                                "UPDATE songs SET prep_stage=?,prep_stage_at=?,prep_timing=? "
+                                "WHERE id=? AND status='ready' AND prep_state='aligning' "
+                                "AND prep_stage!=?",
+                                (
+                                    stage,
+                                    int(time.time()),
+                                    json.dumps(stages),
+                                    song_id,
+                                    stage,
+                                ),
+                            )
+                            if cur.rowcount:
+                                self.store.db.commit()
+                        except sqlite3.Error:
+                            self.store.db.rollback()
+                            log.exception(
+                                "Failed to save subtitle progress for song #%s", song_id
+                            )
 
                 options["progress"] = progress
             if row.get("lyric_timing_mode") == "provider":
