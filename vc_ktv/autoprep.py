@@ -366,17 +366,22 @@ class AutoPrep:
     def resume_after_failed_stop(self):
         """Retain surviving workers and replace those that already exited."""
         self.stop_signal.clear()
-        alive = [thread for thread in self.workers if thread.is_alive()]
-        names = {thread.name for thread in alive}
+        self.workers = [thread for thread in self.workers if thread.is_alive()]
+        names = {thread.name for thread in self.workers}
         for index in range(1, self.max_workers + 1):
             name = f"vc-ktv-auto-prep-{index}"
             if name in names:
                 continue
-            thread = threading.Thread(target=self.loop, name=name, daemon=True)
-            thread.start()
-            alive.append(thread)
-        self.workers = alive
-        self.worker = alive[0]
+            thread = None
+            try:
+                thread = threading.Thread(target=self.loop, name=name, daemon=True)
+                thread.start()
+            except Exception:
+                log.exception("Failed to resume AutoPrep worker %s", name)
+            # Keep a worker even if Thread.start() raised after it started.
+            if thread is not None and thread.is_alive():
+                self.workers.append(thread)
+        self.worker = self.workers[0]
 
     def claim(self):
         with self.store.lock:
