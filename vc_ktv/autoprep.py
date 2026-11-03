@@ -779,13 +779,26 @@ class AutoPrep:
                 stages[current_stage] = round(time.monotonic() - stage_started, 2)
             metadata["stage_seconds"] = stages
             metadata["elapsed_seconds"] = round(time.monotonic() - started, 2)
+            # Diagnostics are best-effort: a committed render must not be
+            # downgraded because its timing or report could not be written.
             with self.store.lock:
-                self.store.db.execute(
-                    "UPDATE songs SET prep_timing=? WHERE id=? AND status='ready'",
-                    (json.dumps(stages), song_id),
+                try:
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_timing=? WHERE id=? AND status='ready'",
+                        (json.dumps(stages), song_id),
+                    )
+                    self.store.db.commit()
+                except sqlite3.Error:
+                    self.store.db.rollback()
+                    log.exception(
+                        "Failed to save subtitle timing for song #%s", song_id
+                    )
+            try:
+                (archive / "attempt.json").write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
                 )
-                self.store.db.commit()
-            (archive / "attempt.json").write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            except OSError:
+                log.exception(
+                    "Failed to write subtitle attempt report for song #%s", song_id
+                )
