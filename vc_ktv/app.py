@@ -1775,7 +1775,14 @@ def create_app(
                 store.db.commit()
             for old in set(filter(None, (row["media_file"], row["source_file"]))):
                 if old != target.name:
-                    (store.media / old).unlink(missing_ok=True)
+                    try:
+                        (store.media / old).unlink(missing_ok=True)
+                    except OSError as error:
+                        logging.getLogger(__name__).warning(
+                            "Song #%s obsolete upload cleanup failed: %s",
+                            song_id,
+                            error,
+                        )
         except BaseException:
             with store.lock:
                 if not store.db.execute(
@@ -1843,8 +1850,19 @@ def create_app(
                         (destination.name, song_id),
                     )
                     target_store.db.commit()
-                    if row["media_file"] != source.name:
-                        (target_store.media / row["media_file"]).unlink(missing_ok=True)
+                    # Publishing is complete; deleting the old video is only
+                    # best effort and must never invalidate the new DB path.
+                    if row["media_file"] and row["media_file"] != source.name:
+                        try:
+                            (target_store.media / row["media_file"]).unlink(
+                                missing_ok=True
+                            )
+                        except OSError as error:
+                            logging.getLogger(__name__).warning(
+                                "Song #%s obsolete manual render cleanup failed: %s",
+                                song_id,
+                                error,
+                            )
                 else:
                     destination.unlink(missing_ok=True)
         except Exception as error:

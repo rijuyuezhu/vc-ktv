@@ -670,10 +670,19 @@ class AutoPrep:
                         ),
                     )
                     self.store.db.commit()
-                    if latest["media_file"] != row["source_file"]:
-                        (self.store.media / latest["media_file"]).unlink(
-                            missing_ok=True
-                        )
+                    # The new video is committed. A failed cleanup of the old
+                    # artifact must not turn this success into a render failure
+                    # and delete the new file referenced by SQLite.
+                    old_media = latest["media_file"]
+                    if old_media and old_media != row["source_file"]:
+                        try:
+                            (self.store.media / old_media).unlink(missing_ok=True)
+                        except OSError as error:
+                            log.warning(
+                                "Song #%s obsolete media cleanup failed: %s",
+                                song_id,
+                                error,
+                            )
                 else:
                     target.unlink(missing_ok=True)  # Playback already started.
                     metadata["outcome"] = "stale"
