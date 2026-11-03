@@ -2022,10 +2022,14 @@ def create_app(
                     or latest["lyrics"] != original
                 ):
                     bail(409, "歌词或歌曲状态发生变化，请重新导入")
-                store.db.execute(
-                    "UPDATE songs SET lyrics=? WHERE id=?", (proposed, song_id)
-                )
-                store.db.commit()
+                try:
+                    store.db.execute(
+                        "UPDATE songs SET lyrics=? WHERE id=?", (proposed, song_id)
+                    )
+                    store.db.commit()
+                except sqlite3.Error:
+                    store.db.rollback()
+                    raise
         except BaseException:
             import shutil
 
