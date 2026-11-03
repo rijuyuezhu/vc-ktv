@@ -35,6 +35,7 @@ from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
 from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
+from .media_pins import MediaPins
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
@@ -664,6 +665,7 @@ def create_app(
         secret = bytes.fromhex(f.read_text().strip())
     events = Events(root, Store)
     store = CurrentStore(events)
+    media_pins = MediaPins(root)
     if auto_prepare is None:
         auto_prepare = os.getenv("VC_KTV_AUTOPREPARE", "1") != "0"
     worker = AutoPrep(events.active() if events.active_id else store, probe_media)
@@ -693,6 +695,7 @@ def create_app(
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.autoprep = worker
+    app.state.media_pins = media_pins
     app.state.store = store
     app.state.events = events
     app.state.lookup = bilibili_lookup
@@ -723,10 +726,7 @@ def create_app(
     def pinned_media_response(path: Path, **kwargs) -> PinnedFileResponse:
         # Caller holds store.lock while choosing the path and making this hard
         # link. FileResponse opens the file only after its route returns.
-        pinned = path.with_name(
-            f".vc-ktv-inflight-{secrets.token_hex(10)}{path.suffix}"
-        )
-        os.link(path, pinned)
+        pinned = media_pins.pin(path)
         return PinnedFileResponse(pinned, **kwargs)
 
     def check_room_capacity():

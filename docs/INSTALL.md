@@ -95,6 +95,12 @@ WantedBy=default.target
 
 保存到 `~/.config/systemd/user/vc-ktv.service` 后，用 `systemctl --user daemon-reload` 和 `systemctl --user enable --now vc-ktv.service` 启用。示例默认只启动基础服务；完成 GPU 验收后再调整 `VC_KTV_AUTOPREPARE`。**不要在已有生产实例上直接套用模板或覆盖其 unit**。更新前先检查当前队列/准备任务，备份数据；合并 PR 也不意味着要立即部署。
 
+### 媒体下载的临时链接
+
+发送视频时，服务会在媒体所在目录创建 `.vc-ktv-inflight-*` 临时硬链接，响应结束或中断时自动删除。Linux/macOS 上，若进程异常退出，下次启动会根据数据目录中的所有者锁清理**已退出实例**留下的链接，不会清理仍有实例持锁的链接，也不会删除原视频。
+
+旧版本没有所有者锁的临时链接无法安全判定是否仍被使用，因此不会自动清理。需要手动处理时，务必**先停止所有使用同一数据目录的服务实例**，再检查并清理残留文件；不要在播放或下载过程中直接批量删除。
+
 ## 4. 验证范围
 
 常规 CI 通过模拟媒体、隔离 SQLite、合成字幕和前端语法检查验证核心行为，不下载权重或访问 B 站。开发者可运行 `uv run pytest -q` 和 `uv run pre-commit run --all-files`。涉及真实 CDN、CUDA、浏览器或带宽的验证应另外记录软硬件和测试条件。
