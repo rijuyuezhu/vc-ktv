@@ -497,35 +497,50 @@ class AutoPrep:
                 self.store.media
                 / f"{song_id}-original-{secrets.token_hex(6)}{path.suffix}"
             )
-            shutil.copyfile(path, target)
-            with self.store.lock:
-                latest = self.store.db.execute(
-                    "SELECT status,prep_state,skip_subtitles FROM songs WHERE id=?",
-                    (song_id,),
-                ).fetchone()
-                if (
-                    not latest
-                    or latest["status"] != "waiting"
-                    or latest["prep_state"] != "downloading"
-                ):
+            published = False
+            try:
+                shutil.copyfile(path, target)
+                with self.store.lock:
+                    latest = self.store.db.execute(
+                        "SELECT status,prep_state,skip_subtitles FROM songs WHERE id=?",
+                        (song_id,),
+                    ).fetchone()
+                    if (
+                        not latest
+                        or latest["status"] != "waiting"
+                        or latest["prep_state"] != "downloading"
+                    ):
+                        return
+                    try:
+                        self.store.db.execute(
+                            """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
+                               prep_state=?,prep_stage=?,prep_stage_at=?,prep_timing=?,
+                               prep_error='',prep_retry_at=0 WHERE id=?""",
+                            (
+                                target.name,
+                                target.name,
+                                round(actual_duration),
+                                "original"
+                                if latest["skip_subtitles"]
+                                else "downloaded",
+                                "skipped" if latest["skip_subtitles"] else "downloaded",
+                                int(time.time()),
+                                json.dumps(
+                                    {"download": round(time.monotonic() - started, 2)}
+                                ),
+                                song_id,
+                            ),
+                        )
+                        self.store.db.commit()
+                    except BaseException:
+                        self.store.db.rollback()
+                        raise
+                    published = True
+            finally:
+                # Only a committed media path may retain the published file.
+                # A failed copy or SQLite write must not leak partial videos.
+                if not published:
                     target.unlink(missing_ok=True)
-                    return
-                self.store.db.execute(
-                    """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
-                       prep_state=?,prep_stage=?,prep_stage_at=?,prep_timing=?,
-                       prep_error='',prep_retry_at=0 WHERE id=?""",
-                    (
-                        target.name,
-                        target.name,
-                        round(actual_duration),
-                        "original" if latest["skip_subtitles"] else "downloaded",
-                        "skipped" if latest["skip_subtitles"] else "downloaded",
-                        int(time.time()),
-                        json.dumps({"download": round(time.monotonic() - started, 2)}),
-                        song_id,
-                    ),
-                )
-                self.store.db.commit()
         log.info("Song #%s original available, subtitle enhancement follows", song_id)
 
     def prepare_subtitles(self, row):
