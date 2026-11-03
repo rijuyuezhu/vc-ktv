@@ -303,7 +303,10 @@ class Store:
         self.db.commit()
 
     def rows(self, sql, args=()):
-        return [dict(x) for x in self.db.execute(sql, args).fetchall()]
+        # The connection is shared by HTTP and AutoPrep; never expose a
+        # different thread's uncommitted writes through this read helper.
+        with self.lock:
+            return [dict(x) for x in self.db.execute(sql, args).fetchall()]
 
     def current(self):
         rows = self.rows(
