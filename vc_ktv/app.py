@@ -1216,8 +1216,8 @@ def create_app(
                 except BaseException:
                     if running and auto_prepare and events.active_id:
                         if any(thread.is_alive() for thread in worker.workers):
-                            # The worker did not exit; let it continue claiming.
-                            worker.stop_signal.clear()
+                            # Continue surviving threads and replenish exited ones.
+                            worker.resume_after_failed_stop()
                         else:
                             # Python threads cannot be restarted. Replace the
                             # stopped worker with the same event and settings.
