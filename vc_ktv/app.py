@@ -1186,6 +1186,7 @@ def create_app(
 
     @app.post("/api/admin/events/close")
     def close_event(vc_admin: str | None = Cookie(default=None)):
+        nonlocal worker
         require_admin(vc_admin)
         with events.lock:
             if not events.active_id:
@@ -1208,9 +1209,29 @@ def create_app(
                     if worker.busy.is_set():
                         bail(409, "请等待当前媒体制作任务完成")
                     worker.stop_signal.set()
-                if not worker.stop():
-                    bail(409, "后台任务尚未退出，请稍后再试")
-                return events.close()
+                try:
+                    if not worker.stop():
+                        bail(409, "后台任务尚未退出，请稍后再试")
+                    return events.close()
+                except BaseException:
+                    if running and auto_prepare and events.active_id:
+                        if any(thread.is_alive() for thread in worker.workers):
+                            # The worker did not exit; let it continue claiming.
+                            worker.stop_signal.clear()
+                        else:
+                            # Python threads cannot be restarted. Replace the
+                            # stopped worker with the same event and settings.
+                            resumed = AutoPrep(
+                                events.active(),
+                                worker.probe,
+                                download=worker.download,
+                                enhance=worker.enhance,
+                                max_workers=worker.max_workers,
+                            )
+                            resumed.start()
+                            worker = resumed
+                            app.state.autoprep = resumed
+                    raise
             finally:
                 events.transitioning = False
 
