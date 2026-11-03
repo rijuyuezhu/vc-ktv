@@ -439,6 +439,59 @@ class AutoPrep:
             self.busy.set()
             return claimed
 
+    def _record_failure(self, row, error, attempt_started):
+        with self.store.lock:
+            try:
+                if row["status"] == "waiting":
+                    attempts = row["prep_attempts"] + 1
+                    retry = (
+                        int(time.time()) + (60 if attempts == 1 else 300)
+                        if attempts < 3
+                        else 0
+                    )
+                    # Only show trusted, short diagnostic text; never expose signed media URLs.
+                    reason = "公开媒体下载失败"
+                    if "Unable to extract initial state" in str(error):
+                        reason = "B站页面结构变化"
+                    elif "接口" in str(error):
+                        reason = "B站公开播放接口暂不可用"
+                    elif "CDN" in str(error):
+                        reason = "B站媒体 CDN 暂不可用"
+                    message = f"{reason}（已尝试 {attempts}/3 次）"
+                    if retry:
+                        message += "，稍后自动重试"
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state='unavailable',prep_error=?,"
+                        "prep_retry_at=?,prep_timing=? WHERE id=? AND status='waiting'",
+                        (
+                            message,
+                            retry,
+                            json.dumps(
+                                {
+                                    "download": round(
+                                        time.monotonic() - attempt_started, 2
+                                    )
+                                }
+                            ),
+                            row["id"],
+                        ),
+                    )
+                else:
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state='original',"
+                        "prep_error='字幕制作失败' WHERE id=? AND status='ready'",
+                        (row["id"],),
+                    )
+                self.store.db.commit()
+            except sqlite3.Error:
+                try:
+                    self.store.db.rollback()
+                except sqlite3.Error as failure:
+                    raise RuntimeError(
+                        "AutoPrep failure writeback rollback failed"
+                    ) from failure
+                raise
+
     def loop(self):
         while not self.stop_signal.is_set():
             try:
@@ -458,48 +511,16 @@ class AutoPrep:
                     self.prepare_subtitles(row)
             except Exception as error:
                 log.exception("Unexpected preparation error for song #%s", row["id"])
-                with self.store.lock:
-                    if row["status"] == "waiting":
-                        attempts = row["prep_attempts"] + 1
-                        retry = (
-                            int(time.time()) + (60 if attempts == 1 else 300)
-                            if attempts < 3
-                            else 0
+                while not self.stop_signal.is_set():
+                    try:
+                        self._record_failure(row, error, attempt_started)
+                        break
+                    except sqlite3.Error:
+                        log.exception(
+                            "Failed to record AutoPrep error for song #%s; retrying",
+                            row["id"],
                         )
-                        # Only show trusted, short diagnostic text; never expose signed media URLs.
-                        reason = "公开媒体下载失败"
-                        if "Unable to extract initial state" in str(error):
-                            reason = "B站页面结构变化"
-                        elif "接口" in str(error):
-                            reason = "B站公开播放接口暂不可用"
-                        elif "CDN" in str(error):
-                            reason = "B站媒体 CDN 暂不可用"
-                        message = f"{reason}（已尝试 {attempts}/3 次）"
-                        if retry:
-                            message += "，稍后自动重试"
-                        self.store.db.execute(
-                            "UPDATE songs SET prep_state='unavailable',prep_error=?,"
-                            "prep_retry_at=?,prep_timing=? WHERE id=? AND status='waiting'",
-                            (
-                                message,
-                                retry,
-                                json.dumps(
-                                    {
-                                        "download": round(
-                                            time.monotonic() - attempt_started, 2
-                                        )
-                                    }
-                                ),
-                                row["id"],
-                            ),
-                        )
-                    else:
-                        self.store.db.execute(
-                            "UPDATE songs SET prep_state='original',"
-                            "prep_error='字幕制作失败' WHERE id=? AND status='ready'",
-                            (row["id"],),
-                        )
-                    self.store.db.commit()
+                        self.stop_signal.wait(1)
             finally:
                 # Other workers may still be processing a different song.
                 # Account for every claim under the same lock as claim().
