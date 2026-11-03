@@ -198,6 +198,27 @@ def probe_media(file: Path) -> float:
         raise ValueError("视频无效或无法解析，请上传有效的 MP4 或 WebM") from error
 
 
+class PinnedFileResponse(FileResponse):
+    """Keep a media inode alive through FileResponse's deferred open/send."""
+
+    async def __call__(self, scope, receive, send):
+        # A pathsend event may be queued for later opening. Stream the file
+        # here instead so the pinned link is safe to remove in finally.
+        if "http.response.pathsend" in scope.get("extensions", {}):
+            scope = {
+                **scope,
+                "extensions": {
+                    key: value
+                    for key, value in scope["extensions"].items()
+                    if key != "http.response.pathsend"
+                },
+            }
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
+
+
 class Store:
     def __init__(self, root: Path):
         self.root = root
@@ -698,6 +719,15 @@ def create_app(
             except ValueError:
                 pass
         return peer
+
+    def pinned_media_response(path: Path, **kwargs) -> PinnedFileResponse:
+        # Caller holds store.lock while choosing the path and making this hard
+        # link. FileResponse opens the file only after its route returns.
+        pinned = path.with_name(
+            f".vc-ktv-inflight-{secrets.token_hex(10)}{path.suffix}"
+        )
+        os.link(path, pinned)
+        return PinnedFileResponse(pinned, **kwargs)
 
     def check_room_capacity():
         count = store.db.execute(
@@ -2318,15 +2348,15 @@ def create_app(
             file = store.media / Path(row["media_file"]).name
             if not file.is_file():
                 bail(404, "媒体文件缺失")
-        title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
-        title = title.strip(" ._")[:48] or "video"
-        return FileResponse(
-            file,
-            media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
-            filename=f"vc-ktv-{song_id}-{title}{file.suffix}",
-            content_disposition_type="attachment",
-            headers={"Cache-Control": "private, no-store"},
-        )
+            title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
+            title = title.strip(" ._")[:48] or "video"
+            return pinned_media_response(
+                file,
+                media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
+                filename=f"vc-ktv-{song_id}-{title}{file.suffix}",
+                content_disposition_type="attachment",
+                headers={"Cache-Control": "private, no-store"},
+            )
 
     @app.get("/media/{song_id}/source")
     def serve_source(song_id: int, token: str = ""):
@@ -2355,11 +2385,11 @@ def create_app(
                 path = overlay_archive(overlay_bundle(song)) / "tv-source.mp4"
             if not path.is_file():
                 bail(404, "原视频文件缺失")
-        return FileResponse(
-            path,
-            media_type=MEDIA_MIMES.get(path.suffix, "video/mp4"),
-            content_disposition_type="inline",
-        )
+            return pinned_media_response(
+                path,
+                media_type=MEDIA_MIMES.get(path.suffix, "video/mp4"),
+                content_disposition_type="inline",
+            )
 
     @app.get("/api/tv/subtitles/{song_id}")
     def tv_subtitles(song_id: int, token: str):
@@ -2410,12 +2440,12 @@ def create_app(
             file = store.media / name
             if not file.is_file():
                 bail(404, "媒体文件缺失")
-        return FileResponse(
-            file,
-            media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
-            filename=name,
-            content_disposition_type="inline",
-        )
+            return pinned_media_response(
+                file,
+                media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
+                filename=name,
+                content_disposition_type="inline",
+            )
 
     @app.get("/admin", include_in_schema=False)
     @app.get("/admin/", include_in_schema=False)
