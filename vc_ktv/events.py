@@ -6,6 +6,7 @@ import json
 import re
 import secrets
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -194,7 +195,23 @@ class CurrentStore:
 
     def __init__(self, events: Events):
         self.events = events
-        self.lock = events.lock
+
+    @property
+    def lock(self):
+        """Guard both the event pointer and its worker-shared SQLite connection."""
+        return self._locked()
+
+    @contextmanager
+    def _locked(self):
+        # Lock order is Events -> Store; AutoPrep takes only Store.lock.
+        # HTTP and workers must never commit each other's SQLite writes.
+        with self.events.lock:
+            current = self.events.current_store
+            if current is None:
+                yield
+            else:
+                with current.lock:
+                    yield
 
     def __getattr__(self, name):
         return getattr(self.events.active(), name)
