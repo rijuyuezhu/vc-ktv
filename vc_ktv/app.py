@@ -1228,7 +1228,9 @@ def create_app(
                                 enhance=worker.enhance,
                                 max_workers=worker.max_workers,
                             )
-                            resumed.start()
+                            # No preparation task is running: failed close
+                            # only needs a new worker pool, not startup replay.
+                            resumed.resume_after_failed_stop()
                             worker = resumed
                             app.state.autoprep = resumed
                     raise

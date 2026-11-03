@@ -381,7 +381,7 @@ class AutoPrep:
             # Keep a worker even if Thread.start() raised after it started.
             if thread is not None and thread.is_alive():
                 self.workers.append(thread)
-        self.worker = self.workers[0]
+        self.worker = self.workers[0] if self.workers else None
 
     def claim(self):
         with self.store.lock:
