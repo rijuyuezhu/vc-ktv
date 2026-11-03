@@ -504,15 +504,19 @@ class Store:
         Store.lock when used directly.
         """
         if not self.current():
-            queue = self.fair_queue(persist=True)
-            if queue:
-                song = queue[0]
-                # Preserve an admin-pinned turn's fair-count exemption.
-                self.db.execute(
-                    "UPDATE songs SET status='playing',priority_next=0,fair_exempt=? WHERE id=?",
-                    (int(bool(song["priority_next"])), song["id"]),
-                )
-                self.db.commit()
+            try:
+                queue = self.fair_queue(persist=True)
+                if queue:
+                    song = queue[0]
+                    # Preserve an admin-pinned turn's fair-count exemption.
+                    self.db.execute(
+                        "UPDATE songs SET status='playing',priority_next=0,fair_exempt=? WHERE id=?",
+                        (int(bool(song["priority_next"])), song["id"]),
+                    )
+                    self.db.commit()
+            except sqlite3.Error:
+                self.db.rollback()
+                raise
 
     def finish_current(self, song_id: int, *, skipped: bool = False) -> int | None:
         """Settle a turn and return ready count, or None on a stale claim.
@@ -524,28 +528,32 @@ class Store:
         song = self.current()
         if not song or song["id"] != song_id:
             return None
-        self.db.execute(
-            "UPDATE songs SET status=?,played_at=? WHERE id=?",
-            ("skipped" if skipped else "played", time_now(), song_id),
-        )
-        if not song["fair_exempt"]:
-            if skipped:
-                # A skipped ordinary turn consumes only virtual song credit.
+        try:
+            self.db.execute(
+                "UPDATE songs SET status=?,played_at=? WHERE id=?",
+                ("skipped" if skipped else "played", time_now(), song_id),
+            )
+            if not song["fair_exempt"]:
+                if skipped:
+                    # A skipped ordinary turn consumes only virtual song credit.
+                    self.db.execute(
+                        "UPDATE guests SET fair_offset=fair_offset+1 WHERE id=?",
+                        (song["requester"],),
+                    )
+                else:
+                    self.db.execute(
+                        "UPDATE guests SET plays=plays+1,seconds=seconds+? WHERE id=?",
+                        (song["duration"], song["requester"]),
+                    )
                 self.db.execute(
-                    "UPDATE guests SET fair_offset=fair_offset+1 WHERE id=?",
+                    "INSERT INTO room_state(name,value) VALUES('last_requester',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     (song["requester"],),
                 )
-            else:
-                self.db.execute(
-                    "UPDATE guests SET plays=plays+1,seconds=seconds+? WHERE id=?",
-                    (song["duration"], song["requester"]),
-                )
-            self.db.execute(
-                "INSERT INTO room_state(name,value) VALUES('last_requester',?) "
-                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                (song["requester"],),
-            )
-        self.db.commit()
+            self.db.commit()
+        except sqlite3.Error:
+            self.db.rollback()
+            raise
         return len(self.fair_queue())
 
     def state(self):
