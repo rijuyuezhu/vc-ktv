@@ -674,17 +674,23 @@ class AutoPrep:
                     and latest["provider_lrc"] == row.get("provider_lrc", "")
                     and latest["lyric_offset_ms"] == row.get("lyric_offset_ms", 0)
                 ):
-                    self.store.db.execute(
-                        "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
-                        "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
-                        (
-                            target.name,
-                            (archive / "aligned.lrc").read_text(),
-                            int(time.time()),
-                            song_id,
-                        ),
-                    )
-                    self.store.db.commit()
+                    try:
+                        self.store.db.execute(
+                            "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
+                            "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
+                            (
+                                target.name,
+                                (archive / "aligned.lrc").read_text(),
+                                int(time.time()),
+                                song_id,
+                            ),
+                        )
+                        self.store.db.commit()
+                    except BaseException:
+                        # The failure handler deletes target. Never commit a
+                        # media_file pointing at that deleted render later.
+                        self.store.db.rollback()
+                        raise
                     # The new video is committed. A failed cleanup of the old
                     # artifact must not turn this success into a render failure
                     # and delete the new file referenced by SQLite.
