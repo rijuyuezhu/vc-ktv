@@ -60,7 +60,7 @@ function tvHarness(){
     now=end;
     await Promise.resolve();
   }
-  return {el,calls,storage,evaluate,advance};
+  return {el,calls,storage,evaluate,advance,setFetch:(fn)=>{context.fetch=fn;}};
 }
 
 test("new song waits for native 12-second buffer instead of starting at one frame",async()=>{
@@ -182,4 +182,36 @@ test("current and next song share a separator-free title and nickname format",as
   h.evaluate("smoothPlayback=false");
   await h.el("start").onclick();
   assert.equal(h.el("status").textContent,"A  guest");
+});
+
+
+test("delayed earlier TV state response cannot overwrite a newer next-song view",async()=>{
+  const h=tvHarness();
+  await h.evaluate("syncQueue()");
+  const pending=[];
+  h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));
+  const stale=h.evaluate("syncQueue()");
+  const latest=h.evaluate("syncQueue()");
+  assert.equal(pending.length,2);
+  pending[1].resolve({ok:true,async json(){return {queue:[{id:3,title:"New",nickname:"B"}],current:null,playback_mode:"browser"};}});
+  await latest;
+  assert.equal(h.el("next-up").textContent,"New  B");
+  pending[0].resolve({ok:true,async json(){return {queue:[{id:2,title:"Old",nickname:"A"}],current:null,playback_mode:"browser"};}});
+  await stale;
+  assert.equal(h.el("next-up").textContent,"New  B");
+});
+
+test("stale TV polling error must not replace a newer healthy queue view",async()=>{
+  const h=tvHarness();
+  await h.evaluate("syncQueue()");
+  const pending=[];
+  h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));
+  const stale=h.evaluate("syncQueue()");
+  const latest=h.evaluate("syncQueue()");
+  pending[1].resolve({ok:true,async json(){return {queue:[{id:4,title:"Fresh",nickname:"C"}],current:null,playback_mode:"browser"};}});
+  await latest;
+  pending[0].reject(new Error("old request timed out"));
+  await stale;
+  assert.equal(h.el("next-up").textContent,"Fresh  C");
+  assert.equal(h.el("control-error").textContent,"");
 });
