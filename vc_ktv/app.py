@@ -1068,6 +1068,9 @@ def create_app(
             except sqlite3.IntegrityError:
                 store.db.rollback()
                 bail(409, "此用户名已被本场其他用户使用")
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         user_cookie(response, user_id, event_id)
         return {"ok": True, "username": name}
 
@@ -1630,7 +1633,11 @@ def create_app(
                 )
                 store.db.commit()
             except sqlite3.IntegrityError:
+                store.db.rollback()
                 bail(409, "本场管理员用户名已存在")
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"id": account_id, "username": username}
 
     @app.put("/api/admin/accounts/{account_id}/password")
@@ -1642,11 +1649,15 @@ def create_app(
         require_global_admin(vc_admin)
         hashed = password_hash(body.password)
         with store.lock:
-            updated = store.db.execute(
-                "UPDATE event_admins SET password_hash=?,revision=revision+1 WHERE id=?",
-                (hashed, account_id),
-            )
-            store.db.commit()
+            try:
+                updated = store.db.execute(
+                    "UPDATE event_admins SET password_hash=?,revision=revision+1 WHERE id=?",
+                    (hashed, account_id),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         if not updated.rowcount:
             bail(404, "管理员账号不存在")
         return {"ok": True}
@@ -1657,10 +1668,14 @@ def create_app(
     ):
         require_global_admin(vc_admin)
         with store.lock:
-            deleted = store.db.execute(
-                "DELETE FROM event_admins WHERE id=?", (account_id,)
-            )
-            store.db.commit()
+            try:
+                deleted = store.db.execute(
+                    "DELETE FROM event_admins WHERE id=?", (account_id,)
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         if not deleted.rowcount:
             bail(404, "管理员账号不存在")
         return {"ok": True}
