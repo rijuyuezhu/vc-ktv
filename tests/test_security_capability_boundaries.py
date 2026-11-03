@@ -61,6 +61,15 @@ def test_cross_origin_writes_never_change_admin_settings_or_event(secured_app):
                 headers={"Origin": "https://untrusted.example"},
             )
             assert response.status_code == 403
+        # A sandboxed/file-page Origin is not an authorized same-origin caller.
+        assert (
+            admin.put(
+                "/api/admin/settings",
+                json={"queue_policy": "fcfs", "allow_unsubtitled": True},
+                headers={"Origin": "null"},
+            ).status_code
+            == 403
+        )
         assert admin.get("/api/admin/settings").json() == before
         assert app.state.events.active_id == event_id
 
@@ -101,6 +110,21 @@ def test_tv_and_media_signatures_cannot_authorize_other_capabilities(secured_app
         media_token = urlsplit(media_path).query.split("token=")[1]
         assert guest.get(media_path).content == b"sample-media"
         assert guest.get("/api/tv/state", params={"token": tv_token}).status_code == 200
+
+        # Same event, different song: a valid media token is not transferable.
+        other_id = guest.post("/api/songs", json={"bvid": "BV0000000002"}).json()["id"]
+        assert other_id != song_id
+        assert (
+            admin.post(
+                f"/api/admin/songs/{other_id}/media",
+                files={"file": ("other.mp4", b"other-media", "video/mp4")},
+            ).status_code
+            == 200
+        )
+        assert (
+            guest.get(f"/media/{other_id}", params={"token": media_token}).status_code
+            == 403
+        )
 
         # An otherwise valid token for one purpose never grants another purpose.
         assert (
