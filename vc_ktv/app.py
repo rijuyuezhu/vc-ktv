@@ -925,6 +925,12 @@ def create_app(
         info["html_overlay"] = overlay_view(info)
         return info
 
+    def state_with_active():
+        # The middleware pins the event; use only its Store mutex here so
+        # an event-close request can set transitioning while readers drain.
+        with events.active().lock:
+            return {**store.state(), "active": active_view()}
+
     @app.middleware("http")
     async def origin_check(request: Request, call_next):
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
@@ -1184,16 +1190,18 @@ def create_app(
         with events.lock:
             if not events.active_id:
                 bail(409, "没有活动场次")
-            if store.current():
-                bail(409, "请先结束正在播放的歌曲")
-            if worker.busy.is_set() or rendering.is_set():
-                bail(409, "请等待当前媒体制作任务完成")
+            # Block new readers before waiting on a concurrent Store snapshot;
+            # an event close must not leave new requests entering indefinitely.
             events.transitioning = True
             try:
-                # Block new readers before stopping the worker. Bound the wait:
-                # an outstanding slow HTTP request must not freeze close.
+                # Wait without holding Events.lock so new requests see 409,
+                # then inspect playback only after existing readers drain.
                 if not events.idle.wait_for(lambda: events.inflight == 0, timeout=10):
                     bail(409, "仍有请求正在处理，请稍后重试")
+                if store.current():
+                    bail(409, "请先结束正在播放的歌曲")
+                if worker.busy.is_set() or rendering.is_set():
+                    bail(409, "请等待当前媒体制作任务完成")
                 # The worker is pinned to this Store, and its store lock makes
                 # the idle/claim check atomic with the stop request.
                 with events.active().lock:
@@ -1657,7 +1665,7 @@ def create_app(
                 "guests": [],
                 "active": None,
             }
-        return {**store.state(), "active": active_view()}
+        return state_with_active()
 
     @app.post("/api/admin/songs/{song_id}/subtitles/retry")
     def retry_subtitles(song_id: int, vc_admin: str | None = Cookie(default=None)):
@@ -2183,7 +2191,7 @@ def create_app(
     @app.get("/api/tv/state")
     def tv_state(token: str):
         require_tv(token)
-        return {**store.state(), "active": active_view()}
+        return state_with_active()
 
     @app.post("/api/tv/replay-next")
     def tv_replay_next(body: Finish, token: str):
