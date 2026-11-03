@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import shutil
 import threading
 from contextlib import contextmanager
 from datetime import datetime
@@ -146,12 +147,23 @@ class Events:
                     "status": "active",
                     "created_at": datetime.now().isoformat(timespec="seconds"),
                 }
-                (folder / "info.json").write_text(
-                    json.dumps(entry, ensure_ascii=False, indent=2) + "\n"
-                )
-                (folder / "info.json").chmod(0o600)
-                self.current_store = self.store_factory(folder)
-                self.pointer.write_text(event_id + "\n")
+                new_store = None
+                try:
+                    (folder / "info.json").write_text(
+                        json.dumps(entry, ensure_ascii=False, indent=2) + "\n"
+                    )
+                    (folder / "info.json").chmod(0o600)
+                    new_store = self.store_factory(folder)
+                    self.pointer.write_text(event_id + "\n")
+                except BaseException:
+                    # The event is not published. A partially written pointer
+                    # would prevent startup, and info.json alone looks active.
+                    if new_store is not None:
+                        new_store.db.close()
+                    self.pointer.unlink(missing_ok=True)
+                    shutil.rmtree(folder)
+                    raise
+                self.current_store = new_store
                 self.active_id = event_id
                 return entry
             finally:
