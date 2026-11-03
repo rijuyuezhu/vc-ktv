@@ -1845,11 +1845,17 @@ def create_app(
                     "SELECT media_file,status FROM songs WHERE id=?", (song_id,)
                 ).fetchone()
                 if row and row["status"] == "rendering":
-                    target_store.db.execute(
-                        "UPDATE songs SET status='ready',media_file=?,render_error='' WHERE id=?",
-                        (destination.name, song_id),
-                    )
-                    target_store.db.commit()
+                    try:
+                        target_store.db.execute(
+                            "UPDATE songs SET status='ready',media_file=?,render_error='' WHERE id=?",
+                            (destination.name, song_id),
+                        )
+                        target_store.db.commit()
+                    except BaseException:
+                        # The outer handler deletes destination. Roll back the
+                        # media pointer before it records the render failure.
+                        target_store.db.rollback()
+                        raise
                     # Publishing is complete; deleting the old video is only
                     # best effort and must never invalidate the new DB path.
                     if row["media_file"] and row["media_file"] != source.name:
