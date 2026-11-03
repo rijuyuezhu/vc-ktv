@@ -1181,7 +1181,11 @@ def create_app(
             worker = AutoPrep(events.active(), probe_media)
             app.state.autoprep = worker
             if running and auto_prepare:
-                worker.start()
+                # A new event has no unfinished preparation to replay.
+                # A failing thread must not strand the published event.
+                worker.resume_after_failed_stop()
+                if not worker.workers:
+                    bail(503, "场次已创建，但后台自动准备未启动，请检查服务")
         return entry
 
     @app.post("/api/admin/events/close")
