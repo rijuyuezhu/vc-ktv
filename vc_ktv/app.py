@@ -1328,22 +1328,26 @@ def create_app(
             # Recheck under the same lock as insertion: parallel requests
             # cannot overfill the room or bypass a newly enabled pause.
             check_new_order(guest)
-            cur = store.db.execute(
-                """
-                INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at)
-                VALUES(?,?,?,?,?,?,?,?)""",
-                (
-                    info["bvid"],
-                    info["page"],
-                    info["title"],
-                    info["uploader"],
-                    info["cover"],
-                    info["duration"],
-                    guest,
-                    time_now(),
-                ),
-            )
-            store.db.commit()
+            try:
+                cur = store.db.execute(
+                    """
+                    INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at)
+                    VALUES(?,?,?,?,?,?,?,?)""",
+                    (
+                        info["bvid"],
+                        info["page"],
+                        info["title"],
+                        info["uploader"],
+                        info["cover"],
+                        info["duration"],
+                        guest,
+                        time_now(),
+                    ),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {
             "id": cur.lastrowid,
             "status": "waiting",
@@ -1384,22 +1388,26 @@ def create_app(
             next_state = (
                 "downloaded" if current["status"] == "ready" else current["prep_state"]
             )
-            store.db.execute(
-                "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,"
-                "lyric_timing_mode=?,provider_lrc=?,source_lrc_raw=?,lyric_offset_ms=?,"
-                "skip_subtitles=0,prep_stage='queued',prep_error='' WHERE id=?",
-                (
-                    lyrics,
-                    source,
-                    next_state,
-                    timing_mode,
-                    provider_lrc,
-                    source_lrc_raw,
-                    offset_ms,
-                    song_id,
-                ),
-            )
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,"
+                    "lyric_timing_mode=?,provider_lrc=?,source_lrc_raw=?,lyric_offset_ms=?,"
+                    "skip_subtitles=0,prep_stage='queued',prep_error='' WHERE id=?",
+                    (
+                        lyrics,
+                        source,
+                        next_state,
+                        timing_mode,
+                        provider_lrc,
+                        source_lrc_raw,
+                        offset_ms,
+                        song_id,
+                    ),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True, "id": song_id, "status": next_state}
 
     @app.post("/api/songs/{song_id}/lyrics/skip")
@@ -1420,20 +1428,24 @@ def create_app(
                 ).is_file()
             ):
                 bail(409, "原视频尚未准备好")
-            store.db.execute(
-                "UPDATE songs SET skip_subtitles=1,lyric_choice='',lyric_source='',"
-                "lyric_timing_mode='align',provider_lrc='',source_lrc_raw='',lyric_offset_ms=0,"
-                "media_file=CASE WHEN ? THEN source_file ELSE media_file END,"
-                "prep_state=?,prep_stage=?,prep_stage_at=?,prep_error='' WHERE id=?",
-                (
-                    ready,
-                    "original" if ready else current["prep_state"],
-                    "skipped" if ready else current["prep_stage"],
-                    time_now(),
-                    song_id,
-                ),
-            )
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "UPDATE songs SET skip_subtitles=1,lyric_choice='',lyric_source='',"
+                    "lyric_timing_mode='align',provider_lrc='',source_lrc_raw='',lyric_offset_ms=0,"
+                    "media_file=CASE WHEN ? THEN source_file ELSE media_file END,"
+                    "prep_state=?,prep_stage=?,prep_stage_at=?,prep_error='' WHERE id=?",
+                    (
+                        ready,
+                        "original" if ready else current["prep_state"],
+                        "skipped" if ready else current["prep_stage"],
+                        time_now(),
+                        song_id,
+                    ),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True, "id": song_id, "source": "original"}
 
     @app.get("/api/songs/{song_id}/lyrics/candidates")
@@ -1726,12 +1738,16 @@ def create_app(
                 bail(409, "歌曲缺少已选歌词或原始视频")
             if not (store.media / Path(row["source_file"]).name).is_file():
                 bail(409, "原视频已丢失，无法仅重试字幕")
-            store.db.execute(
-                "UPDATE songs SET prep_state='downloaded',prep_error='',"
-                "skip_subtitles=0,prep_stage='queued',prep_stage_at=? WHERE id=?",
-                (time_now(), song_id),
-            )
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "UPDATE songs SET prep_state='downloaded',prep_error='',"
+                    "skip_subtitles=0,prep_stage='queued',prep_stage_at=? WHERE id=?",
+                    (time_now(), song_id),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True, "id": song_id, "status": "downloaded"}
 
     @app.post("/api/admin/songs/{song_id}/subtitles/skip")
@@ -1759,13 +1775,17 @@ def create_app(
             source = store.media / Path(row["source_file"] or "").name
             if not source.is_file():
                 bail(409, "原视频尚未就绪，无法进入队列")
-            store.db.execute(
-                "UPDATE songs SET media_file=source_file,prep_state='original',"
-                "skip_subtitles=1,prep_stage='skipped',prep_stage_at=?,"
-                "prep_error='管理员已选择播放原片' WHERE id=?",
-                (time_now(), song_id),
-            )
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "UPDATE songs SET media_file=source_file,prep_state='original',"
+                    "skip_subtitles=1,prep_stage='skipped',prep_stage_at=?,"
+                    "prep_error='管理员已选择播放原片' WHERE id=?",
+                    (time_now(), song_id),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True, "id": song_id, "status": "ready", "source": "original"}
 
     @app.post("/api/admin/songs/{song_id}/media")
@@ -1858,10 +1878,14 @@ def create_app(
                 == "rendering"
             ):
                 bail(409, "字幕制作中暂不能修改歌词")
-            store.db.execute(
-                "UPDATE songs SET lyrics=? WHERE id=?", (body.text, song_id)
-            )
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "UPDATE songs SET lyrics=? WHERE id=?", (body.text, song_id)
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True}
 
     @app.get("/api/admin/songs/{song_id}/lyrics")
