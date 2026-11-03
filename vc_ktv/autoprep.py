@@ -13,6 +13,7 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -339,14 +340,20 @@ class AutoPrep:
 
     def start(self):
         with self.store.lock:
-            # Recover unfinished tasks after a process restart.
-            self.store.db.execute(
-                "UPDATE songs SET prep_state='pending',prep_stage='' WHERE prep_state='downloading' AND status='waiting'"
-            )
-            self.store.db.execute(
-                "UPDATE songs SET prep_state='downloaded',prep_stage='queued' WHERE prep_state='aligning' AND status='ready'"
-            )
-            self.store.db.commit()
+            try:
+                # Recover unfinished tasks after a process restart.
+                self.store.db.execute(
+                    "UPDATE songs SET prep_state='pending',prep_stage='' WHERE prep_state='downloading' AND status='waiting'"
+                )
+                self.store.db.execute(
+                    "UPDATE songs SET prep_state='downloaded',prep_stage='queued' WHERE prep_state='aligning' AND status='ready'"
+                )
+                self.store.db.commit()
+            except sqlite3.Error:
+                # Do not leave a partial recovery transaction for later requests.
+                self.store.db.rollback()
+                log.exception("Unable to recover AutoPrep tasks at startup")
+                return
         self.resume_after_failed_stop()
 
     def stop(self):
