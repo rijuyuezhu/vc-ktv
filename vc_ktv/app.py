@@ -1963,11 +1963,21 @@ def create_app(
         except Exception as error:
             destination.unlink(missing_ok=True)
             with target_store.lock:
-                target_store.db.execute(
-                    "UPDATE songs SET status='ready',render_error=? WHERE id=? AND status='rendering'",
-                    (f"制作失败：{type(error).__name__}", song_id),
-                )
-                target_store.db.commit()
+                for attempt in range(2):
+                    try:
+                        target_store.db.execute(
+                            "UPDATE songs SET status='ready',render_error=? WHERE id=? AND status='rendering'",
+                            (f"制作失败：{type(error).__name__}", song_id),
+                        )
+                        target_store.db.commit()
+                        break
+                    except sqlite3.Error:
+                        target_store.db.rollback()
+                        logging.getLogger(__name__).exception(
+                            "Manual render failure writeback failed for song #%s (attempt %s)",
+                            song_id,
+                            attempt + 1,
+                        )
         finally:
             rendering.clear()
             render_slot.release()
@@ -2204,13 +2214,18 @@ def create_app(
                     (song_id,),
                 ).fetchone()
                 if existing:
-                    store.db.execute(
-                        "UPDATE songs SET priority_next=0 WHERE priority_next=1"
-                    )
-                    store.db.execute(
-                        "UPDATE songs SET priority_next=1 WHERE id=?", (existing["id"],)
-                    )
-                    store.db.commit()
+                    try:
+                        store.db.execute(
+                            "UPDATE songs SET priority_next=0 WHERE priority_next=1"
+                        )
+                        store.db.execute(
+                            "UPDATE songs SET priority_next=1 WHERE id=?",
+                            (existing["id"],),
+                        )
+                        store.db.commit()
+                    except sqlite3.Error:
+                        store.db.rollback()
+                        raise
                     return {
                         "id": existing["id"],
                         "status": "ready",
