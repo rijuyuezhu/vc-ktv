@@ -403,12 +403,16 @@ class Store:
             if value is not None:
                 updates[key] = str(value)
         with self.lock:
-            self.db.executemany(
-                "INSERT INTO room_state(name,value) VALUES(?,?) "
-                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                updates.items(),
-            )
-            self.db.commit()
+            try:
+                self.db.executemany(
+                    "INSERT INTO room_state(name,value) VALUES(?,?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    updates.items(),
+                )
+                self.db.commit()
+            except sqlite3.Error:
+                self.db.rollback()
+                raise
             return self.settings()
 
     @staticmethod
@@ -2080,12 +2084,16 @@ def create_app(
         with store.lock:
             if store.playback_mode() != body.mode and store.current():
                 bail(409, "请先唱完或跳过当前歌曲，再切换播放模式")
-            store.db.execute(
-                "INSERT INTO room_state(name,value) VALUES('playback_mode',?) "
-                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                (body.mode,),
-            )
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "INSERT INTO room_state(name,value) VALUES('playback_mode',?) "
+                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                    (body.mode,),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"mode": body.mode}
 
     @app.get("/api/admin/played")
@@ -2116,9 +2124,17 @@ def create_app(
             if not store.playable(song, store.settings()):
                 bail(409, "歌曲尚未准备好，不能安排为下一首")
             # A single next-song slot: replacing an earlier pin or replay is atomic.
-            store.db.execute("UPDATE songs SET priority_next=0 WHERE priority_next=1")
-            store.db.execute("UPDATE songs SET priority_next=1 WHERE id=?", (song_id,))
-            store.db.commit()
+            try:
+                store.db.execute(
+                    "UPDATE songs SET priority_next=0 WHERE priority_next=1"
+                )
+                store.db.execute(
+                    "UPDATE songs SET priority_next=1 WHERE id=?", (song_id,)
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True, "id": song_id, "priority_next": True}
 
     def schedule_replay(song_id: int, *, current_only=False):
@@ -2396,25 +2412,34 @@ def create_app(
                 bail(404, "歌曲不存在")
             if row["requester"] != user["id"]:
                 bail(403, "只能取消自己点的歌曲")
-            cur = store.db.execute(
-                "UPDATE songs SET status='cancelled' WHERE id=? "
-                "AND status IN ('waiting','ready','rendering')",
-                (song_id,),
-            )
-            if cur.rowcount == 0:
-                bail(409, "歌曲已经开始播放，无法取消")
-            store.db.commit()
+            try:
+                cur = store.db.execute(
+                    "UPDATE songs SET status='cancelled' WHERE id=? "
+                    "AND status IN ('waiting','ready','rendering')",
+                    (song_id,),
+                )
+                if cur.rowcount == 0:
+                    store.db.rollback()
+                    bail(409, "歌曲已经开始播放，无法取消")
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
         return {"ok": True}
 
     @app.post("/api/admin/songs/{song_id}/cancel")
     def cancel(song_id: int, vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
         with store.lock:
-            cur = store.db.execute(
-                "UPDATE songs SET status='cancelled' WHERE id=? AND status IN ('waiting','ready','rendering')",
-                (song_id,),
-            )
-            store.db.commit()
+            try:
+                cur = store.db.execute(
+                    "UPDATE songs SET status='cancelled' WHERE id=? AND status IN ('waiting','ready','rendering')",
+                    (song_id,),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
             if cur.rowcount == 0:
                 bail(409, "只能取消尚未播放的歌曲")
         return {"ok": True}
