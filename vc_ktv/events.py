@@ -183,22 +183,45 @@ class Events:
             finally:
                 self.transitioning = False
 
+    @staticmethod
+    def _write_atomic(path: Path, content: str):
+        temporary = path.with_name(f".{path.name}-{secrets.token_hex(4)}.tmp")
+        try:
+            temporary.write_text(content)
+            temporary.chmod(0o600)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
     def _finish_close(self):
         current = self.metadata()
-        if self.active_id == "legacy":
-            (self.root / "legacy.closed").write_text("closed\n")
-        else:
-            current["status"] = "closed"
-            current["closed_at"] = datetime.now().isoformat(timespec="seconds")
-            (self.base / self.active_id / "info.json").write_text(
-                json.dumps(current, ensure_ascii=False, indent=2) + "\n"
-            )
+        # Commit before changing any on-disk event state, so a failed DB
+        # commit cannot leave an active session marked as closed.
         if self.current_store:
             self.current_store.db.commit()
+        if self.active_id == "legacy":
+            self._write_atomic(self.root / "legacy.closed", "closed\n")
+        else:
+            info = self.base / self.active_id / "info.json"
+            closed = {**current, "status": "closed"}
+            closed["closed_at"] = datetime.now().isoformat(timespec="seconds")
+            self._write_atomic(
+                info, json.dumps(closed, ensure_ascii=False, indent=2) + "\n"
+            )
+            try:
+                self.pointer.unlink(missing_ok=True)
+            except BaseException:
+                # The pointer still names this event; restore its active
+                # metadata and leave the Store open so closing can be retried.
+                self._write_atomic(
+                    info, json.dumps(current, ensure_ascii=False, indent=2) + "\n"
+                )
+                raise
+            current = closed
+        if self.current_store:
             self.current_store.db.close()
         self.current_store = None
         self.active_id = None
-        self.pointer.unlink(missing_ok=True)
         return current
 
 
