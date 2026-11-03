@@ -55,23 +55,30 @@ def test_close_failure_resumes_autoprep_and_can_process_new_songs(
 
                 patch.setattr(Path, "unlink", fail_pointer)
             elif fail_at == "db_commit":
-                real_db = events.current_store.db
+                # Inject only when the close reaches its own DB commit.
+                # Patching the shared Store early races idle AutoPrep claims.
+                real_close = events._finish_close
 
-                class FailCommit:
-                    failed = False
+                def fail_close_commit():
+                    active = events.current_store
+                    real_db = active.db
 
-                    def commit(self):
-                        if not self.failed:
-                            self.failed = True
+                    class FailCommit:
+                        def commit(self):
                             raise sqlite3.OperationalError(
                                 "simulated close commit failure"
                             )
-                        return real_db.commit()
 
-                    def __getattr__(self, name):
-                        return getattr(real_db, name)
+                        def __getattr__(self, name):
+                            return getattr(real_db, name)
 
-                patch.setattr(events.current_store, "db", FailCommit())
+                    active.db = FailCommit()
+                    try:
+                        return real_close()
+                    finally:
+                        active.db = real_db
+
+                patch.setattr(events, "_finish_close", fail_close_commit)
             else:
                 original_stop = original_worker.stop
 
