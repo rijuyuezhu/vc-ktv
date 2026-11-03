@@ -360,46 +360,29 @@ class Store:
         orders_paused: bool | None = None,
         tv_html_overlay: bool | None = None,
     ):
+        # Optional values are updates, not resets; legacy admin clients omit them.
+        updates = {
+            "queue_policy": queue_policy,
+            "allow_unsubtitled": "1" if allow_unsubtitled else "0",
+        }
+        for key, value in (
+            ("subtitle_style", subtitle_style),
+            ("video_quality", video_quality),
+            ("max_bandwidth_mbps", max_bandwidth_mbps),
+            ("orders_paused", None if orders_paused is None else int(orders_paused)),
+            (
+                "tv_html_overlay",
+                None if tv_html_overlay is None else int(tv_html_overlay),
+            ),
+        ):
+            if value is not None:
+                updates[key] = str(value)
         with self.lock:
-            for key, value in (
-                ("queue_policy", queue_policy),
-                ("allow_unsubtitled", "1" if allow_unsubtitled else "0"),
-            ):
-                self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES(?,?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    (key, value),
-                )
-            if subtitle_style is not None:
-                self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('subtitle_style',?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    (subtitle_style,),
-                )
-            if video_quality is not None:
-                self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('video_quality',?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    (str(video_quality),),
-                )
-            if max_bandwidth_mbps is not None:
-                self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('max_bandwidth_mbps',?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    (str(max_bandwidth_mbps),),
-                )
-            if orders_paused is not None:
-                self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('orders_paused',?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    ("1" if orders_paused else "0",),
-                )
-            if tv_html_overlay is not None:
-                self.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('tv_html_overlay',?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    ("1" if tv_html_overlay else "0",),
-                )
+            self.db.executemany(
+                "INSERT INTO room_state(name,value) VALUES(?,?) "
+                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                updates.items(),
+            )
             self.db.commit()
             return self.settings()
 
@@ -488,6 +471,57 @@ class Store:
             and song["prep_state"] in ("done", "manual", "original")
             and bool(song.get("has_media") or song.get("media_file"))
         )
+
+    def claim_next(self):
+        """Claim the first playable turn, leaving an existing player untouched.
+
+        Caller holds the relevant lock: event-scoped for HTTP/TV routes,
+        Store.lock when used directly.
+        """
+        if not self.current():
+            queue = self.fair_queue(persist=True)
+            if queue:
+                song = queue[0]
+                # Preserve an admin-pinned turn's fair-count exemption.
+                self.db.execute(
+                    "UPDATE songs SET status='playing',priority_next=0,fair_exempt=? WHERE id=?",
+                    (int(bool(song["priority_next"])), song["id"]),
+                )
+                self.db.commit()
+
+    def finish_current(self, song_id: int, *, skipped: bool = False) -> int | None:
+        """Settle a turn and return ready count, or None on a stale claim.
+
+        Caller holds the relevant lock across settlement and response.
+        Real performances and skipped turns have distinct counters; admin
+        priority turns are exempt from both. HTTP errors belong to routes.
+        """
+        song = self.current()
+        if not song or song["id"] != song_id:
+            return None
+        self.db.execute(
+            "UPDATE songs SET status=?,played_at=? WHERE id=?",
+            ("skipped" if skipped else "played", time_now(), song_id),
+        )
+        if not song["fair_exempt"]:
+            if skipped:
+                # A skipped ordinary turn consumes only virtual song credit.
+                self.db.execute(
+                    "UPDATE guests SET fair_offset=fair_offset+1 WHERE id=?",
+                    (song["requester"],),
+                )
+            else:
+                self.db.execute(
+                    "UPDATE guests SET plays=plays+1,seconds=seconds+? WHERE id=?",
+                    (song["duration"], song["requester"]),
+                )
+            self.db.execute(
+                "INSERT INTO room_state(name,value) VALUES('last_requester',?) "
+                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                (song["requester"],),
+            )
+        self.db.commit()
+        return len(self.fair_queue())
 
     def state(self):
         with self.lock:
@@ -1898,52 +1932,17 @@ def create_app(
 
     def next_impl():
         with store.lock:
-            if not store.current():
-                queue = store.fair_queue(persist=True)
-                if queue:
-                    song = queue[0]
-                    # Store the exemption on the song: once priority_next is
-                    # cleared, finish/skip must still know this was an admin turn.
-                    store.db.execute(
-                        "UPDATE songs SET status='playing',priority_next=0,fair_exempt=? WHERE id=?",
-                        (int(bool(song["priority_next"])), song["id"]),
-                    )
-                    store.db.commit()
+            store.claim_next()
             return {"active": active_view()}
 
     def finish_impl(body: Finish):
         with store.lock:
-            song = store.current()
-            if not song or song["id"] != body.song_id:
-                bail(409, "当前播放已变化")
-            completed = body.reason != "skip"
-            store.db.execute(
-                "UPDATE songs SET status=?,played_at=? WHERE id=?",
-                ("played" if completed else "skipped", time_now(), body.song_id),
+            next_ready = store.finish_current(
+                body.song_id, skipped=body.reason == "skip"
             )
-            if not song["fair_exempt"]:
-                if completed:
-                    store.db.execute(
-                        "UPDATE guests SET plays=plays+1,seconds=seconds+? WHERE id=?",
-                        (song["duration"], song["requester"]),
-                    )
-                else:
-                    # A skipped ordinary turn consumes only virtual song credit.
-                    store.db.execute(
-                        "UPDATE guests SET fair_offset=fair_offset+1 WHERE id=?",
-                        (song["requester"],),
-                    )
-                store.db.execute(
-                    "INSERT INTO room_state(name,value) VALUES('last_requester',?) "
-                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-                    (song["requester"],),
-                )
-            store.db.commit()
-            return {
-                "ok": True,
-                "finished": body.song_id,
-                "next_ready": len(store.fair_queue()),
-            }
+            if next_ready is None:
+                bail(409, "当前播放已变化")
+            return {"ok": True, "finished": body.song_id, "next_ready": next_ready}
 
     @app.put("/api/admin/playback-mode")
     def change_playback_mode(
