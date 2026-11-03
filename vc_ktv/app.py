@@ -1736,11 +1736,12 @@ def create_app(
                 if old != target.name:
                     (store.media / old).unlink(missing_ok=True)
         except BaseException:
-            if not store.db.execute(
-                "SELECT 1 FROM songs WHERE id=? AND media_file=?",
-                (song_id, target.name),
-            ).fetchone():
-                target.unlink(missing_ok=True)
+            with store.lock:
+                if not store.db.execute(
+                    "SELECT 1 FROM songs WHERE id=? AND media_file=?",
+                    (song_id, target.name),
+                ).fetchone():
+                    target.unlink(missing_ok=True)
             raise
         finally:
             await file.close()
@@ -1772,12 +1773,13 @@ def create_app(
     @app.get("/api/admin/songs/{song_id}/lyrics")
     def get_lyrics(song_id: int, vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
-        row = store.db.execute(
-            "SELECT lyrics FROM songs WHERE id=?", (song_id,)
-        ).fetchone()
-        if not row:
-            bail(404, "歌曲不存在")
-        return {"text": row[0]}
+        with store.lock:
+            row = store.db.execute(
+                "SELECT lyrics FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            return {"text": row[0]}
 
     def render_worker(
         target_store: Store,
@@ -2394,15 +2396,17 @@ def create_app(
             or not events.active_id
         ):
             bail(403, "媒体链接无效或已过期")
-        row = store.db.execute(
-            "SELECT media_file FROM songs WHERE id=?", (song_id,)
-        ).fetchone()
-        if not row or not row[0]:
-            bail(404, "媒体不存在")
-        name = Path(row[0]).name
-        file = store.media / name
-        if not file.is_file():
-            bail(404, "媒体文件缺失")
+        # Share AutoPrep's Store mutex: do not serve an uncommitted media path.
+        with store.lock:
+            row = store.db.execute(
+                "SELECT media_file FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row or not row[0]:
+                bail(404, "媒体不存在")
+            name = Path(row[0]).name
+            file = store.media / name
+            if not file.is_file():
+                bail(404, "媒体文件缺失")
         return FileResponse(
             file,
             media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
