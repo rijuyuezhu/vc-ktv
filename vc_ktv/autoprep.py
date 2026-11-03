@@ -387,54 +387,66 @@ class AutoPrep:
             # Closing an idle event can race the next loop iteration.
             if self.stop_signal.is_set():
                 return None
-            row = self.store.db.execute(
-                """SELECT * FROM songs WHERE status='waiting' AND
-                   (prep_state='pending' OR
-                    (prep_state='unavailable' AND prep_attempts < 3 AND prep_retry_at <= ?))
-                   ORDER BY CASE WHEN prep_state='pending' THEN 0 ELSE 1 END,
-                            requested_at,id LIMIT 1""",
-                (int(time.time()),),
-            ).fetchone()
-            if row:
-                self.store.db.execute(
-                    "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
-                    "prep_error='',prep_stage='download',prep_stage_at=?,"
-                    "prep_timing='{}' WHERE id=?",
-                    (int(time.time()), row["id"]),
-                )
-            else:
+            try:
                 row = self.store.db.execute(
-                    """SELECT * FROM songs WHERE status='ready'
-                       AND prep_state='downloaded' AND lyric_choice != ''
-                       AND skip_subtitles=0
-                       ORDER BY requested_at,id LIMIT 1"""
+                    """SELECT * FROM songs WHERE status='waiting' AND
+                       (prep_state='pending' OR
+                        (prep_state='unavailable' AND prep_attempts < 3 AND prep_retry_at <= ?))
+                       ORDER BY CASE WHEN prep_state='pending' THEN 0 ELSE 1 END,
+                                requested_at,id LIMIT 1""",
+                    (int(time.time()),),
                 ).fetchone()
                 if row:
                     self.store.db.execute(
-                        "UPDATE songs SET prep_state='aligning',"
-                        "prep_stage='queued',prep_stage_at=? WHERE id=?",
+                        "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
+                        "prep_error='',prep_stage='download',prep_stage_at=?,"
+                        "prep_timing='{}' WHERE id=?",
                         (int(time.time()), row["id"]),
                     )
-            self.store.db.commit()
-            if row:
-                self.active_claims += 1
-                self.busy.set()
+                else:
+                    row = self.store.db.execute(
+                        """SELECT * FROM songs WHERE status='ready'
+                           AND prep_state='downloaded' AND lyric_choice != ''
+                           AND skip_subtitles=0
+                           ORDER BY requested_at,id LIMIT 1"""
+                    ).fetchone()
+                    if row:
+                        self.store.db.execute(
+                            "UPDATE songs SET prep_state='aligning',"
+                            "prep_stage='queued',prep_stage_at=? WHERE id=?",
+                            (int(time.time()), row["id"]),
+                        )
+                if not row:
+                    return None  # Idle polling has no write to commit.
                 claimed = dict(row)
+                # Snapshot settings before commit; failure must not strand a
+                # claimed task or leave active_claims/busy stuck.
+                settings = self.store.settings()
                 if row["status"] == "waiting":
-                    claimed["video_quality"] = self.store.settings()["video_quality"]
-                if row["status"] == "ready":
-                    # Snapshot under the Store lock at subtitle job claim.
-                    # Later admin changes affect only subsequent jobs.
-                    settings = self.store.settings()
+                    claimed["video_quality"] = settings["video_quality"]
+                else:
                     claimed["style_preset"] = settings["subtitle_style"]
                     claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
                     claimed["tv_html_overlay"] = settings["tv_html_overlay"]
-                return claimed
-            return None
+                self.store.db.commit()
+            except sqlite3.Error:
+                try:
+                    self.store.db.rollback()
+                except sqlite3.Error as error:
+                    raise RuntimeError("AutoPrep claim rollback failed") from error
+                raise
+            self.active_claims += 1
+            self.busy.set()
+            return claimed
 
     def loop(self):
         while not self.stop_signal.is_set():
-            row = self.claim()
+            try:
+                row = self.claim()
+            except sqlite3.Error:
+                log.exception("Failed to claim AutoPrep task; retrying")
+                self.stop_signal.wait(1)
+                continue
             if not row:
                 self.stop_signal.wait(1)
                 continue
