@@ -1243,7 +1243,12 @@ def create_app(
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "version": "0.5.0", "auto_prepare": auto_prepare}
+        return {
+            "ok": True,
+            "version": "0.5.0",
+            "auto_prepare": auto_prepare,
+            "autoprep_workers": sum(thread.is_alive() for thread in worker.workers),
+        }
 
     @app.get("/api/state")
     def state(

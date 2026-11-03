@@ -347,15 +347,7 @@ class AutoPrep:
                 "UPDATE songs SET prep_state='downloaded',prep_stage='queued' WHERE prep_state='aligning' AND status='ready'"
             )
             self.store.db.commit()
-        self.workers = [
-            threading.Thread(
-                target=self.loop, name=f"vc-ktv-auto-prep-{index + 1}", daemon=True
-            )
-            for index in range(self.max_workers)
-        ]
-        self.worker = self.workers[0]  # Existing lifecycle compatibility.
-        for thread in self.workers:
-            thread.start()
+        self.resume_after_failed_stop()
 
     def stop(self):
         self.stop_signal.set()
