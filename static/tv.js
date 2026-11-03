@@ -181,9 +181,12 @@ function updateControls(){
   pauseResume.textContent=video.paused?"▶ 继续":"⏸ 暂停";
   progress.textContent=clock(video.currentTime)+" / "+clock(video.duration);
 }
+let queueRequestId=0;
 async function syncQueue(){
+  const requestId=++queueRequestId;
   try{
     const state=await api("/api/tv/state");
+    if(requestId!==queueRequestId)return; // Ignore a slower, superseded poll.
     playbackMode=state.playback_mode||"browser";
     const queue=(state.queue||[]).slice(0,3);
     updateNextSong(queue[0]);
@@ -202,7 +205,7 @@ async function syncQueue(){
     else if(controlError.textContent.includes("手动投屏"))controlError.textContent="";
     if(preloaded&&(!queue.length||preloaded.id!==queue[0].id))clearPreload();
     updateControls();
-  }catch(e){controlError.textContent=e.message||String(e);}
+  }catch(e){if(requestId===queueRequestId)controlError.textContent=e.message||String(e);}
 }
 async function api(path,method="GET",body=null){
   const options={method,cache:"no-store"};
