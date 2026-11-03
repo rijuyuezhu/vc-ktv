@@ -1768,11 +1768,17 @@ def create_app(
                 ).fetchone()
                 if row["status"] not in ("waiting", "ready"):
                     bail(409, "歌曲状态已变化")
-                store.db.execute(
-                    "UPDATE songs SET status='ready',media_file=?,source_file=?,duration=?,render_error='',prep_state='manual',prep_error='' WHERE id=?",
-                    (target.name, target.name, round(actual_duration), song_id),
-                )
-                store.db.commit()
+                try:
+                    store.db.execute(
+                        "UPDATE songs SET status='ready',media_file=?,source_file=?,duration=?,render_error='',prep_state='manual',prep_error='' WHERE id=?",
+                        (target.name, target.name, round(actual_duration), song_id),
+                    )
+                    store.db.commit()
+                except BaseException:
+                    # The outer handler must see the last committed media
+                    # pointer before deciding whether to remove this upload.
+                    store.db.rollback()
+                    raise
             for old in set(filter(None, (row["media_file"], row["source_file"]))):
                 if old != target.name:
                     try:
