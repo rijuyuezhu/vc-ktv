@@ -363,6 +363,21 @@ class AutoPrep:
             thread.join(timeout=2)
         return all(not thread.is_alive() for thread in self.workers)
 
+    def resume_after_failed_stop(self):
+        """Retain surviving workers and replace those that already exited."""
+        self.stop_signal.clear()
+        alive = [thread for thread in self.workers if thread.is_alive()]
+        names = {thread.name for thread in alive}
+        for index in range(1, self.max_workers + 1):
+            name = f"vc-ktv-auto-prep-{index}"
+            if name in names:
+                continue
+            thread = threading.Thread(target=self.loop, name=name, daemon=True)
+            thread.start()
+            alive.append(thread)
+        self.workers = alive
+        self.worker = alive[0]
+
     def claim(self):
         with self.store.lock:
             # Closing an idle event can race the next loop iteration.
