@@ -42,7 +42,24 @@ uv run --no-sync python -m scripts.setup_spark_assets all
 
 `all` 包含 `tifa`、`kim`、`qwen` 三组，不包括上游 Windows FFmpeg 包；可分别指定组，或使用 `--root /custom/pipeline`。每个文件使用仓库锁定的 SHA-256 校验，已经存在的非受控源码目录不会被自动覆盖。对已经手工部署过 TIFA 的机器，不要直接运行 `all` 企图覆盖旧模型；先核对现有资源，必要时单独选择 `kim` / `qwen` 分组。
 
-**仍需独立准备 `<pipeline>/runtime/tifa/bin/python`：** 它必须是一个实际可导入 CUDA PyTorch 和 TIFA 依赖的 Python 3.12 环境。当前仓库**尚没有**针对全新机器通用、经过验收的 TIFA CUDA 安装器；不同架构/CUDA 组合不能直接复用开发机器的安装步骤。该步骤未就绪前，不能宣称完整 GPU 部署成功。
+**TIFA CUDA 环境仍有独立的 PyTorch 前置条件。** 对已经验证的 Linux ARM64 / WSL、Python 3.12 + CUDA 13.0 组合，可以使用单独的 `setup_tifa_runtime` 安装固定版本的 TIFA 依赖：
+
+```sh
+# 首先在独立、长期保留的 CUDA Python 3.12 venv 中安装与硬件匹配的
+# torch==2.13.0+cu130 和 torchaudio==2.11.0+cu130
+# 具体 wheel / CUDA 来源按 PyTorch 官方平台说明准备，不要安装 CPU-only 版本
+/absolute/path/to/cuda-venv/bin/python -c "import torch, torchaudio; assert torch.cuda.is_available()"
+
+uv run --no-sync python -m scripts.setup_tifa_runtime \
+  --root "$HOME/.local/share/vc-ktv/pipeline" \
+  --torch-python /absolute/path/to/cuda-venv/bin/python
+```
+
+该工具**只在目标 TIFA 目录尚不存在时创建环境**，先检查指定 Python 中的 PyTorch、torchaudio、CUDA 和实际安装路径，失败时不覆盖旧环境。TIFA 的 79 个固定版本普通依赖独立安装，并通过显式只读 `.pth` 使用传入的 CUDA PyTorch；**源 CUDA venv 必须一直保留**。脚本拒绝通过其它 `.pth` 间接引入的 PyTorch，避免不经意依赖另一个私人项目。也不会下载模型：模型资源仍由前述资产步骤准备。
+
+此流程仅在 Linux ARM64 / WSL + CUDA 13.0 上验收，**不是跨系统的一键 CUDA 安装器**。Linux x86_64、其它 CUDA/PyTorch 组合仍需要单独准备与验证；已经有可工作的 TIFA 环境时，不应对生产目录重新执行此脚本。当前暂不提供经过验收的通用 CUDA PyTorch wheel 安装命令。
+
+由于 CUDA Torch/Torchaudio 明确放在外部独立环境中，`uv pip check --python <pipeline>/runtime/tifa/bin/python` 不会遍历 `.pth` 链接，可能报告 Torch 缺失；这不是 CUDA 加载失败。安装器会实际验证 Torch/Torchaudio、TIFA 导入和 CUDA 设备，完整推理还需要下述独立 GPU Smoke Test。其它普通 Python 依赖都应由固定版本清单在 TIFA 环境中独立满足。
 
 完成 TIFA CUDA 环境后，才运行 Kim/Qwen 环境叠加安装：
 

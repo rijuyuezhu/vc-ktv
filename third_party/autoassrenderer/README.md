@@ -22,6 +22,12 @@ rebasing the vendored files to a new upstream revision. The accompanying
 `assets.lock.json` is a **snapshot** of the upstream pinned model inputs;
 do not equate an upstream source commit update with a model upgrade.
 
+`tifa-requirements-spark-arm64-cu130.txt` is a VC KTV-specific runtime
+dependency snapshot, **not** an upstream TIFA lockfile. It was verified on
+Linux ARM64 / WSL with Python 3.12 and explicitly provided CUDA 13.0
+Torch/Torchaudio. Other architectures and CUDA builds require independent
+dependency review and a real GPU model acceptance run.
+
 ## Upstream update notification
 
 [`.github/workflows/upstream-check.yml`](../../.github/workflows/upstream-check.yml)
