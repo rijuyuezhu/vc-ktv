@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from scripts import check_install, setup_spark_assets
+from scripts.setup_spark_runtimes import main as runtime_main
 from scripts.setup_spark_runtimes import require_cuda, setup, tifa_python
 from vc_ktv.app import create_app
 
@@ -105,3 +106,38 @@ def test_runtime_default_root_uses_pipeline_root_env(tmp_path):
         text=True,
     )
     assert result.strip() == str(tmp_path)
+
+
+def test_runtime_cli_preserves_venv_python_symlink(tmp_path, monkeypatch):
+    python = tmp_path / "tifa/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    passed = []
+    monkeypatch.setattr(
+        "scripts.setup_spark_runtimes.setup", lambda *args: passed.append(args)
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "setup_spark_runtimes",
+            "kim",
+            "--root",
+            str(tmp_path),
+            "--tifa-python",
+            str(python),
+        ],
+    )
+    runtime_main()
+    assert passed == [("kim", tmp_path, python)]
+
+
+def test_qwen_pins_runtime_transformers_imports():
+    from pathlib import Path
+
+    requirements = (
+        Path(__file__).resolve().parents[1]
+        / "third_party/autoassrenderer/qwen-requirements.txt"
+    ).read_text()
+    names = {line.split("==", 1)[0] for line in requirements.splitlines()}
+    assert {"regex", "safetensors"} <= names
