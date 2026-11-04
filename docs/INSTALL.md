@@ -110,7 +110,7 @@ UMask=0077
 WantedBy=default.target
 ```
 
-保存到 `~/.config/systemd/user/vc-ktv.service` 后，用 `systemctl --user daemon-reload` 和 `systemctl --user enable --now vc-ktv.service` 启用。示例默认只启动基础服务；完成 GPU 验收后再调整 `VC_KTV_AUTOPREPARE`。**不要在已有生产实例上直接套用模板或覆盖其 unit**。更新前先检查当前队列/准备任务，备份数据；合并 PR 也不意味着要立即部署。
+保存到 `~/.config/systemd/user/vc-ktv.service` 后，用 `systemctl --user daemon-reload` 和 `systemctl --user enable --now vc-ktv.service` 启用。示例默认只启动基础服务；完成 GPU 验收后再调整 `VC_KTV_AUTOPREPARE`。**不要在已有生产实例上直接套用模板或覆盖其 unit**。更新前先检查当前队列/准备任务，备份数据；合并 PR 也不意味着要立即部署。经验证的备份与回滚流程见 [升级与回滚验收](RELEASE.md)。
 
 ### 媒体下载的临时链接
 
