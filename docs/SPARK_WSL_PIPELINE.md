@@ -1,23 +1,28 @@
-# Spark-WSL 字幕模型环境
+# GPU 字幕运行与验收（Linux CUDA）
 
-此页供需要独立运行 CUDA 模型的开发者使用，不是普通用户的安装步骤。模型权重与独立 Python 运行时不放入 Git。上游资源固定信息见 [third_party/autoassrenderer/UPSTREAM.json](../third_party/autoassrenderer/UPSTREAM.json) 和 [assets.lock.json](../third_party/autoassrenderer/assets.lock.json)。
+本页记录已在 **Linux ARM64 / WSL、Python 3.12、CUDA 13.0** 验证的 Kim、Qwen3-ASR 和 TIFA 环境。其它 Linux 平台可使用相同安装方式，但需独立验证 GPU 与模型推理。
 
-该页记录已验证的 Linux ARM64 / WSL 流水线配置；其他环境参考 [通用安装说明](INSTALL.md) 并单独测试。模型与运行时默认放在 `~/.local/share/vc-ktv/pipeline/`。先按安装指南使用 `uv pip install --torch-backend cu130` 创建独立 CUDA PyTorch 环境，再安装 TIFA。模型资产由 `setup_spark_assets all` 准备：
+## 安装
+
+按照 [安装指南](INSTALL.md) 依次准备模型资源、独立 CUDA PyTorch 环境及 TIFA/Kim/Qwen 运行时。不要直接依赖其它项目已有的 Python 环境。
+
+模型默认位于 `~/.local/share/vc-ktv/pipeline/`，可通过 `VC_KTV_PIPELINE_ROOT` 自定义。源码和权重版本见 [UPSTREAM.json](../third_party/autoassrenderer/UPSTREAM.json) 与 [assets.lock.json](../third_party/autoassrenderer/assets.lock.json)。安装完成后先检查：
 
 ```sh
-uv sync --locked --group dev
-uv run --no-sync python -m scripts.setup_spark_assets all
-# 按 INSTALL.md 创建 cuda-torch venv，再创建 TIFA 运行时：
-uv run --no-sync python -m scripts.setup_tifa_runtime \
-  --root "$HOME/.local/share/vc-ktv/pipeline" \
-  --torch-python "$HOME/.local/share/vc-ktv/pipeline/runtime/cuda-torch/bin/python"
-uv run --no-sync python -m scripts.setup_spark_runtimes all
 uv run --no-sync python -m scripts.check_install --mode gpu
 ```
 
-Kim、Qwen3-ASR 模型和运行时直接安装在 `~/.local/share/vc-ktv/pipeline/`，不会自动修改活动场次。Kim、TIFA 和可选 Qwen3-ASR 使用独立运行环境，避免 PyTorch/CUDA 版本冲突；TIFA 的本地路径由环境配置决定。独立的 CUDA PyTorch 环境由 uv 安装，并供三个运行时共享，使用期间应保留该环境。
+## 验证实际推理
 
-用授权素材单独测试：
+安装预检只检查必要文件与工具。可以使用约 8 秒合成语音运行完整的 Kim → Qwen3-ASR → TIFA → ASS/MP4 流水线：
+
+```sh
+uv run --no-sync python -m scripts.gpu_smoke
+```
+
+该测试另需 `espeak-ng`、FFmpeg/libx264/libass；会在隔离临时目录运行，验证原生模型对齐、歌词覆盖及音轨保持。详见 [验证范围](VALIDATION.md)。
+
+也可以用自己有权处理的素材验证完整歌曲：
 
 ```sh
 uv run --no-sync python -m scripts.run_spark_pipeline \
@@ -26,4 +31,4 @@ uv run --no-sync python -m scripts.run_spark_pipeline \
   --out /absolute/path/new-attempt
 ```
 
-该测试会写出对齐时间轴、ASS/LRC、MP4 和尝试报告。当前默认 `quality`，需要 Kim、Qwen3-ASR 和 TIFA。部署时必须检查实际运行进程的 `VC_KTV_PIPELINE_MODE`，不能依赖文档中的旧部署快照；本次修改不会调整当前服务。不要将短样例的成功或相同音轨校验视为长歌曲字幕准确率证明。旧实验过程与详细输出可从 Git 历史和本机隔离归档中查阅。
+第二条命令会保留每阶段时间轴、日志、ASS/LRC 和成片；输出目录应为新的独立目录。历史短样例成功不代表其它翻唱、长间奏或并发任务必然准确。生产设置及部署步骤仍以 [安装指南](INSTALL.md) 和 [升级与回滚](RELEASE.md) 为准。

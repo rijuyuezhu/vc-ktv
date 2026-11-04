@@ -1,26 +1,33 @@
 # 文档导航
 
-本项目使用 Python/FastAPI、SQLite 和原生网页构建个人自托管 KTV。开始使用请先阅读 [根 README](../README.md)，之后按需要进入下列内容。产品操作和部署说明以**当前代码行为**为准；历史实验报告不是安装步骤或生产状态公告。
+首次使用请阅读 [项目 README](../README.md)，然后根据用途选择文档。**安装与功能说明适用于当前代码；历史实验仅代表当时的样本和条件。**
 
-## 使用、运维与开发
+## 安装与使用
 
-- [场次及数据](EVENTS.md)：创建、关闭、归档场次，账号与历史记录
-- [点歌、自动制作与播放](AUTOPREP.md)：准备阶段、失败回退、公平轮播与管理员操作
-- [安全边界](SECURITY.md)：只在可信网络部署、权限与反向代理要求
-- [开发指南](DEVELOPMENT.md)：代码位置、测试和 PR/部署边界
-- [功能验证范围](VALIDATION.md)：自动化与真实设备测试的区别
-- [来源 LRC 模式](PROVIDER_LRC.md)、[字幕对齐](ALIGNMENT.md)、[HTML 字幕](TV_HTML_OVERLAY.md)
-- [上游引擎](UPSTREAM_PIPELINE.md)、[模型环境记录](SPARK_WSL_PIPELINE.md)：模型、许可证与 CUDA 运行条件
+- [安装与运行](INSTALL.md)：启动基础服务，按需安装 CUDA 模型，配置常驻服务
+- [场次及数据](EVENTS.md)：场次、账号、历史记录和归档
+- [点歌、自动制作与播放](AUTOPREP.md)：准备阶段、失败回退、公平轮播及管理员操作
+- [歌词来源与 LRC](PROVIDER_LRC.md)、[字幕对齐](ALIGNMENT.md)、[HTML 字幕](TV_HTML_OVERLAY.md)
 
-## 历史实验与研究结果
+## 部署与维护
 
-以下报告记录**特定日期、硬件、网络和样本**的测量，目的是保留方法、指标和局限，并非现行部署建议或对所有环境的性能保证：
+- [安全与反向代理](SECURITY.md)：身份验证、信任代理、适用网络
+- [升级与回滚](RELEASE.md)：数据备份、隔离验收、生产切换
+- [GPU 模型环境](SPARK_WSL_PIPELINE.md)：Linux CUDA 实测环境及推理验收
+- [上游字幕引擎](UPSTREAM_PIPELINE.md)：实现差异与模型来源
+
+## 开发与测试
+
+- [开发指南](DEVELOPMENT.md)：代码结构、测试与协作流程
+- [验证范围](VALIDATION.md)：离线测试、浏览器、GPU 与生产验收的边界
+
+## 历史实验
+
+以下报告保留当时的硬件、网络、样本和测量条件，不作为当前默认配置或性能保证。
 
 - [4 Mbps 码率与浏览器缓冲](PERFORMANCE_4MBPS.md)
 - [质量流水线三首歌曲并发](PERFORMANCE_QUALITY_THREE_WAY.md)
 - [质量流水线两首歌曲并发](PERFORMANCE_QUALITY_THROUGHPUT.md)
-- [B 站 CDN 直连与歌词叠加实验](BILIBILI_CDN_RESEARCH.md)
+- [B 站 CDN 直连与歌词叠加](BILIBILI_CDN_RESEARCH.md)
 
-实验中列出的 GPU 型号、CPU 架构、浏览器与时间戳属于复现条件，应予保留。某些报告还引用原作者**本机未入库的原始数据**，仅作为证据定位，不意味着 Git clone 后可直接访问。不要向公开 issue/PR 上传含有会话数据库、用户数据、Cookie、签名媒体 URL、未授权音视频的原始产物。
-
-如需实际复测，请用自己合法获取的媒体和隔离目录运行，而不是访问原作者的机器或在线生产场次。涉及 GPU、外部歌词来源或真实电视投屏的结论，必须另行记录运行环境和验收结果。
+报告引用的部分原始数据保存在当时的隔离测试环境中，不随 Git 仓库分发。硬件规格、模型版本与通用实验路径是复现信息；实际账号、场次数据库、访问凭据、签名 URL 和用户媒体不属于公开实验材料。
