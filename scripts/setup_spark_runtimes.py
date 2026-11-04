@@ -114,7 +114,7 @@ def main():
     parser.add_argument("--tifa-python", type=Path)
     args = parser.parse_args()
     root = args.root.expanduser().resolve()
-    override = args.tifa_python.expanduser().resolve() if args.tifa_python else None
+    override = args.tifa_python.expanduser().absolute() if args.tifa_python else None
     for group in ("kim", "qwen") if args.group == "all" else (args.group,):
         setup(group, root, tifa_python(root, override))
 

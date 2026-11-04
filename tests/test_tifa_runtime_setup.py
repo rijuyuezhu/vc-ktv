@@ -121,7 +121,7 @@ def test_failed_fresh_install_rolls_back_only_new_runtime(tmp_path, monkeypatch)
     torch_site = tmp_path / "direct-cuda-torch"
     torch_site.mkdir()
     monkeypatch.setattr(tifa.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(tifa.platform, "machine", lambda: "aarch64")
+    monkeypatch.setattr(tifa.platform, "machine", lambda: "x86_64")
     monkeypatch.setattr(tifa, "inspect_source", lambda _: torch_site)
 
     calls = []

@@ -1,6 +1,6 @@
 """Create a separate, pinned TIFA runtime from an explicitly supplied CUDA torch.
 
-Validated on Linux ARM64 / WSL, Python 3.12, CUDA 13.0 only.
+Verified on Linux ARM64 / WSL, Python 3.12, CUDA 13.0.
 The supplied torch environment must outlive TIFA; neither is copied or modified.
 """
 
@@ -105,10 +105,8 @@ def setup(root: Path, torch_python: Path) -> Path:
         raise FileNotFoundError(
             f"TIFA source missing at {source}; run setup_spark_assets first"
         )
-    if platform.system() != "Linux" or platform.machine() != "aarch64":
-        raise RuntimeError(
-            "This pinned CUDA/TIFA profile is verified only on Linux ARM64"
-        )
+    if platform.system() != "Linux":
+        raise RuntimeError("This CUDA/TIFA runtime setup requires Linux")
     # venv/bin/python is usually a symlink to the base interpreter.
     # resolve() would bypass pyvenv.cfg and lose the venv's CUDA packages.
     shared_site = inspect_source(torch_python.expanduser().absolute())
