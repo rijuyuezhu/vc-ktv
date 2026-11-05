@@ -297,3 +297,12 @@ def test_primary_tv_controls_keep_labels_minimal():
     assert "当前主屏" not in admin_js
     assert "▶ 开始播放（当前主屏）" not in tv_js
     assert 'start.textContent="▶ 开始"' in tv_js
+
+
+def test_tv_replacement_has_separate_open_and_copy_actions():
+    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    assert 'tv.active?"▣ 更换主屏":"▣ 打开主屏"' in js
+    assert 'tv.active?"⧉ 复制更换链接":"⧉ 复制主屏链接"' in js
+    assert '$("tv-copy-btn").classList.toggle("hidden",tv.active' not in js
+    assert 'const tab=window.open("about:blank","_blank");' in js
+    assert "if(link)await copyTVLink(link);" in js
