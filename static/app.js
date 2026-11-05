@@ -388,7 +388,7 @@ async function openLyricPicker(songId,title,query){
   gpuAlignment=health.gpu_alignment!==false;
   $("guest-lyrics-upload").hidden=!gpuAlignment;
   document.querySelector('label[for="guest-lyrics-upload"]').hidden=!gpuAlignment;
-  $("netease-review-align").hidden=!gpuAlignment;
+  $("netease-review-ai-card").hidden=!gpuAlignment;
   if(!health.auto_prepare){
     toast("后台自动制歌已关闭，可播放已有视频或请管理员手动上传",true);
   }else if(health.autoprep_ready===false){
@@ -416,22 +416,29 @@ function openNeteaseReview(candidate, useLyrics){
   rows.replaceChildren();
   const count=$("netease-review-count");
   const update=()=>{
-    count.textContent=`已保留 ${chosen.size} / ${lines.length} 行`;
+    count.textContent=`✓ 已保留 ${chosen.size} / ${lines.length} 行`;
+    $("netease-review-select-all").disabled=chosen.size===lines.length;
     for(const button of rows.children){
       const kept=chosen.has(Number(button.dataset.index));
       button.classList.toggle("kept",kept);
       button.setAttribute("aria-pressed",String(kept));
+      button.querySelector(".review-check").textContent=kept?"✓":"✕";
     }
   };
   lines.forEach((line,i)=>{
-    const row=appendText(rows,"button",line,"netease-review-line");
+    const row=appendText(rows,"button","","netease-review-line");
+    appendText(row,"span","","review-check").setAttribute("aria-hidden","true");
+    appendText(row,"span",line,"review-line-text");
     row.type="button";row.dataset.index=String(i);
     row.onclick=()=>{if(chosen.has(i))chosen.delete(i);else chosen.add(i);update();};
   });
+  $("netease-review-select-all").onclick=()=>{lines.forEach((_,i)=>chosen.add(i));update();};
   update();
   $("netease-review-provider").hidden=!(candidate.timed_lrc&&candidate.timing_ticket);
-  $("netease-review-align").hidden=!gpuAlignment;
+  $("netease-review-ai-card").hidden=!gpuAlignment;
+  dialog.querySelector(".alignment-cards").classList.toggle("single-mode",!gpuAlignment);
   $("netease-review-offset").value="0";
+  document.querySelector(".offset-details").open=false;
   const options=()=>({
     selection_text:original,
     selection_ticket:candidate.unfiltered_ticket||candidate.ticket,
@@ -522,8 +529,8 @@ function addLyricCandidates(candidates, songId, sequence){
     if(candidate.timed_lrc && candidate.timing_ticket){
       const timed=document.createElement("details");
       timed.open=!gpuAlignment;
-      appendText(timed,"summary","可选：沿用来源逐句时间轴（不重新对齐）");
-      appendText(timed,"div","仅适用于与歌词来源（如网易云音乐）同一音源的歌曲；不适合演唱会、翻唱或改编版。此模式会把每句时间平均分给各字产生渐变，并非真实逐字对齐；想要更准确的高亮请选择普通歌词对齐。请核对前奏与时间偏移。","muted");
+      appendText(timed,"summary","⚡ 使用来源原时间轴（更快）");
+      appendText(timed,"div","适合与网易云音乐等来源的同一音源，不适合演唱会或改编版。逐字渐变为等分估算；需要适应翻唱请选普通歌词对齐。","muted");
       const preview=candidate.timed_lrc.split("\n");
       appendText(timed,"pre",[...preview.slice(0,3),...(preview.length>4?["…",preview.at(-1)]:preview.slice(3))].join("\n"));
       const label=appendText(timed,"label","偏移（秒，视频比歌词晚则填正数）");
@@ -562,7 +569,7 @@ function updateLyricSearchStatus(){
     `已有 ${lyricHits} 版可选${lyricPending?"，其他来源仍在查询":""}`:
     (lyricPending?"正在查找歌词……":gpuAlignment?
       "没有找到候选，可以更换关键词或上传 LRC":
-      "CPU 模式仅支持带逐句时间轴的歌词，可换关键词或选择不放歌词");
+      "当前只能使用带时间轴的歌词，可换关键词或选择不加字幕");
 }
 async function fetchLyricPhase(phase, songId, query, sequence){
   const controller=new AbortController();
@@ -745,22 +752,30 @@ setupSubpages();
 window.addEventListener("hashchange",()=>{
   detailKey=null;playedKey=null;showPage();refresh();
 });
+document.querySelectorAll("[data-password-target]").forEach(button=>{
+  button.onclick=()=>{
+    const field=$(button.dataset.passwordTarget);
+    const revealing=field.type==="password";
+    field.type=revealing?"text":"password";
+    button.textContent=revealing?"隐藏":"显示";
+    button.setAttribute("aria-pressed",String(revealing));
+    button.setAttribute("aria-label",revealing?"隐藏密码":"显示密码");
+    field.focus();
+  };
+});
 $("show-user-login").onclick=()=>{
   $("auth-register").classList.add("hidden");$("auth-login").classList.remove("hidden");
 };
 $("show-user-register").onclick=()=>{
   $("auth-login").classList.add("hidden");$("auth-register").classList.remove("hidden");
 };
-$("login-btn").onclick=()=>guarded(async()=>{
+$("login-box").addEventListener("submit",(e)=>{e.preventDefault();guarded(async()=>{
   await api("/api/admin/login","POST",{
     username:$("admin-username").value.trim()||null,
     password:$("password").value
   });
   $("password").value="";admin=true;adminStateKey=null;toast("管理员登录成功");await refresh();
-},$("login-btn"));
-for(const id of ["password","admin-username"]){
-  $(id).onkeydown=(e)=>{if(e.key==="Enter")$("login-btn").click();};
-}
+},$("login-btn"));});
 $("logout-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/logout","POST");admin=false;adminStateKey=null;currentMediaId=null;
   player.pause();player.removeAttribute("src");player.load();await refresh();
@@ -1055,12 +1070,12 @@ function renderEntry(entry){
   $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+"  "+entry.event.name:"";
   showPage();
 }
-$("join-btn").onclick=()=>guarded(async()=>{
+$("entry-code").addEventListener("submit",(e)=>{e.preventDefault();guarded(async()=>{
   await api("/api/join","POST",{code:$("join-code").value.trim()});
   $("join-code").value="";
   await refresh();
-},$("join-btn"));
-$("register-btn").onclick=()=>guarded(async()=>{
+},$("join-btn"));});
+$("register-form").addEventListener("submit",(e)=>{e.preventDefault();guarded(async()=>{
   await api("/api/users/register","POST",{
     username:$("register-name").value.trim(),
     password:$("register-password").value,
@@ -1069,15 +1084,15 @@ $("register-btn").onclick=()=>guarded(async()=>{
   $("register-password").value="";$("register-confirm").value="";
   toast("✓ 已进入");
   await refresh();
-},$("register-btn"));
-$("user-login-btn").onclick=()=>guarded(async()=>{
+},$("register-btn"));});
+$("user-login-form").addEventListener("submit",(e)=>{e.preventDefault();guarded(async()=>{
   await api("/api/users/login","POST",{
     username:$("user-login-name").value.trim(),
     password:$("user-login-password").value
   });
   $("user-login-password").value="";
   toast("登录成功");await refresh();
-},$("user-login-btn"));
+},$("user-login-btn"));});
 $("user-logout-btn").onclick=()=>guarded(async()=>{
   await api("/api/users/logout","POST");
   await refresh();
