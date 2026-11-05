@@ -42,7 +42,7 @@
 2. [x] **Preview（元数据）**：已认证的用户或管理员可查询单曲标题、歌手、封面和时长；不会包含音源 URL。逐句歌词的 song-ID 直接接入留给后续 PR。
 3. [ ] **Global-admin session**：二维码开始/轮询/状态/断开；内存会话、过期、鉴权与无敏感日志的测试。
 4. [ ] **Media experiment**：获准使用样本中按可用性/音质获取音频并落隔离目录，检查 codec、时长、音量、缓存和失败回退，不使用生产数据库。
-5. [ ] **Visual prototype**：至少两套自制背景风格的合成视频并在电视播放尺寸验收；最终选一套后加入 worker。
+5. [ ] **Visual prototype**：至少两套自制背景风格的合成视频并在电视播放尺寸验收；最终选一套后加入 worker。（已添加不依赖网络的视觉页面：[`experiments/netease-stage/`](../experiments/netease-stage/)，尚未制作真实 MP4。）
 6. [ ] **Song pipeline**：来源无关的点歌、状态、准备与字幕、下载、重唱、历史列表/管理员视图；SQLite 兼容 B 站旧记录。
 7. [ ] **End-to-end**：功能权限、并发、延迟、无 GPU 时间轴、投屏、缓存、音质、回滚与多设备验收。
 
