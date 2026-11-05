@@ -187,7 +187,10 @@ def test_context_rows_are_discarded_by_id_and_native_outside_core_is_quarantined
     block = dict(id="b", indices=[1, 2], line_ids=["1", "2"], core_start=9, core_end=16)
     monkeypatch.setattr(module, "crop", lambda *args: None)
 
-    def fake_align(audio, selected, duration, origin, *args):
+    def fake_align(audio, selected, duration, origin, *args, asr_matches=None):
+        assert asr_matches == {
+            line.id: (records[int(line.id)], records[int(line.id)]) for line in selected
+        }
         for i, line in enumerate(selected):
             line.units = [
                 word(line.id, line.text, 0, origin + i * 3, origin + i * 3 + 2)

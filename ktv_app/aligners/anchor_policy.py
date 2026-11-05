@@ -54,7 +54,48 @@ def lyric_rate(timeline):
     return max(0.08, min(0.6, statistics.median(values) if values else 0.25))
 
 
-def clean_tifa(timeline):
+def _spurious_intro_word(line, native, matches, previous):
+    """Two independent ASR passes may disprove one early TIFA word, not time the rest."""
+    if (
+        line.language != "zh"
+        or len(native) < 5
+        or len(native) != len(line.units)
+        or any(u.timing_source != "model" for u in native)
+        or native[0].source_start != 0
+        or native[0].source_end != native[1].source_start
+        or native[-1].source_end != len(line.text)
+        or native[0].end - native[0].start < 1
+        or native[1].start - native[0].end < 8
+        or native[-1].end - native[1].start
+        > max(12, (len(canonical(line.text)) - 1) * 1.1 + 3)
+        or (previous is not None and native[1].start < previous - 0.001)
+        or any(
+            b.start < a.end - 0.001 or b.start - a.end > 4
+            for a, b in zip(native[1:], native[2:])
+        )
+        or any(u.end - u.start > 8 for u in native[1:])
+    ):
+        return False
+    left, right = matches or (None, None)
+    if not left or not right:
+        return False
+    if any(
+        m.get("coverage", 0) < 0.8 or m.get("similarity", 0) < 0.8
+        for m in (left, right)
+    ):
+        return False
+    return (
+        abs(left["start"] - right["start"]) <= 0.5
+        and abs(left["end"] - right["end"]) <= 0.5
+        and all(
+            abs(m["start"] - native[1].start) <= 0.5
+            and abs(m["end"] - native[-1].end) <= 0.5
+            for m in (left, right)
+        )
+    )
+
+
+def clean_tifa(timeline, asr_matches=None):
     """Quarantine impossible spans without altering surviving native boundaries."""
     result = timeline.model_copy(deep=True)
     rate = lyric_rate(result)
@@ -63,6 +104,18 @@ def clean_tifa(timeline):
     for line in result.lines:
         scaffold(line)
         native = [u for u in line.units if u.start is not None]
+        evidence = (asr_matches or {}).get(line.id)
+        if _spurious_intro_word(line, native, evidence, previous):
+            rejected.append(
+                {
+                    "line_id": line.id,
+                    "text": line.text,
+                    "reason": "spurious_intro_word_two_pass_asr",
+                    "units": [native[0].model_dump()],
+                }
+            )
+            clear(native[0])
+            native = native[1:]
         a, b = endpoints(line)
         chars = max(1, len(canonical(line.text)))
         reason = None
@@ -252,6 +305,7 @@ def run_anchor_alignment(
     event,
     reuse_work=None,
     tifa_session=None,
+    asr_matches=None,
 ):
     """A new run uses native TIFA first; no Qwen coarse path or mixed global/local words."""
     import soundfile as sf
@@ -276,13 +330,16 @@ def run_anchor_alignment(
     (work / "global_tifa.json").write_text(
         raw.model_dump_json(indent=2), encoding="utf-8"
     )
-    output = clean_tifa(raw)
+    output = clean_tifa(raw, asr_matches)
     output.diagnostics.update(
         boundary_policy=POLICY,
         pipeline="tifa_endpoint_parts_only",
         primary_sentence_model="tifa",
         primary_unit_model="tifa",
-        asr_used=False,
+        asr_used=any(
+            row["reason"] == "spurious_intro_word_two_pass_asr"
+            for row in output.diagnostics["quarantined_native"]
+        ),
         global_runs={"tifa": raw.diagnostics},
         unit_sources={
             u.id: "tifa_global"
@@ -336,7 +393,7 @@ def run_anchor_alignment(
         candidate = recovered.get(job["id"])
         if candidate is None:
             continue
-        candidate = clean_tifa(candidate)
+        candidate = clean_tifa(candidate, asr_matches)
         sub = Timeline(
             duration=duration,
             origin=origin,

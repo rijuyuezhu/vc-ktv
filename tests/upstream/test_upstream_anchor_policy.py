@@ -246,3 +246,174 @@ def test_block_completion_receives_only_source_scoped_asr_hints():
         result.diagnostics["auto_completion"]["changes"][0]["reason"]
         == "two_pass_asr_bounded_estimate"
     )
+
+
+def _intro_outlier_case(*, language="zh", suffix_gap=False):
+    text = "甲乙丙丁戊己庚辛壬癸"
+    times = [
+        (0.52, 3.48),
+        (16.94, 17.31),
+        (17.31, 17.60),
+        (17.60, 18.29),
+        (18.29, 18.65),
+        (18.65, 19.05),
+        (19.05, 19.53),
+        (19.53, 19.90),
+        (19.90, 20.16),
+        (20.16, 20.86),
+    ]
+    if suffix_gap:
+        times[5] = (8, 9)
+    first = Line(
+        id="repeat0",
+        language=language,
+        text=text,
+        units=[
+            unit(c, i, *span, id=f"first-{i}")
+            for i, (c, span) in enumerate(zip(text, times))
+        ],
+    )
+    after = Line(
+        id="after",
+        text="后续歌词",
+        units=[unit("后续歌词", 0, 21.83, 24, id="after-u")],
+    )
+    return timeline([first, after]), {
+        "repeat0": (
+            {"start": 16.92, "end": 20.91, "coverage": 0.9, "similarity": 0.9},
+            {"start": 16.92, "end": 20.88, "coverage": 0.9, "similarity": 0.9},
+        )
+    }
+
+
+def test_two_pass_asr_quarantines_only_spurious_intro_word_not_native_suffix():
+    source, evidence = _intro_outlier_case()
+    assert all(u.start is None for u in clean_tifa(source).lines[0].units)
+
+    clean = clean_tifa(source, evidence)
+    first = clean.lines[0]
+    assert first.units[0].start is None
+    assert [(u.start, u.end, u.timing_source) for u in first.units[1:]] == [
+        (u.start, u.end, u.timing_source) for u in source.lines[0].units[1:]
+    ]
+    assert clean.diagnostics["quarantined_native"][0]["reason"] == (
+        "spurious_intro_word_two_pass_asr"
+    )
+    assert len(clean.diagnostics["quarantined_native"][0]["units"]) == 1
+
+    completed = complete_timeline(clean, rolling=True)
+    assert completed.diagnostics["auto_completion"]["estimated_units"] == 1
+    assert completed.diagnostics["auto_completion"]["estimated_lines"] == 1
+    assert completed.lines[0].units[0].timing_source == "estimated"
+    assert 16.0 < completed.lines[0].start < 16.94
+    assert completed.lines[0].end == 20.86
+    assert all(u.timing_source == "model" for u in completed.lines[0].units[1:])
+    assert completed.lines[1].units[0].start == 21.83
+    assert remove_estimates(completed).lines[0].units[1].start == 16.94
+
+
+def test_introduction_outlier_is_not_salvaged_without_two_reliable_passes():
+    source, evidence = _intro_outlier_case()
+    left, right = evidence["repeat0"]
+    alternatives = [
+        None,
+        {"repeat0": (left, None)},
+        {"repeat0": (left, dict(right, coverage=0.79))},
+        {"repeat0": (left, dict(right, similarity=0.79))},
+        {"repeat0": (left, dict(right, start=18))},
+        {"repeat0": (left, dict(right, end=22))},
+        {"repeat0": (dict(left, start=0.52), dict(right, start=0.52))},
+    ]
+    for candidate in alternatives:
+        clean = clean_tifa(source, candidate)
+        assert all(u.start is None for u in clean.lines[0].units)
+        assert clean.diagnostics["quarantined_native"][0]["reason"] == (
+            "within_sentence_conflict_or_long_pause"
+        )
+
+
+def test_spurious_intro_salvage_rejects_japanese_and_multiple_conflicts():
+    for options in [{"language": "ja"}, {"suffix_gap": True}]:
+        source, evidence = _intro_outlier_case(**options)
+        clean = clean_tifa(source, evidence)
+        assert all(u.start is None for u in clean.lines[0].units)
+        assert not any(
+            row["reason"] == "spurious_intro_word_two_pass_asr"
+            for row in clean.diagnostics["quarantined_native"]
+        )
+
+
+def test_spurious_intro_salvage_remains_scoped_to_matching_duplicate_line_id():
+    source, evidence = _intro_outlier_case()
+    duplicated = source.lines[0].model_copy(deep=True)
+    duplicated.id = "repeat1"
+    duplicated.units = [
+        unit(c, i, 40 + i * 0.35, 40 + (i + 1) * 0.35, id=f"repeat1-{i}")
+        for i, c in enumerate(duplicated.text)
+    ]
+    source.lines.append(duplicated)
+    clean = clean_tifa(source, evidence)
+    assert clean.lines[0].units[0].start is None
+    assert clean.lines[-1].units[0].start == 40
+    assert len(clean.diagnostics["quarantined_native"]) == 1
+
+
+def test_anchor_alignment_passes_two_pass_evidence_through_native_and_local_retries(
+    tmp_path, monkeypatch
+):
+    import numpy as np
+    import soundfile as sf
+
+    import ktv_app.aligners.anchor_policy as policy
+
+    source, evidence = _intro_outlier_case()
+
+    class FakeAdapter:
+        def __init__(self, settings):
+            pass
+
+        def align(self, *args):
+            return source.model_copy(deep=True)
+
+        def align_many(self, *args):
+            return {}
+
+    audio = tmp_path / "vocal.wav"
+    sf.write(audio, np.zeros(30 * 8000), 8000)
+    monkeypatch.setattr(policy, "TIFAAdapter", FakeAdapter)
+    monkeypatch.setattr(policy, "crop", lambda *args: None)
+    result = policy.run_anchor_alignment(
+        audio,
+        source.lines,
+        60,
+        0,
+        tmp_path / "work",
+        object(),
+        lambda _: None,
+        asr_matches=evidence,
+    )
+    assert result.lines[0].units[0].start is None
+    assert result.lines[0].units[1].start == 16.94
+    assert result.lines[0].units[-1].end == 20.86
+    assert result.lines[1].units[0].start == 21.83
+    assert result.diagnostics["asr_used"] is True
+    assert result.diagnostics["unit_sources"]["first-1"] == "tifa_global"
+    assert "first-0" not in result.diagnostics["unit_sources"]
+    assert result.diagnostics["quarantined_native"][0]["reason"] == (
+        "spurious_intro_word_two_pass_asr"
+    )
+
+
+def test_spurious_intro_salvage_does_not_trust_stretched_suffix():
+    source, evidence = _intro_outlier_case()
+    for i, u in enumerate(source.lines[0].units[1:]):
+        u.start = 16.94 + i * 3.4
+        u.end = u.start + 0.3
+    last = source.lines[0].units[-1].end
+    evidence["repeat0"][0]["end"] = last
+    evidence["repeat0"][1]["end"] = last - 0.05
+    clean = clean_tifa(source, evidence)
+    assert all(u.start is None for u in clean.lines[0].units)
+    assert clean.diagnostics["quarantined_native"][0]["reason"] == (
+        "within_sentence_conflict_or_long_pause"
+    )
