@@ -27,4 +27,4 @@ CI 另检查静态 JS 语法。真实模型和设备测试单独执行，不要�
 | `static/` | 点歌、管理与电视播放网页 |
 | `tests/` | 独立行为测试和上游算法测试 |
 
-用户确认歌词，模型只负责对齐。原片和每次字幕尝试独立保存，**不可为可读性或性能清理而删除失败路径与可靠的回归测试**。更新上游代码需保留来源及许可信息，参见 [UPSTREAM_PIPELINE.md](UPSTREAM_PIPELINE.md)。实际生产模型及资产见 [SPARK_WSL_PIPELINE.md](SPARK_WSL_PIPELINE.md)。
+用户确认歌词，模型只负责对齐。原片和每次字幕尝试独立保存，**不可为可读性或性能清理而删除失败路径与可靠的回归测试**。更新上游代码需保留来源及许可信息，参见 [UPSTREAM_PIPELINE.md](UPSTREAM_PIPELINE.md)。实际生产模型及资产见 [GPU_PIPELINE.md](GPU_PIPELINE.md)。

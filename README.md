@@ -11,7 +11,7 @@
 
 公平轮播是默认队列策略：只看已唱首数，不比较歌曲时长；同一人最多获得两首的落后补偿，人数增多仍按轮次轮流。只有领取普通待播歌曲时才持久化调度补偿；未播放就取消不计数，普通歌曲领取后跳过仅消耗虚拟轮次。管理员置顶及重唱视为额外管理员轮次，不增加任何用户的演唱统计或公平计数；也可以切换为先来先唱。
 
-默认下载不高于 720p 的原片，可在设置中改为 480p。字幕默认采用 **Kim 人声分离 + 双遍 Qwen3-ASR 定位 + 分块 TIFA 对齐与接缝修复**。保留 PR #62 拟声词读音映射，字幕仍显示原始歌词。成片保留源视频音轨。管理员可设置场次级在线播放带宽预算（默认 3 Mbps），新烧录成片与电视原片缓存共用该限制。自动对齐属于 best effort：不因切块时长超标而拒绝制作，模型对齐失败会烧录有明确标记的估计字幕；歌词和时间仍可能有误。
+默认下载不高于 720p 的原片，可在设置中改为 480p。字幕默认采用 **Kim 人声分离 + 双遍 Qwen3-ASR 定位 + 分块 TIFA 对齐与接缝修复**。拟声词仅在对齐阶段替换读音，字幕仍显示原始歌词。成片保留源视频音轨。管理员可设置场次级在线播放带宽预算（默认 3 Mbps），新烧录成片与电视原片缓存共用该限制。自动对齐属于 best effort：不因切块时长超标而拒绝制作，模型对齐失败会烧录有明确标记的估计字幕；歌词和时间仍可能有误。
 
 ## 安装
 
@@ -31,14 +31,10 @@ VC_KTV_AUTOPREPARE=0 uv run --no-sync python -m vc_ktv
 
 ## 文档
 
-- [安装与运行](docs/INSTALL.md)
-- [场次与数据管理](docs/EVENTS.md)
-- [字幕流水线与回退](docs/AUTOPREP.md)
-- [本地模型与部署](docs/SPARK_WSL_PIPELINE.md)
-- [开发约定](docs/DEVELOPMENT.md)
-- [安全边界](docs/SECURITY.md)
-- [4 Mbps 受限网络的码率实验](docs/PERFORMANCE_4MBPS.md)
-- [可选来源逐句 LRC 与偏移校准](docs/PROVIDER_LRC.md)
-- [B 站 CDN 与 HTML 歌词叠加独立实验](docs/BILIBILI_CDN_RESEARCH.md)
+- [完整文档导航](docs/README.md)：使用、部署、开发、验证与历史实验
+- [安装与运行](docs/INSTALL.md)：基础服务与可选 GPU 字幕
+- [场次与点歌](docs/EVENTS.md)、[字幕制作与播放](docs/AUTOPREP.md)
+- [安全与代理部署](docs/SECURITY.md)、[升级与回滚](docs/RELEASE.md)
+- [开发指南](docs/DEVELOPMENT.md)、[测试与验证](docs/VALIDATION.md)
 
 本项目是私人测试原型，不提供公网投屏服务或原生乐播 SDK。视频和歌词版权属于各权利人，请仅处理有权使用的素材。音频分离、对齐及字幕渲染代码基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK) 修改，固定来源、Apache-2.0 许可及归属见 [第三方说明](third_party/autoassrenderer/README.md)；模型也适用各自条款。本仓库代码采用根目录 [LICENSE](LICENSE) 中的 Apache-2.0 许可；第三方内容仍遵循各自许可。
