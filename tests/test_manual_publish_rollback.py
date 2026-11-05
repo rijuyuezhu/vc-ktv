@@ -31,6 +31,7 @@ def test_manual_render_publication_failure_keeps_previous_video(
         store.db.commit()
 
     worker_threads = []
+    worker_started = threading.Event()
     underlying = store.db
 
     class FailPublication:
@@ -62,6 +63,7 @@ def test_manual_render_publication_failure_keeps_previous_video(
 
     def fake_render(source, lyrics, destination, duration, lead):
         worker_threads.append(threading.current_thread())
+        worker_started.set()
         destination.write_bytes(b"new-video")
 
     monkeypatch.setattr("vc_ktv.app.render_video", fake_render)
@@ -73,7 +75,7 @@ def test_manual_render_publication_failure_keeps_previous_video(
         )
         response = admin.post(f"/api/admin/songs/{song_id}/render", json={"lead": 1.0})
         assert response.status_code == 200, response.text
-        assert worker_threads
+        assert worker_started.wait(timeout=5)
         worker_threads[0].join(timeout=5)
         assert not worker_threads[0].is_alive()
 
