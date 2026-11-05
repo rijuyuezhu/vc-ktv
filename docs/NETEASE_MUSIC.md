@@ -34,6 +34,8 @@
 
 ## go-musicfox 调研结论
 
+[go-musicfox](https://github.com/go-musicfox/go-musicfox) 可作为登录与播放交互参考；二维码此前采用旧 `/api/...` GET，扫码后曾出现错误。现在按其公开协议结构改为 `/weapi/...` 加密 POST，并为二维码带上 `chainId`；仅使用普通 HTTP/TLS 客户端，不实现 TLS 指纹伪装或风控绕过。隔离测试已实际确认新接口成功创建二维码且未扫码时返回 `801`；**实际扫码成功 `803`、持久化 Cookie 与完整歌曲播放仍待人工验收**。
+
 [go-musicfox](https://github.com/go-musicfox/go-musicfox) 可作为登录与播放交互参考；其主体为 GPL-3.0，VC-KTV 为 Apache-2.0，**不复制主项目实现**。它依赖的 [netease-music](https://github.com/go-musicfox/netease-music) 是另一项目，MIT 许可可单独评估，但引入 Go SDK/sidecar 增加运维复杂度。先验证是否能通过少量 Python/httpx 安全访问必需接口；遇到 462/风控如实失败，不使用绕过机制。官方外链 iframe 可作为试听/外链入口，不具备足够的父页面播放进度和 seek 控制。
 
 ## 按小 PR 逐步交付
