@@ -1,6 +1,5 @@
 """Failed source publishing must not leak media files or SQLite transactions."""
 
-import shutil
 import sqlite3
 
 import pytest
@@ -40,11 +39,11 @@ def assert_unpublished(store, song_id):
 def test_copy_failure_does_not_leave_partial_original_video(tmp_path, monkeypatch):
     store, worker, claimed, song_id = pending_source(tmp_path)
 
-    def fail_copy(source, destination, *args, **kwargs):
-        destination.write_bytes(b"incomplete media bytes")
+    def fail_after_chunk():
         raise OSError("simulated disk full during copy")
 
-    monkeypatch.setattr(shutil, "copyfile", fail_copy)
+    # Copying is now chunked to enforce the room's aggregate disk budget.
+    monkeypatch.setattr("vc_ktv.autoprep.check_current_budget", fail_after_chunk)
     with pytest.raises(OSError, match="disk full"):
         worker.prepare_source(claimed)
     assert_unpublished(store, song_id)

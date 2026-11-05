@@ -14,13 +14,14 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .disk_budget import check_current_budget
+
 log = logging.getLogger(__name__)
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/130 Safari/537.36",
     "Referer": "https://www.bilibili.com/",
 }
-LIMIT = 512 * 1024 * 1024
 TRUSTED_CDN = ("bilivideo.com", "bilivideo.cn", "hdslb.com")
 # Public video quality ceilings exposed to admins: 720p (default), 480p.
 QUALITY_LEVELS = ((64, 720), (32, 480))
@@ -53,7 +54,7 @@ def _json(client: httpx.Client, path: str, params: dict) -> dict:
     return result["data"]
 
 
-def _download(client: httpx.Client, urls: list[str], dest: Path, max_size: int) -> int:
+def _download(client: httpx.Client, urls: list[str], dest: Path) -> int:
     errors = []
     for url in urls:
         if not _allowed(url):
@@ -66,16 +67,16 @@ def _download(client: httpx.Client, urls: list[str], dest: Path, max_size: int) 
                     raise PublicMediaUnavailable(
                         f"媒体服务器返回 HTTP {response.status_code}"
                     )
-                declared = int(response.headers.get("content-length") or 0)
-                if declared > max_size:
-                    raise PublicMediaUnavailable("媒体体积超过限制")
                 total = 0
+                next_check = 16 * 1024 * 1024
                 with dest.open("wb") as out:
                     for chunk in response.iter_bytes(1024 * 1024):
                         total += len(chunk)
-                        if total > max_size:
-                            raise PublicMediaUnavailable("媒体体积超过限制")
                         out.write(chunk)
+                        if total >= next_check:
+                            check_current_budget()
+                            next_check = total + 16 * 1024 * 1024
+                    check_current_budget()
                 if total < 1024:
                     raise PublicMediaUnavailable("媒体服务器返回的内容太短")
                 return total
@@ -147,17 +148,15 @@ def public_media_download(
                     continue
                 attempted.add(stream)
                 try:
-                    vsize = _download(
+                    _download(
                         client,
                         [stream, *(video.get("backupUrl") or [])],
                         destdir / "video.m4s",
-                        LIMIT,
                     )
                     _download(
                         client,
                         [audio.get("baseUrl", ""), *(audio.get("backupUrl") or [])],
                         destdir / "audio.m4s",
-                        LIMIT - vsize,
                     )
                     output = destdir / "source.mp4"
                     subprocess.run(
@@ -182,12 +181,9 @@ def public_media_download(
                             "+faststart",
                             str(output),
                         ],
-                        timeout=75,
                         check=True,
                         capture_output=True,
                     )
-                    if output.stat().st_size > LIMIT:
-                        raise PublicMediaUnavailable("封装后体积超过限制")
                     log.info(
                         "Bilibili public DASH video qn=%s (requested <=%sp) succeeded for %s p%s",
                         video["id"],
@@ -222,7 +218,6 @@ def public_media_download(
                     client,
                     [parts[0].get("url", ""), *(parts[0].get("backup_url") or [])],
                     target,
-                    LIMIT,
                 )
                 log.info(
                     "Bilibili public progressive <=%sp succeeded for %s p%s",

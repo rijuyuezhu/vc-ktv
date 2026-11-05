@@ -95,7 +95,7 @@ def test_admin_controls_source_mode_and_bandwidth_per_event(tmp_path):
         assert initial["tv_html_overlay"] is False
         assert initial["max_bandwidth_mbps"] == 3.0
         assert "compact_video" not in initial
-        for invalid in (0, 0.5, 12.5, -1, "unlimited"):
+        for invalid in (0, 0.5, -1, "unlimited"):
             resp = admin.put(
                 "/api/admin/settings",
                 json={

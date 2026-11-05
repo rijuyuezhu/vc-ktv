@@ -27,8 +27,10 @@ from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Line, Timeline, Unit
 
 from .bilibili_media import QUALITY_HEIGHTS, public_media_download
+from .disk_budget import DiskBudgetExceeded, budget_scope, check_current_budget
 from .karaoke import parse_lrc
 from .netease_media import MusicUnavailable, download_netease_video
+from .process_cancel import terminate_thread_children
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .timed_lyrics import offset_timeline
 from .upstream_pipeline import make_karaoke_video, spark_settings
@@ -81,8 +83,6 @@ def media_download(
         "2",
         "--fragment-retries",
         "2",
-        "--max-filesize",
-        "512M",
     ]
     # Try higher quality first. If the stream itself fails, retry a lower
     # ceiling, not merely a lower format when a format is unavailable.
@@ -121,7 +121,7 @@ def media_download(
             for p in directory.glob("source.*")
             if p.suffix in (".mp4", ".webm", ".m4v")
         ]
-        if len(matches) == 1 and 0 < matches[0].stat().st_size <= 512 * 1024 * 1024:
+        if len(matches) == 1 and matches[0].stat().st_size > 0:
             return matches[0]
         log.warning("yt-dlp <=%sp yielded no valid media for %s", height, bvid)
     log.warning(
@@ -165,7 +165,6 @@ def prepare_tv_source(
                 str(temporary),
             ],
             check=True,
-            timeout=1800,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
@@ -342,6 +341,10 @@ class AutoPrep:
         self.workers: list[threading.Thread] = []
         self.busy = threading.Event()
         self.active_claims = 0
+        self.active_tasks: dict[int, tuple[int, threading.Event]] = {}
+        self.active_tasks_lock = threading.RLock()
+        self.budget_watcher: threading.Thread | None = None
+        self.cancel_external_tasks = lambda: None
 
     def start(self):
         with self.store.lock:
@@ -365,7 +368,53 @@ class AutoPrep:
         self.stop_signal.set()
         for thread in self.workers:
             thread.join(timeout=2)
+        if self.budget_watcher:
+            self.budget_watcher.join(timeout=2)
         return all(not thread.is_alive() for thread in self.workers)
+
+    def cancel_song(self, song_id: int) -> list[int]:
+        """Stop active child processes of a cancelled song, not other workers."""
+        with self.active_tasks_lock:
+            task = self.active_tasks.get(song_id)
+            if task is None:
+                return []
+            tid, cancelled = task
+            cancelled.set()
+            return terminate_thread_children(tid)
+
+    def watch_disk(self):
+        budget = getattr(self.store, "disk_budget", None)
+        if budget is None:
+            return
+        while not self.stop_signal.wait(2):
+            try:
+                budget.check()
+            except DiskBudgetExceeded:
+                with self.active_tasks_lock:
+                    song_ids = list(self.active_tasks)
+                with self.store.lock:
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state='unavailable',prep_attempts=3,"
+                        "prep_retry_at=0,prep_error=? WHERE status='waiting' "
+                        "AND prep_state='downloading'",
+                        ("本场 200 GiB 磁盘预算已用尽",),
+                    )
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state='original',prep_error=? "
+                        "WHERE status='ready' AND prep_state='aligning'",
+                        ("本场 200 GiB 磁盘预算已用尽",),
+                    )
+                    self.store.db.execute(
+                        "UPDATE songs SET status='ready',render_error=? "
+                        "WHERE status='rendering'",
+                        ("本场 200 GiB 磁盘预算已用尽",),
+                    )
+                    self.store.db.commit()
+                for song_id in song_ids:
+                    self.cancel_song(song_id)
+                self.cancel_external_tasks()
+            except OSError:
+                log.exception("Failed to inspect room disk usage")
 
     def resume_after_failed_stop(self):
         """Retain surviving workers and replace those that already exited."""
@@ -386,12 +435,20 @@ class AutoPrep:
             if thread is not None and thread.is_alive():
                 self.workers.append(thread)
         self.worker = self.workers[0] if self.workers else None
+        if self.budget_watcher is None or not self.budget_watcher.is_alive():
+            self.budget_watcher = threading.Thread(
+                target=self.watch_disk, name="vc-ktv-disk-budget", daemon=True
+            )
+            self.budget_watcher.start()
 
     def claim(self):
         with self.store.lock:
             # Closing an idle event can race the next loop iteration.
             if self.stop_signal.is_set():
                 return None
+            budget = getattr(self.store, "disk_budget", None)
+            if budget is not None:
+                budget.check()
             try:
                 row = self.store.db.execute(
                     """SELECT * FROM songs WHERE status='waiting' AND
@@ -462,6 +519,31 @@ class AutoPrep:
     def _record_failure(self, row, error, attempt_started):
         with self.store.lock:
             try:
+                current = self.store.db.execute(
+                    "SELECT status,prep_state,prep_error FROM songs WHERE id=?",
+                    (row["id"],),
+                ).fetchone()
+                if (
+                    not current
+                    or current["status"] == "cancelled"
+                    or current["prep_error"].startswith("本场 200 GiB")
+                ):
+                    return
+                if isinstance(error, DiskBudgetExceeded):
+                    if row["status"] == "waiting":
+                        self.store.db.execute(
+                            "UPDATE songs SET prep_state='unavailable',prep_attempts=3,"
+                            "prep_retry_at=0,prep_error=? WHERE id=? AND status='waiting'",
+                            (str(error), row["id"]),
+                        )
+                    else:
+                        self.store.db.execute(
+                            "UPDATE songs SET prep_state='original',prep_error=? "
+                            "WHERE id=? AND status='ready'",
+                            (str(error), row["id"]),
+                        )
+                    self.store.db.commit()
+                    return
                 if row["status"] == "waiting":
                     attempts = row["prep_attempts"] + 1
                     retry = (
@@ -529,15 +611,40 @@ class AutoPrep:
                 log.exception("Failed to claim AutoPrep task; retrying")
                 self.stop_signal.wait(1)
                 continue
+            except DiskBudgetExceeded:
+                self.stop_signal.wait(3)
+                continue
             if not row:
                 self.stop_signal.wait(1)
                 continue
             attempt_started = time.monotonic()
+            cancelled = threading.Event()
+            with self.active_tasks_lock:
+                self.active_tasks[row["id"]] = (threading.get_native_id(), cancelled)
             try:
-                if row["status"] == "waiting":
-                    self.prepare_source(row)
-                else:
-                    self.prepare_subtitles(row)
+                with budget_scope(getattr(self.store, "disk_budget", None), cancelled):
+                    check_current_budget()
+                    with self.store.lock:
+                        current = self.store.db.execute(
+                            "SELECT status,prep_state FROM songs WHERE id=?",
+                            (row["id"],),
+                        ).fetchone()
+                        valid = bool(
+                            current
+                            and current["status"] == row["status"]
+                            and current["prep_state"]
+                            == (
+                                "downloading"
+                                if row["status"] == "waiting"
+                                else "aligning"
+                            )
+                        )
+                    if valid:
+                        check_current_budget()
+                        if row["status"] == "waiting":
+                            self.prepare_source(row)
+                        else:
+                            self.prepare_subtitles(row)
             except Exception as error:
                 log.exception("Unexpected preparation error for song #%s", row["id"])
                 while not self.stop_signal.is_set():
@@ -551,6 +658,8 @@ class AutoPrep:
                         )
                         self.stop_signal.wait(1)
             finally:
+                with self.active_tasks_lock:
+                    self.active_tasks.pop(row["id"], None)
                 # Other workers may still be processing a different song.
                 # Account for every claim under the same lock as claim().
                 with self.store.lock:
@@ -559,6 +668,7 @@ class AutoPrep:
                         self.busy.clear()
 
     def prepare_source(self, row):
+        check_current_budget()
         song_id = row["id"]
         started = time.monotonic()
         with tempfile.TemporaryDirectory(
@@ -581,14 +691,21 @@ class AutoPrep:
                 )
             else:
                 path = self.download(row["bvid"], row["page"], Path(tmp))
+            check_current_budget()
             actual_duration = self.probe(path)
+            budget = getattr(self.store, "disk_budget", None)
+            if budget is not None:
+                budget.check()
             target = (
                 self.store.media
                 / f"{song_id}-original-{secrets.token_hex(6)}{path.suffix}"
             )
             published = False
             try:
-                shutil.copyfile(path, target)
+                with path.open("rb") as src, target.open("wb") as out:
+                    while chunk := src.read(4 * 1024 * 1024):
+                        out.write(chunk)
+                        check_current_budget()
                 with self.store.lock:
                     latest = self.store.db.execute(
                         "SELECT status,prep_state,skip_subtitles FROM songs WHERE id=?",
@@ -633,6 +750,7 @@ class AutoPrep:
         log.info("Song #%s original available, subtitle enhancement follows", song_id)
 
     def prepare_subtitles(self, row):
+        check_current_budget()
         song_id = row["id"]
         stages = json.loads(row["prep_timing"] or "{}")
         started = time.monotonic()
@@ -754,6 +872,9 @@ class AutoPrep:
                     metadata["tv_source_ready"] = False
             metadata["outcome"] = "rendered"
             metadata["report"] = report
+            budget = getattr(self.store, "disk_budget", None)
+            if budget is not None:
+                budget.check()
             with self.store.lock:
                 latest = self.store.db.execute(
                     "SELECT status,source_file,media_file,prep_state,lyric_choice,"

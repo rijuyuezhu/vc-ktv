@@ -291,7 +291,7 @@ def test_guest_upload_lrc_strips_timing_and_uses_alignment_pipeline(tmp_path):
         assert upload(owner, filename="custom.txt").status_code == 400
         assert upload(owner, content=b"\xff\xfe\x00").status_code == 400
         assert upload(owner, content=b"[ar:who]\n[00:01.00]one").status_code == 400
-        assert upload(owner, content=b"z" * (128 * 1024 + 1)).status_code == 413
+        assert upload(owner, content=b"z" * (128 * 1024 + 1)).status_code == 400
         assert upload(owner).status_code == 200
         record = app.state.store.db.execute(
             "SELECT lyric_choice,lyric_source FROM songs WHERE id=?", (sid,)

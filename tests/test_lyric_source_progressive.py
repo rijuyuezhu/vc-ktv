@@ -183,13 +183,14 @@ def test_slow_wiki_article_does_not_discard_a_ready_article(monkeypatch):
 
     async def article(title):
         if title == "slow-article":
-            await asyncio.sleep(10)
+            await asyncio.sleep(1)
         return [{"title": title, "source": "VCPedia", "text": "歌词第一句\n歌词第二句"}]
 
     monkeypatch.setattr(lyric_selection, "_wiki_titles", pages)
     monkeypatch.setattr(lyric_selection, "vcpedia_lyric_candidates", article)
-    # Keep the production timeout for this assertion: one straggler must not
-    # discard a completed candidate or cause a 15-second stall.
+    # A slow article must not discard earlier results once the configured
+    # timeout expires; the production timeout is deliberately more generous.
+    monkeypatch.setattr(lyric_selection, "DEADLINE", 0.4)
     rows = asyncio.run(lyric_selection.search_lyric_candidates("秋鶄岚夜曲", "wiki"))
     assert [r["title"] for r in rows] == ["秋䴖岚夜曲"]
 

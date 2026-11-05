@@ -25,7 +25,7 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
     if "error" in data:
         return []
     markup = data.get("parse", {}).get("text", {}).get("*", "")
-    if not markup or len(markup) > 4_000_000:
+    if not markup:
         return []
     soup = BeautifulSoup(markup, "html.parser")
     headings = [
@@ -35,7 +35,7 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
         and "歌词" in h.find(class_="mw-headline").get_text()
     ]
     variants = []
-    for heading in headings[:4]:
+    for heading in headings:
         for element in heading.next_siblings:
             if getattr(element, "name", None) in ("h2", "h3"):
                 break
@@ -57,7 +57,7 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
                     line = re.sub(r"[\t\u200b\u3000 ]+", " ", line).strip()
                     if line and (not lines or line != lines[-1]):
                         lines.append(line)
-                value = "\n".join(lines)[:30_000]
+                value = "\n".join(lines)
                 if len(value) >= 30 and value not in [x["text"] for x in variants]:
                     variants.append(
                         {
@@ -69,4 +69,4 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
                             "note": "仅供核对，请检查翻唱、改词和省略段落；此来源不提供逐字时间戳",
                         }
                     )
-    return variants[:5]
+    return variants

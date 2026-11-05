@@ -51,7 +51,6 @@ def normalize_song_metadata(song_id: int, payload: dict) -> dict:
         or not isinstance(duration_ms, int)
         or isinstance(duration_ms, bool)
         or duration_ms <= 0
-        or duration_ms > 3_600_000
     ):
         raise ValueError("网易云歌曲信息不完整")
     artists = track.get("artists", track.get("ar")) or []

@@ -38,11 +38,9 @@ def convert_textgrid(
     source_spans: list[list[tuple[int, int]]] | None = None,
     millisecond_timestamps: bool = False,
 ) -> tuple[str, dict]:
-    if not -10 <= offset <= 10:
-        raise ValueError("时间偏移必须在 -10 至 10 秒以内")
     lines = [s.strip() for s in original_lyrics.splitlines() if s.strip()]
-    if not lines or len(lines) > 800:
-        raise ValueError("请先确认不超过 800 行的纯文本歌词")
+    if not lines:
+        raise ValueError("请先确认有效纯文本歌词")
     if any(s.startswith("[") and "]" in s for s in lines):
         raise ValueError("请导入纯文本歌词；已有时间戳的 LRC 请直接制作字幕")
     spoken = (
