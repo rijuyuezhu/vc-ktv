@@ -479,8 +479,8 @@ function openNeteaseReview(candidate, useLyrics){
     if(timed){
       const offset=$("netease-review-offset").value;
       const seconds=Number(offset);
-      if(!offset||!Number.isFinite(seconds)||seconds< -60||seconds>60){
-        toast("偏移需在 -60 到 60 秒内",true);return;
+      if(!offset||!Number.isFinite(seconds)){
+        toast("请输入有效的时间偏移",true);return;
       }
       Object.assign(extra,{
         timing_mode:"provider",timed_lrc:candidate.timed_lrc,
@@ -526,8 +526,7 @@ function addLyricCandidates(candidates, songId, sequence){
   if(sequence!==selectionRequest || selectingSongId!==songId)return;
   const panel=$("guest-lyrics-results");
   candidates.forEach(candidate=>{
-    if(lyricHits>=30)return;
-    if(!gpuAlignment && !(candidate.timed_lrc && candidate.timing_ticket))return;
+      if(!gpuAlignment && !(candidate.timed_lrc && candidate.timing_ticket))return;
     const key=candidate.title+"\u0000"+candidate.text;
     if(lyricKeys.has(key))return;
     lyricKeys.add(key);
@@ -580,14 +579,14 @@ function addLyricCandidates(candidates, songId, sequence){
       appendText(timed,"pre",[...preview.slice(0,3),...(preview.length>4?["…",preview.at(-1)]:preview.slice(3))].join("\n"));
       const label=appendText(timed,"label","偏移（秒，视频比歌词晚则填正数）");
       const offset=document.createElement("input");
-      offset.type="number";offset.min="-60";offset.max="60";offset.step="0.1";offset.value="0";
+      offset.type="number";offset.step="0.1";offset.value="0";
       offset.setAttribute("aria-label","歌词时间偏移，单位秒");
       label.append(offset);
       const useTimed=appendText(timed,"button","沿用逐句时间轴","btn");
       useTimed.onclick=()=>{
         const value=Number(offset.value);
-        if(!offset.value||!Number.isFinite(value)||value < -60||value > 60){
-          toast("偏移需在 -60 到 60 秒内");return;
+        if(!offset.value||!Number.isFinite(value)){
+          toast("请输入有效的时间偏移");return;
         }
         useLyrics(candidate.text,candidate.ticket,useTimed,{
           timing_mode:"provider",timed_lrc:candidate.timed_lrc,
@@ -620,7 +619,7 @@ async function fetchLyricPhase(phase, songId, query, sequence){
   const controller=new AbortController();
   lyricControllers.push(controller);
   lyricPending++;
-  const deadline=setTimeout(()=>controller.abort(),5000);
+  const deadline=setTimeout(()=>controller.abort(),20000);
   try{
     const url="/api/songs/"+songId+"/lyrics/candidates?phase="+phase+"&query="+encodeURIComponent(query);
     const data=await api(url,"GET",null,controller.signal);
@@ -733,6 +732,9 @@ for(const source of ["bilibili","netease"]){
   });
 }
 let neteaseSearchVersion=0;
+let neteasePage=0;
+let neteaseLastQuery="";
+let neteaseCanLoadMore=false;
 async function submitNeteaseSong(ref,button){
   await guarded(async()=>{
     const result=await api("/api/netease/songs","POST",{ref});
@@ -741,9 +743,9 @@ async function submitNeteaseSong(ref,button){
     await openLyricPicker(result.id,result.title,result.lyric_query);
   },button);
 }
-function renderNeteaseResults(songs){
+function renderNeteaseResults(songs, append=false){
   const list=$("netease-search-results");
-  list.replaceChildren();
+  if(!append)list.replaceChildren();
   for(const song of songs){
     const item=appendText(list,"div","","netease-search-result");
     if(song.cover){
@@ -776,7 +778,11 @@ async function queryNeteaseSongs(){
       await api("/api/netease/search?q="+encodeURIComponent(query));
     if(version!==neteaseSearchVersion)return;
     const songs=looksLikeShare?[data]:data.songs;
+    neteaseLastQuery=looksLikeShare?"":query;
+    neteasePage=0;
+    neteaseCanLoadMore=!looksLikeShare&&songs.length===30;
     renderNeteaseResults(songs);
+    showNeteaseMore();
     message.textContent=songs.length?
       (looksLikeShare?"已识别分享歌曲，请确认歌名与歌手。":"找到 "+songs.length+" 首，请选择正确版本。"):
       "没有找到匹配歌曲，可以换歌名、歌手或粘贴分享链接。";
@@ -785,6 +791,24 @@ async function queryNeteaseSongs(){
     message.textContent=e.message||"搜索失败";
     error(e);
   }
+}
+function showNeteaseMore(){
+  const results=$("netease-search-results");
+  results.querySelector(".netease-load-more")?.remove();
+  if(!neteaseCanLoadMore)return;
+  const button=appendText(results,"button","更多结果","btn netease-load-more");
+  button.type="button";
+  button.onclick=()=>guarded(async()=>{
+    const version=neteaseSearchVersion;
+    const next=neteasePage+1;
+    const data=await api("/api/netease/search?q="+encodeURIComponent(neteaseLastQuery)+"&page="+next);
+    if(version!==neteaseSearchVersion)return;
+    neteasePage=next;
+    neteaseCanLoadMore=data.songs.length===30;
+    button.remove();
+    renderNeteaseResults(data.songs,true);
+    showNeteaseMore();
+  },button);
 }
 $("netease-search-form").addEventListener("submit",(e)=>{
   e.preventDefault();

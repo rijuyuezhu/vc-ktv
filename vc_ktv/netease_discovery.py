@@ -17,7 +17,7 @@ SHARE_HOST = "163cn.tv"
 SHARE_PATH = re.compile(r"/[A-Za-z0-9_-]{4,40}\Z")
 SHARE_URL = re.compile(r"https?://[^\s<>\"'“”‘’（）()「」]+", re.I)
 MAX_SHARE_TEXT = 2048
-MAX_SEARCH_LIMIT = 10
+SEARCH_PAGE_SIZE = 30
 
 
 def extract_song_reference(value: str) -> str:
@@ -77,12 +77,12 @@ async def resolve_song_reference(
 
 
 async def search_netease_songs(
-    query: str, *, transport: httpx.AsyncBaseTransport | None = None
+    query: str, *, page: int = 0, transport: httpx.AsyncBaseTransport | None = None
 ) -> list[dict]:
     """Return bounded public single-song results, no playable/audio URLs."""
     term = query.strip()
-    if not 1 <= len(term) <= 60:
-        raise ValueError("请输入 1–60 字的歌名或歌手")
+    if not term or page < 0:
+        raise ValueError("请输入歌名或歌手")
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(8, connect=3),
         headers=HEADERS,
@@ -94,8 +94,8 @@ async def search_netease_songs(
             params={
                 "s": term,
                 "type": "1",
-                "limit": str(MAX_SEARCH_LIMIT),
-                "offset": "0",
+                "limit": str(SEARCH_PAGE_SIZE),
+                "offset": str(page * SEARCH_PAGE_SIZE),
             },
         )
         response.raise_for_status()
@@ -106,7 +106,7 @@ async def search_netease_songs(
     if not isinstance(result, dict) or not isinstance(result.get("songs"), list):
         raise ValueError("网易云搜索响应异常")
     songs = []
-    for track in result["songs"][:MAX_SEARCH_LIMIT]:
+    for track in result["songs"]:
         if not isinstance(track, dict) or not isinstance(track.get("id"), int):
             continue
         try:

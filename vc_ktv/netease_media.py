@@ -15,11 +15,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from .disk_budget import check_current_budget
 from .netease_catalog import HEADERS, _cover_url
 from .netease_weapi import encode_weapi_form
-
-MAX_AUDIO_BYTES = 80 * 1024 * 1024
-MAX_COVER_BYTES = 4 * 1024 * 1024
 
 
 class MusicUnavailable(ValueError):
@@ -120,8 +118,10 @@ def fetch_download_url(
         return parse_audio_response(song_id, response.json())
 
 
-def download_limited(client: httpx.Client, url: str, path: Path, limit: int) -> None:
-    """Stream with a strict size bound, no redirects, and no persisted URL."""
+def download_limited(
+    client: httpx.Client, url: str, path: Path, limit: int | None
+) -> None:
+    """Stream media with an optional size bound, no redirects or persisted URL."""
     # NetEase CDN regularly serves byte-range downloads but can reject a
     # plain GET. Ask for the complete file starting at byte zero.
     with client.stream(
@@ -139,17 +139,22 @@ def download_limited(client: httpx.Client, url: str, path: Path, limit: int) -> 
             if not match or int(match[1]) + 1 != int(match[2]):
                 raise MusicUnavailable("网易云只返回了部分媒体内容")
             expected = int(match[2])
-            if expected > limit:
+            if limit is not None and expected > limit:
                 raise MusicUnavailable("媒体大小超过限制")
         size = 0
         temporary = path.with_name(path.name + ".part")
         try:
             with temporary.open("wb") as out:
+                next_check = 16 * 1024 * 1024
                 for chunk in response.iter_bytes(256 * 1024):
                     size += len(chunk)
-                    if size > limit:
+                    if limit is not None and size > limit:
                         raise MusicUnavailable("媒体大小超过限制")
                     out.write(chunk)
+                    if size >= next_check:
+                        check_current_budget()
+                        next_check = size + 16 * 1024 * 1024
+                check_current_budget()
             if size < 1024 or (expected is not None and size != expected):
                 raise MusicUnavailable("音频或封面内容不完整")
             temporary.replace(path)
@@ -220,7 +225,7 @@ def assemble_album_video(
         "+faststart",
         str(dest),
     ]
-    subprocess.run(args, capture_output=True, check=True, timeout=900)
+    subprocess.run(args, capture_output=True, check=True)
     if not dest.is_file() or dest.stat().st_size < 1024:
         raise MusicUnavailable("无法生成网易云视频")
     return dest
@@ -245,7 +250,7 @@ def download_netease_video(
         for level in ("exhigh", "higher", "standard"):
             try:
                 url = fetch_audio_url(song_id, cookies=cookies, level=level)
-                download_limited(client, url, audio, MAX_AUDIO_BYTES)
+                download_limited(client, url, audio, None)
                 break
             except (MusicUnavailable, httpx.HTTPError) as error:
                 # A lower offered quality may have a different signed CDN URL.
@@ -256,7 +261,7 @@ def download_netease_video(
             # for the same authorized track. Keep it as the final bounded fallback.
             try:
                 url = fetch_download_url(song_id, cookies=cookies)
-                download_limited(client, url, audio, MAX_AUDIO_BYTES)
+                download_limited(client, url, audio, None)
             except (MusicUnavailable, httpx.HTTPError) as error:
                 if isinstance(error, MusicUnavailable):
                     raise
@@ -266,11 +271,11 @@ def download_netease_video(
         checked_cover = _cover_url(cover_url)
         if checked_cover:
             try:
-                download_limited(client, checked_cover, cover, MAX_COVER_BYTES)
+                download_limited(client, checked_cover, cover, None)
             except (httpx.HTTPError, MusicUnavailable, OSError):
                 cover.unlink(missing_ok=True)
     actual = _audio_duration(audio)
-    if not 0 < actual <= 3600 or actual < duration * 0.8:
+    if actual <= 0 or actual < duration * 0.8:
         raise MusicUnavailable("网易云返回的是试听片段或不完整音频")
     return assemble_album_video(
         audio, cover if cover.exists() else None, target_dir / "source.mp4", actual

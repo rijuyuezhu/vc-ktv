@@ -18,8 +18,8 @@ from .timed_lyrics import provider_timeline
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "VC-KTV/0.5 (guest lyrics search)"}
-TIMEOUT = httpx.Timeout(3.5, connect=2)
-DEADLINE = 4.0
+TIMEOUT = httpx.Timeout(15, connect=5)
+DEADLINE = 16.0
 
 
 def _candidate(
@@ -28,14 +28,14 @@ def _candidate(
     """Only validate that a source supplied usable lyric lines."""
     if not title.strip() or not isinstance(raw, str):
         return None
-    text = clean_lyric_text(raw).strip()[:12_000]
+    text = clean_lyric_text(raw).strip()
     if len(text.splitlines()) < 2:
         return None
     result = {"title": title, "source": source, "text": text, "url": url}
     if timed := provider_timeline(raw, text):
         result["timed_lrc"] = timed
         result["source_lrc_raw"] = raw
-    unfiltered = clean_lyric_text(raw, keep_leading_credits=True).strip()[:12_000]
+    unfiltered = clean_lyric_text(raw, keep_leading_credits=True).strip()
     if unfiltered != text and len(unfiltered.splitlines()) >= 2:
         # Users can inspect and restore questionable leading credits.
         result["unfiltered_text"] = unfiltered
@@ -52,7 +52,7 @@ async def _wiki_titles(query: str) -> list[str]:
                 "action": "query",
                 "list": "search",
                 "srsearch": query,
-                "srlimit": 4,
+                "srlimit": 30,
                 "format": "json",
             },
         )
@@ -74,7 +74,7 @@ async def _lrclib(query: str) -> list[dict]:
     if not isinstance(rows, list):
         return []
     output = []
-    for row in rows[:8]:
+    for row in rows:
         if not isinstance(row, dict) or row.get("instrumental"):
             continue
         title, lyrics = (
@@ -91,7 +91,7 @@ async def _lrclib(query: str) -> list[dict]:
         item = _candidate(title, "LRCLIB", lyrics, url, row.get("artistName") or "")
         if item:
             output.append(item)
-    return output[:6]
+    return output
 
 
 async def netease_song_lyrics(
@@ -157,7 +157,7 @@ async def _netease(query: str) -> list[dict]:
         if not isinstance(songs, list):
             return []
         tracks = [
-            s for s in songs[:6] if isinstance(s, dict) and isinstance(s.get("id"), int)
+            s for s in songs if isinstance(s, dict) and isinstance(s.get("id"), int)
         ]
 
         async def lyric(track):
@@ -200,7 +200,8 @@ async def _collect_ready(coroutines) -> list[dict]:
     tasks = [asyncio.create_task(coro) for coro in coroutines]
     if not tasks:
         return []
-    done, pending = await asyncio.wait(tasks, timeout=3.0)
+    # Return completed articles before the outer source deadline expires.
+    done, pending = await asyncio.wait(tasks, timeout=DEADLINE * 0.75)
     for task in pending:
         task.cancel()
     if pending:
@@ -209,23 +210,23 @@ async def _collect_ready(coroutines) -> list[dict]:
     for task in tasks:
         if task in done and not task.cancelled() and task.exception() is None:
             result.extend(task.result())
-    return result[:6]
+    return result
 
 
 async def _wiki_search(query: str) -> list[dict]:
-    titles = list(dict.fromkeys(await _wiki_titles(query)))[:4]
+    titles = list(dict.fromkeys(await _wiki_titles(query)))
     # The actual MediaWiki page may use alternate glyphs.
     return await _collect_ready(vcpedia_lyric_candidates(title) for title in titles)
 
 
 async def _more_candidates(query: str) -> list[dict]:
     """Extra LRCLIB name variants, not slow general web scraping."""
-    return await _collect_ready(_lrclib(title) for title in title_variants(query)[:2])
+    return await _collect_ready(_lrclib(title) for title in title_variants(query))
 
 
 async def search_lyric_candidates(query: str, phase: str = "all") -> list[dict]:
     query = query.strip()
-    if not 1 <= len(query) <= 60:
+    if not query:
         return []
     sources = {
         "vcpedia": lambda: vcpedia_lyric_candidates(query),
@@ -248,11 +249,11 @@ async def search_lyric_candidates(query: str, phase: str = "all") -> list[dict]:
                 if key not in seen:
                     seen.add(key)
                     results.append(item)
-        return results[:12]
+        return results
     if phase not in sources:
         raise ValueError("unsupported lyric search phase")
     try:
-        return (await asyncio.wait_for(sources[phase](), timeout=DEADLINE))[:6]
+        return await asyncio.wait_for(sources[phase](), timeout=DEADLINE)
     except Exception as exc:  # noqa: BLE001 - one failed source must not block others
         log.info("Lyric source %s unavailable (%s)", phase, type(exc).__name__)
         return []

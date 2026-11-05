@@ -222,6 +222,71 @@ def test_netease_cdn_download_accepts_http_and_rejects_errors(tmp_path):
                 )
 
 
+def test_large_netease_cover_download_has_no_artificial_limit(tmp_path):
+    payload = b"jpeg-mock-" * (600 * 1024)  # Over 4 MiB; no file-size cutoff for cover.
+
+    def handler(request):
+        assert request.headers["range"] == "bytes=0-"
+        return httpx.Response(
+            206,
+            headers={
+                "content-type": "image/jpeg",
+                "content-range": f"bytes 0-{len(payload) - 1}/{len(payload)}",
+            },
+            content=payload,
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        cover = tmp_path / "cover.jpg"
+        download_limited(client, "https://p2.music.126.net/cover.jpg", cover, None)
+        assert cover.stat().st_size == len(payload)
+        assert not (tmp_path / "cover.jpg.part").exists()
+        # Audio limits remain enforced: a large file is still rejected.
+        with pytest.raises(MusicUnavailable, match="大小超过限制"):
+            download_limited(client, "https://p2.music.126.net/cover.jpg", cover, 1024)
+        assert cover.stat().st_size == len(payload)
+
+
+def test_netease_song_download_uses_full_cover_without_size_cap(tmp_path, monkeypatch):
+    from vc_ktv import netease_media
+
+    def fake_resolve(song_id, *, cookies, level):
+        assert (song_id, level) == (42, "exhigh")
+        return "http://m804.music.126.net/audio.mp3"
+
+    cover_url = "https://p2.music.126.net/large-cover.jpg"
+    requested = []
+
+    def fake_download(client, url, path, limit):
+        requested.append((url, limit))
+        path.write_bytes(
+            b"audio" * 700 if limit is not None else b"image" * (1024 * 1024)
+        )
+
+    def fake_render(audio, cover, dest, actual):
+        assert (
+            audio.exists()
+            and cover is not None
+            and cover.stat().st_size > 4 * 1024 * 1024
+        )
+        assert actual == 90
+        dest.write_bytes(b"video" * 700)
+        return dest
+
+    monkeypatch.setattr(netease_media, "fetch_audio_url", fake_resolve)
+    monkeypatch.setattr(netease_media, "download_limited", fake_download)
+    monkeypatch.setattr(netease_media, "_audio_duration", lambda _audio: 90)
+    monkeypatch.setattr(netease_media, "assemble_album_video", fake_render)
+    out = download_netease_video(
+        42, cover_url, tmp_path, duration=88, cookies={"MUSIC_U": "test"}
+    )
+    assert out.is_file()
+    assert requested == [
+        ("http://m804.music.126.net/audio.mp3", None),
+        (cover_url, None),
+    ]
+
+
 def test_download_tries_next_official_quality_on_cdn_rejection(tmp_path, monkeypatch):
     from vc_ktv import netease_media
 
@@ -233,7 +298,7 @@ def test_download_tries_next_official_quality_on_cdn_rejection(tmp_path, monkeyp
         return "http://m804.music.126.net/" + level
 
     def fake_download(client, url, path, limit):
-        assert limit == netease_media.MAX_AUDIO_BYTES
+        assert limit == None
         if url.endswith("/exhigh"):
             raise MusicUnavailable("网易云媒体下载失败（HTTP 403）")
         path.write_bytes(b"audio" * 700)

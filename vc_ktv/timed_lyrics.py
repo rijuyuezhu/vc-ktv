@@ -15,7 +15,7 @@ def provider_timeline(raw: str, confirmed: str) -> str | None:
     Untimed metadata/credits may be omitted. An untimed *sung* line, a
     malformed sequence, or different lyrics must NOT silently gain timings.
     """
-    if not raw or len(raw) > 24_000 or not confirmed:
+    if not raw or not confirmed:
         return None
     offsets = re.findall(r"\[offset\s*:\s*([+-]?\d+)\s*\]", raw, re.I)
     if any(int(value) != 0 for value in offsets):
@@ -24,7 +24,7 @@ def provider_timeline(raw: str, confirmed: str) -> str | None:
         records = parse_lrc(raw)
     except ValueError:
         return None
-    if len(records) < 2 or len(records) > 400:
+    if len(records) < 2:
         return None
     # Disallow reordering/duplicate source timestamps; no guessing which verse.
     starts = []

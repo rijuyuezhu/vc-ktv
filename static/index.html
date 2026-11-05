@@ -203,7 +203,7 @@
             </label>
             <div>
               <label for="max-bandwidth-mbps">在线播放带宽预算（Mbps，默认 3）</label>
-              <input id="max-bandwidth-mbps" type="number" min="1" max="12" step="0.1" value="3">
+              <input id="max-bandwidth-mbps" type="number" min="1" step="0.1" value="3">
               <p class="muted">烧录版与本地原片在线播放缓存共用，预留音频带宽。新设置对下一次制作生效。</p>
             </div>
           </div>
@@ -280,7 +280,7 @@
     <p><button id="guest-lyrics-skip" class="btn neutral" type="button">🎬 不加字幕，使用原片</button></p>
     <label for="guest-lyrics-query">歌词搜索关键词</label>
     <div class="input-row">
-      <input id="guest-lyrics-query" maxlength="60" placeholder="歌名，例如：歌曲名称">
+      <input id="guest-lyrics-query" placeholder="歌名，例如：歌曲名称">
       <button id="guest-lyrics-search" class="btn neutral" type="button">重新搜索</button>
     </div>
     <p id="guest-lyrics-status" class="muted" aria-live="polite"></p>
@@ -311,7 +311,7 @@
           <div class="alignment-heading"><strong>⚡ 快速使用</strong><span>网易云原时间轴</span></div>
           <p>采用原逐句时间，速度快，适合同一录音版本。</p>
           <p class="alignment-note">逐字效果为估算，翻唱或改编版可能不同步。</p>
-          <details class="offset-details"><summary>⏱ 调整时间偏移（默认 0 秒）</summary><label for="netease-review-offset">时间偏移（秒，视频更晚则填正数）</label><input id="netease-review-offset" type="number" min="-60" max="60" step="0.1" value="0"></details>
+          <details class="offset-details"><summary>⏱ 调整时间偏移（默认 0 秒）</summary><label for="netease-review-offset">时间偏移（秒，视频更晚则填正数）</label><input id="netease-review-offset" type="number" step="0.1" value="0"></details>
           <button id="netease-review-timed" class="btn primary choice-action" type="button">使用原时间轴</button>
         </section>
         <section id="netease-review-ai-card" class="alignment-card">
@@ -335,7 +335,7 @@
 
     </div>
     <label for="alignment-offset">TextGrid 时间偏移（秒，仅校准音视频起点，默认 0）</label>
-    <input id="alignment-offset" type="number" value="0" min="-10" max="10" step="0.05">
+    <input id="alignment-offset" type="number" value="0" step="0.05">
     <textarea id="lyrics-textarea" rows="16" placeholder="[00:01.00]&lt;00:01.00&gt;你&lt;00:01.38&gt;好\n[00:03.00]下一句"></textarea>
     <button id="lyrics-save" class="btn primary wide">保存歌词</button>
   </dialog>

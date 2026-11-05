@@ -32,6 +32,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .accounts import password_hash, verify_password
 from .autoprep import AutoPrep, title_key
+from .disk_budget import DiskBudgetExceeded, EventDiskBudget
 from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
 from .lyric_selection import netease_song_lyrics, search_lyric_candidates
@@ -40,15 +41,14 @@ from .media_pins import MediaPins
 from .netease_catalog import lookup_netease_song
 from .netease_discovery import resolve_song_reference, search_netease_songs
 from .netease_login import NeteaseLogin, NeteaseLoginError
+from .process_cancel import terminate_thread_children
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
 
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
-MAX_UPLOAD = 512 * 1024 * 1024
 MAX_ACTIVE_SONGS = 1000
 MAX_USER_SONGS = 10
-MAX_LRC_UPLOAD = 128 * 1024
 LRC_LINE = re.compile(
     r"^(?:\[(?:(?:\d{1,2}:)?\d{1,3}:\d{2}(?:[.:]\d{1,3})?)\])+\s*(.*)$"
 )
@@ -77,7 +77,7 @@ def get_bvid(raw: str) -> str:
 
 class Preview(BaseModel):
     bvid: str
-    page: int = Field(default=1, ge=1, le=200)
+    page: int = Field(default=1, ge=1)
 
 
 class RequestSong(Preview):
@@ -93,17 +93,17 @@ class ImportNetEaseCookie(BaseModel):
 
 
 class GuestLyricChoice(BaseModel):
-    text: str = Field(min_length=10, max_length=12_000)
+    text: str = Field(min_length=10)
     ticket: str = Field(min_length=10, max_length=256)
     source: str = Field(min_length=2, max_length=20)
     timing_mode: Literal["align", "provider"] = "align"
-    timed_lrc: str = Field(default="", max_length=16_000)
-    source_lrc_raw: str = Field(default="", max_length=24_000)
+    timed_lrc: str = Field(default="")
+    source_lrc_raw: str = Field(default="")
     timing_ticket: str = ""
-    offset_ms: int = Field(default=0, ge=-60_000, le=60_000)
-    selection_text: str = Field(default="", max_length=12_000)
+    offset_ms: int = Field(default=0)
+    selection_text: str = Field(default="")
     selection_ticket: str = ""
-    selected_lines: list[int] | None = Field(default=None, max_length=400)
+    selected_lines: list[int] | None = Field(default=None)
 
 
 class Login(BaseModel):
@@ -127,7 +127,7 @@ class PlaybackSettings(BaseModel):
     subtitle_style: StylePreset | None = None
     video_quality: Literal[720, 480] | None = None
     # Optional to preserve older admin clients' current per-event setting.
-    max_bandwidth_mbps: float | None = Field(default=None, ge=1, le=12)
+    max_bandwidth_mbps: float | None = Field(default=None, ge=1)
     orders_paused: bool | None = None
     tv_html_overlay: bool | None = None
 
@@ -162,7 +162,7 @@ class PlaybackMode(BaseModel):
 
 
 class Lyrics(BaseModel):
-    text: str = Field(max_length=30000)
+    text: str = Field()
 
 
 class RenderRequest(BaseModel):
@@ -198,7 +198,7 @@ def probe_media(file: Path) -> float:
         ):
             raise ValueError("未找到有效的视频轨道")
         duration = float(data["format"]["duration"])
-        if not 0 < duration <= 3600:
+        if duration <= 0:
             raise ValueError("视频时长必须在 1 秒至 1 小时之间")
         return duration
     except (
@@ -238,6 +238,7 @@ class Store:
         root.mkdir(parents=True, exist_ok=True)
         self.media = root / "media"
         self.media.mkdir(exist_ok=True)
+        self.disk_budget = EventDiskBudget(root)
         self.db = sqlite3.connect(root / "room.sqlite3", check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.lock = threading.RLock()
@@ -624,8 +625,8 @@ async def bilibili_lookup(bvid: str, page: int) -> dict:
         bail(400, f"此视频只有 {len(pages)} P")
     p = pages[page - 1]
     duration = int(p.get("duration") or d.get("duration") or 0)
-    if duration <= 0 or duration > 3600:
-        bail(400, "MVP 仅支持 1 秒到 60 分钟的视频")
+    if duration <= 0:
+        bail(400, "视频时长无效")
     return {
         "bvid": d.get("bvid", bvid),
         "page": page,
@@ -803,6 +804,10 @@ def create_app(
         ).fetchone()[0]
         if count >= MAX_ACTIVE_SONGS:
             bail(409, "本场待处理歌曲已满，请稍后再点歌")
+        try:
+            store.disk_budget.check()
+        except DiskBudgetExceeded as error:
+            bail(507, str(error))
 
     def check_new_order(guest_id: str):
         if store.settings()["orders_paused"]:
@@ -819,6 +824,21 @@ def create_app(
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
     rendering = threading.Event()
+    manual_render_threads: dict[int, int] = {}
+    manual_render_lock = threading.RLock()
+
+    def stop_manual_renders() -> None:
+        with manual_render_lock:
+            for tid in list(manual_render_threads.values()):
+                terminate_thread_children(tid)
+
+    worker.cancel_external_tasks = stop_manual_renders
+
+    def stop_song_processing(song_id: int) -> None:
+        worker.cancel_song(song_id)
+        with manual_render_lock:
+            if tid := manual_render_threads.get(song_id):
+                terminate_thread_children(tid)
 
     def sign(kind: str, value: str, ttl: int) -> str:
         expiry = str(time_now() + ttl)
@@ -1308,6 +1328,7 @@ def create_app(
             entry = events.create(body.name, body.code)
             worker = AutoPrep(events.active(), probe_media)
             worker.netease_cookies = netease_login.cookies
+            worker.cancel_external_tasks = stop_manual_renders
             app.state.autoprep = worker
             if running and auto_prepare:
                 # A new event has no unfinished preparation to replay.
@@ -1372,6 +1393,7 @@ def create_app(
                             resumed.resume_after_failed_stop()
                             worker = resumed
                             worker.netease_cookies = netease_login.cookies
+                            worker.cancel_external_tasks = stop_manual_renders
                             app.state.autoprep = resumed
                     raise
             finally:
@@ -1430,15 +1452,21 @@ def create_app(
     @app.get("/api/netease/search")
     async def netease_search(
         q: str,
+        page: int = 0,
         vc_guest: str | None = Cookie(default=None),
         vc_admin: str | None = Cookie(default=None),
     ):
         if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
             require_user(vc_guest)
-        if not 1 <= len(q.strip()) <= 60:
-            bail(400, "请输入 1–60 字的歌名或歌手")
+        if not q.strip() or page < 0:
+            bail(400, "请输入歌名或歌手")
         try:
-            return {"songs": await app.state.netease_search(q)}
+            results = (
+                await app.state.netease_search(q)
+                if page == 0
+                else await app.state.netease_search(q, page=page)
+            )
+            return {"songs": results}
         except (httpx.HTTPError, ValueError, TypeError):
             bail(502, "网易云搜索暂不可用")
 
@@ -1687,9 +1715,9 @@ def create_app(
         song = own_song(song_id, vc_guest)
         if song["status"] not in ("waiting", "ready"):
             bail(409, "这首歌已经开始播放或结束")
-        term = query.strip() if query else title_key(song["title"])[:60].strip()
-        if not 1 <= len(term) <= 60:
-            bail(400, "请使用 1–60 字的歌名关键词")
+        term = query.strip() if query else title_key(song["title"]).strip()
+        if not term:
+            bail(400, "请输入歌名关键词")
         key = (song["requester"], song_id)
         recent = [t for t in lyric_search_times.get(key, []) if t > time_now() - 300]
         if len(recent) >= 30:
@@ -1783,8 +1811,6 @@ def create_app(
             ):
                 bail(400, "请至少保留两行，且不能调整歌词顺序")
             chosen = "\n".join(lines[index] for index in selected)
-            if len(chosen) > 12_000:
-                bail(400, "歌词过长")
         if body.timing_mode == "provider":
             payload = hashlib.sha256(
                 (
@@ -1829,10 +1855,8 @@ def create_app(
             bail(409, "CPU 模式暂不支持上传歌词重新对齐，请选择来源逐句时间轴")
         if not (file.filename or "").lower().endswith(".lrc"):
             bail(400, "请上传 .lrc 歌词文件")
-        raw = await file.read(MAX_LRC_UPLOAD + 1)
+        raw = await file.read()
         await file.close()
-        if len(raw) > MAX_LRC_UPLOAD:
-            bail(413, "LRC 文件最大 128 KiB")
         try:
             content = raw.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -1845,8 +1869,8 @@ def create_app(
                 if lyric:
                     lines.append(lyric)
         lyrics = "\n".join(lines)
-        if len(lines) < 2 or not 10 <= len(lyrics) <= 12_000:
-            bail(400, "LRC 需要至少两行带时间标签的有效歌词，总长度不超过 12000 字符")
+        if len(lines) < 2 or len(lyrics) < 10:
+            bail(400, "LRC 需要至少两行带时间标签的有效歌词")
         # Uploaded timing is not trusted; the original quality pipeline realigns the text.
         return save_guest_lyrics(song_id, song["requester"], lyrics, "上传 LRC")
 
@@ -2100,9 +2124,18 @@ def create_app(
             with target.open("wb") as out:
                 while block := await file.read(1024 * 1024):
                     size += len(block)
-                    if size > MAX_UPLOAD:
-                        bail(413, "文件太大，单首最大 512 MiB")
                     out.write(block)
+                    # Include this file and all existing room artifacts in
+                    # the aggregate 200 GiB budget, not just this upload.
+                    if size % (16 * 1024 * 1024) < len(block):
+                        try:
+                            store.disk_budget.check()
+                        except DiskBudgetExceeded as error:
+                            bail(507, str(error))
+            try:
+                store.disk_budget.check()
+            except DiskBudgetExceeded as error:
+                bail(507, str(error))
             if not size:
                 bail(400, "视频为空")
             try:
@@ -2196,7 +2229,15 @@ def create_app(
         lead: float,
     ):
         destination = target_store.media / f"{song_id}-ktv-{secrets.token_hex(8)}.mp4"
+        with manual_render_lock:
+            manual_render_threads[song_id] = threading.get_native_id()
         try:
+            with target_store.lock:
+                current = target_store.db.execute(
+                    "SELECT status FROM songs WHERE id=?", (song_id,)
+                ).fetchone()
+                if not current or current["status"] != "rendering":
+                    return
             render_video(source, lyrics, destination, duration, lead)
             with target_store.lock:
                 row = target_store.db.execute(
@@ -2248,6 +2289,8 @@ def create_app(
                             attempt + 1,
                         )
         finally:
+            with manual_render_lock:
+                manual_render_threads.pop(song_id, None)
             rendering.clear()
             render_slot.release()
 
@@ -2261,10 +2304,8 @@ def create_app(
         require_admin(vc_admin)
         if not (file.filename or "").lower().endswith(".textgrid"):
             bail(400, "请上传 TIFA TextGrid 文件")
-        content = await file.read(2 * 1024 * 1024 + 1)
+        content = await file.read()
         await file.close()
-        if len(content) > 2 * 1024 * 1024:
-            bail(413, "TextGrid 文件最多 2 MiB")
         with store.lock:
             row = store.db.execute(
                 "SELECT status,lyrics,duration,source_file FROM songs WHERE id=?",
@@ -2754,6 +2795,7 @@ def create_app(
             except sqlite3.Error:
                 store.db.rollback()
                 raise
+        stop_song_processing(song_id)
         return {"ok": True}
 
     @app.post("/api/admin/songs/{song_id}/cancel")
@@ -2771,6 +2813,7 @@ def create_app(
                 raise
             if cur.rowcount == 0:
                 bail(409, "只能取消尚未播放的歌曲")
+        stop_song_processing(song_id)
         return {"ok": True}
 
     @app.get("/api/songs/{song_id}/download")

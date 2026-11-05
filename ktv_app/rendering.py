@@ -14,7 +14,7 @@ class RenderOptions(BaseModel):
     # First-pass H.264 quality; audio remains stream-copied verbatim.
     crf: int = Field(default=23, ge=0, le=40)
     # Explicit opt-in cap for a bandwidth-constrained video path (audio is copied).
-    max_video_kbps: int | None = Field(default=None, ge=300, le=12000)
+    max_video_kbps: int | None = Field(default=None, ge=300)
     preset: str = Field(default="medium", pattern=r"^(ultrafast|fast|medium|slow)$")
     output_dir: str = ""
 
