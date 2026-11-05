@@ -253,7 +253,7 @@ async function connectPrimary(){
     if(!response.ok)throw Error(result.detail||"主屏配对失败");
     token=result.token;
     error.textContent="";start.disabled=false;
-    start.textContent="▶ 开始播放（当前主屏）";
+    start.textContent="▶ 开始";
     await syncQueue();
   }catch(e){losePrimary(e.message||String(e));}
 }
