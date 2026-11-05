@@ -69,8 +69,9 @@ def download(item, root):
                 ),
             )
         for link in links:
-            result = subprocess.run(
-                [
+            resume = staged.is_file() and staged.stat().st_size > 0
+            for _ in range(2):
+                cmd = [
                     "curl",
                     "--silent",
                     "--show-error",
@@ -82,16 +83,22 @@ def download(item, root):
                     "2",
                     "--connect-timeout",
                     "20",
-                    "--continue-at",
-                    "-",
-                    "--output",
-                    str(staged),
-                    link,
-                ],
-                check=False,
-            )
+                ]
+                if resume:
+                    cmd += ["--continue-at", "-"]
+                cmd += ["--output", str(staged), link]
+                result = subprocess.run(cmd, check=False)
+                if result.returncode == 33 and resume:
+                    # GitHub archives and some CDNs reject Range: retry cleanly.
+                    staged.unlink()
+                    resume = False
+                    continue
+                break
             if result.returncode == 0 and digest(staged) == sha:
                 break
+            if result.returncode == 0:
+                # A wrong checksum must not become a resume prefix on fallback.
+                staged.unlink()
         else:
             raise RuntimeError(f"Download failed or SHA256 mismatch: {item['name']}")
     if item["kind"] == "zip":
