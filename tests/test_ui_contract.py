@@ -221,3 +221,22 @@ def test_mobile_dialogs_use_tall_scrollable_viewport():
     assert "height: 94dvh" in css
     assert "max-height: 94dvh" in css
     assert "overflow-y: auto" in css
+
+
+def test_guest_request_tabs_include_netease_search_and_share():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    css = (root / "style.css").read_text()
+    for source in ("bilibili", "netease"):
+        assert f'id="source-tab-{source}" role="tab"' in html
+        assert f'id="source-panel-{source}" role="tabpanel"' in html
+    assert 'id="netease-search-form"' in html
+    assert 'id="netease-search-results"' in html
+    assert "selectSongSource(source)" in js
+    assert "/api/netease/search?q=" in js
+    assert "/api/netease/preview?ref=" in js
+    assert "/api/netease/songs" in js
+    assert "const looksLikeShare=" in js
+    assert ".netease-search-result" in css
+    assert 'id="netease-order-panel"' not in html

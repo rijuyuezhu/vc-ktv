@@ -356,3 +356,28 @@ button, input, select { min-height: 44px; }
   .song-actions { flex-direction: row; }
   .auth-single h3 { font-size: 20px; }
 }
+
+/* Source tabs and a single NetEase song/search/share entry point. */
+.song-source-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; margin: 14px 0 16px; padding: 5px; border-radius: 10px; background: var(--surface-2); }
+.song-source-tabs button { min-height: 44px; border: 0; border-radius: 7px; padding: 9px 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
+.song-source-tabs button[aria-selected="true"] { background: var(--surface); color: var(--accent-ink); box-shadow: 0 1px 6px #141b3218; }
+.song-source-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.netease-search-help { font-size: 14px; }
+.netease-search-row { align-items: stretch; }
+.netease-search-row input { min-width: 0; }
+.netease-search-message { margin: 12px 0 8px; font-size: 13px; }
+.netease-search-results { display: flex; flex-direction: column; gap: 7px; max-height: min(450px, 53dvh); overflow-y: auto; }
+.netease-search-result { display: flex; align-items: center; gap: 10px; padding: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); }
+.netease-search-result img, .netease-fallback-cover { width: 48px; height: 48px; flex: 0 0 48px; border-radius: 6px; object-fit: cover; }
+.netease-fallback-cover { display: grid; place-items: center; background: var(--accent-soft); font-size: 23px; }
+.netease-search-result-info { flex: 1; min-width: 0; }
+.netease-search-result-info strong, .netease-search-result-info small { display: block; overflow-wrap: anywhere; }
+.netease-search-result-info strong { font-size: 14px; }
+.netease-search-result-info small { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.netease-search-result .btn { flex: 0 0 auto; font-size: 13px; min-height: 40px; padding: 7px 10px; }
+@media (max-width: 420px) {
+  .song-source-tabs button { font-size: 13px; }
+  .netease-search-row .btn { padding: 9px 10px; font-size: 13px; }
+  .netease-search-result { gap: 8px; padding: 7px; }
+  .netease-search-result img, .netease-fallback-cover { width: 42px; height: 42px; flex-basis: 42px; }
+}

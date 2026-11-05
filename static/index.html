@@ -66,6 +66,11 @@
       </section>
       <section class="panel form-panel hidden" id="request-panel">
         <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♫</span> 点歌</h2></div>
+        <div class="song-source-tabs" role="tablist" aria-label="选择音乐来源">
+          <button type="button" id="source-tab-bilibili" role="tab" aria-selected="true" aria-controls="source-panel-bilibili">📺 哔哩哔哩</button>
+          <button type="button" id="source-tab-netease" role="tab" aria-selected="false" aria-controls="source-panel-netease" tabindex="-1">🎵 网易云音乐</button>
+        </div>
+        <div id="source-panel-bilibili" role="tabpanel" aria-labelledby="source-tab-bilibili">
         <label for="bvid">视频链接或 BV 号</label>
         <div class="input-row"><input id="bvid" placeholder="BVxxxxxxxxxx / B站链接" spellcheck="false"><button id="quick-submit-btn" class="btn primary">♫ 点歌</button></div>
 
@@ -79,14 +84,15 @@
           <button id="submit-btn" class="btn primary wide">♫ 加入队列</button>
         </div>
         </details>
-
-      </section>
-      <section class="panel hidden" id="netease-order-panel">
-        <h2>🎵 网易云音乐点歌</h2>
-        <p class="muted">输入网易云单曲 ID 或分享链接。仅支持可获取完整音频的歌曲。</p>
-        <div class="input-row">
-          <input id="netease-song-ref" placeholder="网易云单曲 ID / music.163.com 链接" autocomplete="off" aria-label="网易云音乐单曲链接">
-          <button id="netease-submit-btn" class="btn primary" type="button">点歌</button>
+        </div>
+        <div id="source-panel-netease" role="tabpanel" aria-labelledby="source-tab-netease" hidden>
+          <p class="muted netease-search-help">搜索歌名或歌手，也可以直接粘贴网易云分享文案、短链接或单曲 ID。</p>
+          <form id="netease-search-form" class="input-row netease-search-row">
+            <input id="netease-song-query" maxlength="2048" placeholder="歌名、歌手或网易云分享链接" autocomplete="off" aria-label="搜索网易云音乐或粘贴分享链接">
+            <button id="netease-search-btn" class="btn primary" type="submit">🔎 搜索</button>
+          </form>
+          <div id="netease-search-message" class="muted netease-search-message" role="status" aria-live="polite">找到歌曲后选择正确的歌手和版本。</div>
+          <div id="netease-search-results" class="netease-search-results" aria-label="网易云搜索结果"></div>
         </div>
       </section>
       <section class="panel queue-panel hidden" id="queue-panel">
