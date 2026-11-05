@@ -133,7 +133,7 @@ test("next song stays visible with empty state and highlights only when the firs
   assert.equal(h.el("next-up-row").classList.contains("highlight"),false);
   h.calls.queue=[{id:2,title:"Second",nickname:"B"},{id:3,title:"Third",nickname:"C"}];
   await h.evaluate("syncQueue()");
-  assert.equal(h.el("next-up").textContent,"Second  B");
+  assert.equal(h.el("next-up").textContent,"📺 Second  B");
   assert.equal(h.el("next-up-row").classList.contains("highlight"),true);
   await h.advance(2201);
   assert.equal(h.el("next-up-row").classList.contains("highlight"),false);
@@ -142,7 +142,7 @@ test("next song stays visible with empty state and highlights only when the firs
   assert.equal(h.el("next-up-row").classList.contains("highlight"),false);
   h.calls.queue=[h.calls.queue[1],h.calls.queue[0]];
   await h.evaluate("syncQueue()");
-  assert.equal(h.el("next-up").textContent,"Fourth  D");
+  assert.equal(h.el("next-up").textContent,"📺 Fourth  D");
   assert.equal(h.el("next-up-row").classList.contains("highlight"),true);
   h.calls.queue=[];
   await h.evaluate("syncQueue()");
@@ -177,13 +177,27 @@ test("current and next song share a separator-free title and nickname format",as
   h.calls.current={id:1,title:"Now",nickname:"Alice"};
   h.calls.queue=[{id:2,title:"Next",nickname:"Bob"}];
   await h.evaluate("syncQueue()");
-  assert.equal(h.el("status").textContent,"Now  Alice");
-  assert.equal(h.el("next-up").textContent,"Next  Bob");
+  assert.equal(h.el("status").textContent,"📺 Now  Alice");
+  assert.equal(h.el("next-up").textContent,"📺 Next  Bob");
   h.evaluate("smoothPlayback=false");
   await h.el("start").onclick();
-  assert.equal(h.el("status").textContent,"A  guest");
+  assert.equal(h.el("status").textContent,"📺 A  guest");
 });
 
+
+test("TV source icon distinguishes NetEase from Bilibili without exposing IDs",async()=>{
+  const h=tvHarness();
+  h.calls.current={id:5,title:"沦为尘埃",nickname:"Alice",source_type:"netease",source_id:"3434373208"};
+  h.calls.queue=[{id:6,title:"Sample",nickname:"Bob",source_type:"bilibili",bvid:"BV0000000009"}];
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("status").textContent,"🎵 沦为尘埃  Alice");
+  assert.equal(h.el("next-up").textContent,"📺 Sample  Bob");
+  assert.equal(h.el("status").textContent.includes("3434373208"),false);
+  h.calls.queue=[{id:7,title:"Next",nickname:"Carol",source_type:"netease",source_id:"9876543210"}];
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("next-up").textContent,"🎵 Next  Carol");
+  assert.equal(h.el("next-up").textContent.includes("9876543210"),false);
+});
 
 test("delayed earlier TV state response cannot overwrite a newer next-song view",async()=>{
   const h=tvHarness();
@@ -195,10 +209,10 @@ test("delayed earlier TV state response cannot overwrite a newer next-song view"
   assert.equal(pending.length,2);
   pending[1].resolve({ok:true,async json(){return {queue:[{id:3,title:"New",nickname:"B"}],current:null,playback_mode:"browser"};}});
   await latest;
-  assert.equal(h.el("next-up").textContent,"New  B");
+  assert.equal(h.el("next-up").textContent,"📺 New  B");
   pending[0].resolve({ok:true,async json(){return {queue:[{id:2,title:"Old",nickname:"A"}],current:null,playback_mode:"browser"};}});
   await stale;
-  assert.equal(h.el("next-up").textContent,"New  B");
+  assert.equal(h.el("next-up").textContent,"📺 New  B");
 });
 
 test("stale TV polling error must not replace a newer healthy queue view",async()=>{
@@ -212,6 +226,6 @@ test("stale TV polling error must not replace a newer healthy queue view",async(
   await latest;
   pending[0].reject(new Error("old request timed out"));
   await stale;
-  assert.equal(h.el("next-up").textContent,"Fresh  C");
+  assert.equal(h.el("next-up").textContent,"📺 Fresh  C");
   assert.equal(h.el("control-error").textContent,"");
 });

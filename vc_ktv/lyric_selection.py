@@ -94,6 +94,52 @@ async def _lrclib(query: str) -> list[dict]:
     return output[:6]
 
 
+async def netease_song_lyrics(
+    song_id: int, *, title: str = "", transport: httpx.AsyncBaseTransport | None = None
+) -> list[dict]:
+    """Prefer lyrics from the exact selected NetEase song ID, not a title match.
+
+    No account Cookie or audio URL is involved. Keep the other source choices
+    available to the user if this particular version has no usable lyrics.
+    """
+    if (
+        not isinstance(song_id, int)
+        or isinstance(song_id, bool)
+        or not 0 < song_id < 2**63
+    ):
+        return []
+    async with httpx.AsyncClient(
+        timeout=TIMEOUT, headers=HEADERS, follow_redirects=False, transport=transport
+    ) as client:
+        resp = await client.get(
+            "https://music.163.com/api/song/lyric",
+            params={"id": song_id, "lv": -1, "kv": -1, "tv": -1},
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+    if (
+        not isinstance(payload, dict)
+        or payload.get("code") != 200
+        or payload.get("nolyric")
+    ):
+        return []
+    raw = (payload.get("lrc") or {}).get("lyric")
+    if not isinstance(raw, str):
+        return []
+    return (
+        [candidate]
+        if (
+            candidate := _candidate(
+                title or "当前网易云单曲",
+                "网易云音乐",
+                raw,
+                f"https://music.163.com/song?id={song_id}",
+            )
+        )
+        else []
+    )
+
+
 async def _netease(query: str) -> list[dict]:
     """Public catalogue order, no title-similarity or artist-based rejection."""
     async with httpx.AsyncClient(

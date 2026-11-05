@@ -213,7 +213,7 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .style-preview.compact > span { -webkit-text-stroke: 1px #121212; }
 .style-preview.compact .style-preview-second { display: none; }
 
-/* Keep BV copy beside download, even when the media is not ready. */
+/* Keep the source-aware copy control beside download, even before preparation. */
 .media-controls, .current-media-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .media-controls .btn { flex: 1 1 130px; text-align: center; }
 .current-media-actions { margin-top: 19px; }
@@ -399,3 +399,10 @@ button, input, select { min-height: 44px; }
   .netease-cookie-import form input { flex-basis: 100%; }
   .netease-cookie-import form button { width: 100%; }
 }
+
+/* A single quiet source tag beside song titles, never raw IDs or URLs. */
+.song-heading, .song-detail-heading { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.song-heading strong { flex: 0 1 auto; min-width: 0; }
+.song-detail-heading { flex-wrap: wrap; }
+.song-detail-heading h2 { min-width: 0; overflow-wrap: anywhere; }
+.source-tag { display: inline-flex; flex: 0 0 auto; align-items: center; padding: 2px 6px; border-radius: 5px; background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1.5; white-space: nowrap; }

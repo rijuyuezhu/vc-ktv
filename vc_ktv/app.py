@@ -34,7 +34,7 @@ from .accounts import password_hash, verify_password
 from .autoprep import AutoPrep, title_key
 from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
-from .lyric_selection import search_lyric_candidates
+from .lyric_selection import netease_song_lyrics, search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
 from .media_pins import MediaPins
 from .netease_catalog import lookup_netease_song
@@ -768,6 +768,7 @@ def create_app(
     app.state.netease_login = netease_login
     app.state.lyrics_lookup = vcpedia_find
     app.state.candidate_search = search_lyric_candidates
+    app.state.netease_lyrics = netease_song_lyrics
     lyric_search_times = {}
     failed_login = {}
     failed_invites = {}
@@ -1695,11 +1696,32 @@ def create_app(
             bail(429, "搜索太频繁，请五分钟后重试")
         recent.append(time_now())
         lyric_search_times[key] = recent
-        candidates = (
-            await app.state.candidate_search(term)
+        lookup = (
+            app.state.candidate_search(term)
             if phase == "all"
-            else await search_lyric_candidates(term, phase)
+            else search_lyric_candidates(term, phase)
         )
+        if song["source_type"] == "netease" and phase in ("all", "netease"):
+
+            async def exact_by_id():
+                try:
+                    return await app.state.netease_lyrics(
+                        int(song["source_id"]), title=song["title"]
+                    )
+                except (httpx.HTTPError, ValueError, TypeError):
+                    return []
+
+            candidates, exact = await asyncio.gather(lookup, exact_by_id())
+            # Exact-ID lyrics first; other source/version choices remain available.
+            candidates = exact + [
+                item
+                for item in candidates
+                if not exact
+                or (item.get("text"), item.get("source"))
+                != (exact[0]["text"], exact[0]["source"])
+            ]
+        else:
+            candidates = await lookup
         for candidate in candidates:
             digest = hashlib.sha256(candidate["text"].encode()).hexdigest()
             candidate["ticket"] = sign(
@@ -1991,6 +2013,30 @@ def create_app(
                 store.db.rollback()
                 raise
         return {"ok": True, "id": song_id, "status": "downloaded"}
+
+    @app.post("/api/admin/songs/{song_id}/download/retry")
+    def retry_media_download(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        """Requeue one failed download without requiring the guest to re-order."""
+        require_admin(vc_admin)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT status,prep_state FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if row is None:
+                bail(404, "歌曲不存在")
+            if row["status"] != "waiting" or row["prep_state"] != "unavailable":
+                bail(409, "只有准备失败的待处理歌曲可以重试下载")
+            try:
+                store.db.execute(
+                    "UPDATE songs SET prep_state='pending',prep_attempts=0,"
+                    "prep_retry_at=0,prep_error='',prep_stage='download' WHERE id=?",
+                    (song_id,),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
+        return {"ok": True, "id": song_id}
 
     @app.post("/api/admin/songs/{song_id}/subtitles/skip")
     def skip_subtitles(song_id: int, vc_admin: str | None = Cookie(default=None)):
@@ -2378,8 +2424,8 @@ def create_app(
         with store.lock:
             return {
                 "songs": store.rows(
-                    """SELECT s.id,s.bvid,s.title,s.duration,s.page,s.played_at,s.replay_of,
-                          g.name AS nickname
+                    """SELECT s.id,s.bvid,s.source_type,s.source_id,s.title,s.duration,
+                          s.page,s.played_at,s.replay_of,g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.status='played' ORDER BY s.played_at DESC,s.id DESC
                    LIMIT 50"""
@@ -2634,8 +2680,8 @@ def create_app(
             require_user(vc_guest)
         with store.lock:
             rows = store.rows(
-                """SELECT s.id,s.bvid,s.title,s.duration,s.played_at,s.page,
-                          s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
+                """SELECT s.id,s.bvid,s.source_type,s.source_id,s.title,s.duration,
+                          s.played_at,s.page,s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.status='played'
@@ -2660,8 +2706,8 @@ def create_app(
             require_user(vc_guest)
         with store.lock:
             row = store.db.execute(
-                """SELECT s.id,s.title,s.bvid,s.page,s.uploader,s.duration,
-                          s.status,s.prep_state,s.prep_error,s.prep_stage,
+                """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
+                          s.uploader,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
                           s.played_at,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
