@@ -50,6 +50,11 @@ def run_blocks(
                 + "："
                 + message.replace("TIFA 全曲对齐", "TIFA 块内对齐")
             ),
+            asr_matches={
+                lines[i].id: (first[i], second[i])
+                for i in block["context_indices"]
+                if i in first and i in second
+            },
             **({"tifa_session": tifa_session} if tifa_session is not None else {}),
         )
         owned = set(block["line_ids"])
