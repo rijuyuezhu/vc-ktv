@@ -164,3 +164,36 @@ def test_event_admin_may_revoke_own_primary_without_canceling_global_pending(tmp
         assert (
             new_tv.get("/api/tv/state", params={"token": new_token}).status_code == 200
         )
+
+
+def test_repeated_link_requests_reuse_pending_pairing(tmp_path):
+    app = app_at(tmp_path)
+    app.state.events.create("Test", "123456")
+    with TestClient(app) as admin, TestClient(app) as old, TestClient(app) as new:
+        admin_login(admin)
+        # Opening and copying the link should return the same pending pairing.
+        first = pair_link(admin)
+        assert pair_link(admin) == first
+        old_token = activate(old, first).json()["token"]
+
+        # Same applies to a handoff link; asking again never expires the
+        # previously copied URL, nor revokes the old primary.
+        handoff = pair_link(admin, replace=True)
+        assert pair_link(admin, replace=True) == handoff
+        assert old.get("/api/tv/state", params={"token": old_token}).status_code == 200
+        new_token = activate(new, handoff).json()["token"]
+        assert old.get("/api/tv/state", params={"token": old_token}).status_code == 401
+        assert new.get("/api/tv/state", params={"token": new_token}).status_code == 200
+
+
+def test_primary_handoff_old_screen_receives_specific_message(tmp_path):
+    app = app_at(tmp_path)
+    app.state.events.create("Test", "123456")
+    with TestClient(app) as admin:
+        admin_login(admin)
+        first = activate(admin, pair_link(admin)).json()["token"]
+        second = activate(admin, pair_link(admin, replace=True)).json()["token"]
+        revoked = admin.get("/api/tv/state", params={"token": first})
+        assert revoked.status_code == 401
+        assert "另一设备接管" in revoked.json()["detail"]
+        assert admin.get("/api/tv/state", params={"token": second}).status_code == 200
