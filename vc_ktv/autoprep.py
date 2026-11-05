@@ -28,6 +28,7 @@ from ktv_app.timeline import Line, Timeline, Unit
 
 from .bilibili_media import QUALITY_HEIGHTS, public_media_download
 from .karaoke import parse_lrc
+from .netease_media import download_netease_video
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .timed_lyrics import offset_timeline
 from .upstream_pipeline import make_karaoke_video, spark_settings
@@ -333,6 +334,8 @@ class AutoPrep:
         self.store = store
         self.probe = probe
         self.download = download
+        self.netease_download = download_netease_video
+        self.netease_cookies = lambda: None
         self.enhance = enhance
         self.stop_signal = threading.Event()
         self.worker: threading.Thread | None = None
@@ -467,12 +470,18 @@ class AutoPrep:
                         else 0
                     )
                     # Only show trusted, short diagnostic text; never expose signed media URLs.
-                    reason = "公开媒体下载失败"
-                    if "Unable to extract initial state" in str(error):
+                    reason = (
+                        "网易云音源不可用"
+                        if row.get("source_type") == "netease"
+                        else "公开媒体下载失败"
+                    )
+                    if row.get(
+                        "source_type"
+                    ) == "bilibili" and "Unable to extract initial state" in str(error):
                         reason = "B站页面结构变化"
-                    elif "接口" in str(error):
+                    elif row.get("source_type") == "bilibili" and "接口" in str(error):
                         reason = "B站公开播放接口暂不可用"
-                    elif "CDN" in str(error):
+                    elif row.get("source_type") == "bilibili" and "CDN" in str(error):
                         reason = "B站媒体 CDN 暂不可用"
                     message = f"{reason}（已尝试 {attempts}/3 次）"
                     if retry:
@@ -552,7 +561,15 @@ class AutoPrep:
         with tempfile.TemporaryDirectory(
             prefix=f"vc-ktv-{song_id}-", dir=self.store.root
         ) as tmp:
-            if self.download is media_download:
+            if row.get("source_type", "bilibili") == "netease":
+                path = self.netease_download(
+                    int(row["source_id"]),
+                    row["cover"],
+                    Path(tmp),
+                    duration=row["duration"],
+                    cookies=self.netease_cookies(),
+                )
+            elif self.download is media_download:
                 path = self.download(
                     row["bvid"],
                     row["page"],

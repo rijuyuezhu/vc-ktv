@@ -81,6 +81,14 @@
         </details>
 
       </section>
+      <section class="panel hidden" id="netease-order-panel">
+        <h2>🎵 网易云音乐点歌</h2>
+        <p class="muted">输入网易云单曲 ID 或分享链接。仅支持可获取完整音频的歌曲。</p>
+        <div class="input-row">
+          <input id="netease-song-ref" placeholder="网易云单曲 ID / music.163.com 链接" autocomplete="off" aria-label="网易云音乐单曲链接">
+          <button id="netease-submit-btn" class="btn primary" type="button">点歌</button>
+        </div>
+      </section>
       <section class="panel queue-panel hidden" id="queue-panel">
         <div class="section-head"><h2>🎶 队列</h2><a href="#played" class="mini">已唱歌曲 ›</a><span id="queue-count" class="small-tag">0 首可播</span></div>
         <div id="current-guest" class="current-card"><span class="current-label">正在播放</span><p>尚未开始播放</p></div>
