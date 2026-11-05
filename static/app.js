@@ -789,6 +789,7 @@ const adminRoutes={
   "settings-playback":["播放与视频","event-settings-panel"],
   "settings-event":["场次管理","event-management"],
   "settings-accounts":["管理员账号","admin-accounts-panel"],
+  "settings-netease":["网易云音乐连接","netease-admin-panel"],
   "settings-history":["历史歌单","event-archive-panel"],
   stats:["演唱统计","performance-panel"]
 };
@@ -797,7 +798,8 @@ function setupSubpages(){
   const menu=document.createElement("nav");menu.className="panel page-links";
   for(const [route,label] of [
     ["settings-playback","播放与视频"],["settings-event","场次管理"],
-    ["settings-accounts","管理员账号"],["settings-history","历史歌单"]
+    ["settings-accounts","管理员账号"],["settings-netease","网易云音乐连接"],
+    ["settings-history","历史歌单"]
   ]){
     const link=appendText(menu,"a",label);
     link.href="#"+route;
@@ -839,6 +841,10 @@ function showPage(){
   $("subpage-back").href=page==="song"?(window.history.state?.fromPlayed?"#played":"#"):
     (page==="settings"||page==="stats"||page==="played")?"#":"#settings";
   $("page-settings").classList.toggle("hidden",page!=="settings");
+  if(page!=="settings-netease"){
+    stopNeteaseLoginPolling();
+    neteaseLoginPageActive=false;
+  }
   for(const name of ["played","song"])$("page-"+name).classList.toggle("hidden",page!==name);
   for(const routeName of Object.keys(adminRoutes)){
     if(routeName!=="settings")$("page-"+routeName).classList.toggle("hidden",page!==routeName);
@@ -1003,6 +1009,7 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
 },$("lyrics-save"));
 let neteaseLoginPolling=null;
 let neteaseLoginChecking=false;
+let neteaseLoginPageActive=false;
 function stopNeteaseLoginPolling(){
   if(neteaseLoginPolling!==null)clearInterval(neteaseLoginPolling);
   neteaseLoginPolling=null;
@@ -1012,6 +1019,7 @@ function displayNeteaseLoginStatus(state){
   const pending=Boolean(state.pending)&&!connected;
   $("netease-login-start").classList.toggle("hidden",connected||pending);
   $("netease-login-disconnect").classList.toggle("hidden",!connected&&!pending);
+  $("netease-login-check").classList.add("hidden");
   if(!pending)$("netease-login-qr-box").classList.add("hidden");
   $("netease-login-status").textContent=connected?
     "✓ 已保存网易云登录态（服务重启后可继续使用）":
@@ -1041,13 +1049,11 @@ async function checkNeteaseLogin(){
     if(state.connected)toast("✓ 网易云音乐已连接");
   }catch(e){
     stopNeteaseLoginPolling();
-    error(e);
+    $("netease-login-status").textContent=e.message||"扫码检查失败，请稍后重试";
+    $("netease-login-check").classList.remove("hidden");
   }finally{neteaseLoginChecking=false;}
 }
-$("netease-admin-panel").addEventListener("toggle",()=>{
-  if(!$("netease-admin-panel").open){stopNeteaseLoginPolling();return;}
-  guarded(refreshNeteaseLogin);
-});
+$("netease-login-check").onclick=()=>guarded(checkNeteaseLogin,$("netease-login-check"));
 $("netease-login-start").onclick=()=>guarded(async()=>{
   const state=await api("/api/admin/netease/qr","POST");
   displayNeteaseLoginStatus(state);
@@ -1122,13 +1128,18 @@ async function refreshEvents(){
   $("event-close-btn").classList.toggle("hidden",!active);
   $("event-settings-panel").classList.toggle("hidden",!active);
   const canManageAccounts=Boolean(active&&data.role==="global");
-  document.querySelector('a[href="#settings-accounts"]')?.classList.toggle("hidden",data.role!=="global");
-  if(data.role!=="global"&&currentRoute()==="settings-accounts")location.hash="settings";
+  for(const route of ["settings-accounts","settings-netease"]){
+    document.querySelector('a[href="#'+route+'"]')?.classList.toggle("hidden",data.role!=="global");
+  }
+  if(data.role!=="global"&&["settings-accounts","settings-netease"].includes(currentRoute()))location.hash="settings";
   $("admin-accounts-panel").classList.toggle("hidden",!canManageAccounts);
   $("netease-admin-panel").classList.toggle("hidden",data.role!=="global");
   if(data.role!=="global"){
     stopNeteaseLoginPolling();
-    $("netease-admin-panel").open=false;
+    neteaseLoginPageActive=false;
+  }else if(currentRoute()==="settings-netease"&&!neteaseLoginPageActive){
+    neteaseLoginPageActive=true;
+    await refreshNeteaseLogin();
   }
   if(adminAccountsEventId!==(canManageAccounts?active.id:null)){
     adminAccountsEventId=canManageAccounts?active.id:null;

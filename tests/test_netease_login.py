@@ -220,3 +220,73 @@ def test_authenticated_media_request_carries_restored_cookie():
     assert len(requests) == 1
     assert requests[0].url.host == "music.163.com"
     assert requests[0].headers["cookie"] == f"MUSIC_U={COOKIE}"
+
+
+def test_qr_failure_exposes_only_upstream_status_not_credentials(tmp_path):
+    app = create_app(
+        root=tmp_path / "room",
+        password="global-pass",
+        secret=b"qr-rejected",
+        auto_prepare=False,
+    )
+    login = app.state.netease_login
+    login.client.close()
+    login.client = httpx.Client(
+        transport=fake_transport([{"code": 502, "cookie": f"MUSIC_U={COOKIE}"}]),
+        follow_redirects=False,
+    )
+    with TestClient(app) as owner:
+        assert (
+            owner.post("/api/admin/login", json={"password": "global-pass"}).status_code
+            == 200
+        )
+        assert owner.post("/api/admin/netease/qr").status_code == 200
+        result = owner.post("/api/admin/netease/check")
+        assert result.status_code == 409
+        assert "502" in result.json()["detail"]
+        assert COOKIE not in result.text
+        assert login.cookies() is None
+        assert not (tmp_path / "room" / ".private" / "netease-session.json").exists()
+
+
+def test_qr_http_gateway_failure_identified(tmp_path):
+    app = create_app(
+        root=tmp_path / "room",
+        password="global-pass",
+        secret=b"qr-upstream-error",
+        auto_prepare=False,
+    )
+
+    def upstream(request):
+        if request.url.path.endswith("/unikey"):
+            return httpx.Response(200, json={"code": 200, "unikey": KEY})
+        return httpx.Response(502, json={"code": 502})
+
+    login = app.state.netease_login
+    login.client.close()
+    login.client = httpx.Client(
+        transport=httpx.MockTransport(upstream), follow_redirects=False
+    )
+    with TestClient(app) as owner:
+        assert (
+            owner.post("/api/admin/login", json={"password": "global-pass"}).status_code
+            == 200
+        )
+        assert owner.post("/api/admin/netease/qr").status_code == 200
+        result = owner.post("/api/admin/netease/check")
+        assert result.status_code == 502
+        assert "HTTP 502" in result.json()["detail"]
+        assert login.cookies() is None
+
+
+def test_qr_success_without_cookie_reports_missing_auth(tmp_path):
+    login = NeteaseLogin(
+        transport=fake_transport([{"code": 803}]),
+        storage_path=tmp_path / "session.json",
+    )
+    login.start_qr()
+    with pytest.raises(NeteaseLoginError, match="MUSIC_U"):
+        login.poll()
+    assert login.cookies() is None
+    assert not (tmp_path / "session.json").exists()
+    login.close()
