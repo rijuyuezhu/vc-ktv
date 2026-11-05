@@ -115,9 +115,9 @@ def test_new_event_reports_when_no_worker_can_start(
         with monkeypatch.context() as patch:
             patch.setattr(threading.Thread, "start", fail_start)
             response = admin.post("/api/admin/events", json={"name": "No workers"})
-        # Explicitly surface the broken auto-preparation instead of claiming success.
-        assert response.status_code == 503, response.text
-        assert "场次已创建" in response.json()["detail"]
+        # Room creation succeeded: do not misreport a committed event as HTTP 503.
+        assert response.status_code == 200, response.text
+        assert response.json()["id"]
         assert len(fail_attempts) == worker_count
         events = app.state.events
         assert events.active_id is not None
@@ -132,7 +132,9 @@ def test_new_event_reports_when_no_worker_can_start(
         assert worker.store is events.current_store
         assert worker.workers == []
         assert worker.worker is None
+        assert admin.get("/api/health").json()["autoprep_ready"] is False
         worker.resume_after_failed_stop()
+        assert admin.get("/api/health").json()["autoprep_ready"] is True
         assert len(worker.workers) == worker_count
         assert all(t.is_alive() for t in worker.workers)
 
