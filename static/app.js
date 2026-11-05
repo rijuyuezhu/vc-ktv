@@ -434,10 +434,11 @@ function openNeteaseReview(candidate, useLyrics){
   });
   $("netease-review-select-all").onclick=()=>{lines.forEach((_,i)=>chosen.add(i));update();};
   update();
-  $("netease-review-provider").hidden=!(candidate.timed_lrc&&candidate.timing_ticket);
+  const providerAvailable=Boolean(candidate.timed_lrc&&candidate.timing_ticket);
+  $("netease-review-provider").hidden=!providerAvailable;
   $("netease-review-ai-card").hidden=!gpuAlignment;
-  $("netease-alignment-choice").open=false;
-  dialog.querySelector(".alignment-cards").classList.toggle("single-mode",!gpuAlignment);
+  showNeteaseSection("netease-line-review");
+  dialog.querySelector(".alignment-cards").classList.toggle("single-mode",!providerAvailable||!gpuAlignment);
   $("netease-review-offset").value="0";
   document.querySelector(".offset-details").open=false;
   const options=()=>({
@@ -471,6 +472,22 @@ function openNeteaseReview(candidate, useLyrics){
     picker.close();
   }
   dialog.showModal();
+}
+// One section always owns the available height; the other is a compact header.
+function showNeteaseSection(active){
+  for(const [sectionId,contentId] of [
+    ["netease-line-review","netease-review-content"],
+    ["netease-alignment-choice","netease-alignment-cards"]
+  ]){
+    const expanded=sectionId===active;
+    $(sectionId).classList.toggle("is-open",expanded);
+    $(contentId).hidden=!expanded;
+    $(sectionId).querySelector(".netease-accordion-toggle")
+      .setAttribute("aria-expanded",String(expanded));
+  }
+}
+for(const id of ["netease-line-review","netease-alignment-choice"]){
+  $(id).querySelector(".netease-accordion-toggle").onclick=()=>showNeteaseSection(id);
 }
 $("netease-review-dialog").addEventListener("close",()=>{
   // Back button and Esc restore the same candidate list, without re-searching.
