@@ -88,3 +88,6 @@ def test_optional_settings_are_not_reset_by_legacy_updates(tmp_path):
     assert changed["tv_html_overlay"] is False
     assert changed["video_quality"] == 480
     assert changed["max_bandwidth_mbps"] == 4.5
+    # Explicitly disabled settings survive restart, despite default-on for new rooms.
+    reopened = Store(tmp_path)
+    assert reopened.settings()["tv_html_overlay"] is False

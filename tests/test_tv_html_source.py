@@ -92,7 +92,7 @@ def test_admin_controls_source_mode_and_bandwidth_per_event(tmp_path):
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
         initial = admin.get("/api/admin/settings").json()
-        assert initial["tv_html_overlay"] is False
+        assert initial["tv_html_overlay"] is True
         assert initial["max_bandwidth_mbps"] == 3.0
         assert "compact_video" not in initial
         for invalid in (0, 0.5, -1, "unlimited"):
@@ -128,6 +128,17 @@ def test_signed_original_and_timeline_preserve_baked_download(tmp_path):
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
         token = admin.get("/api/admin/tv-link").json()["url"].partition("token=")[2]
+        # Explicitly switching off still works; switching back on enables
+        # the original video and HTML subtitles for the same song.
+        disabled = admin.put(
+            "/api/admin/settings",
+            json={
+                "queue_policy": "fair",
+                "allow_unsubtitled": False,
+                "tv_html_overlay": False,
+            },
+        )
+        assert disabled.status_code == 200
         active = guest.post("/api/tv/next", params={"token": token}).json()["active"]
         assert active["html_overlay"] is None
         enable(admin)

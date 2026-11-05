@@ -125,7 +125,7 @@ def test_tv_html_overlay_and_bandwidth_ui_controls():
     admin_js = (root / "app.js").read_text()
     tv = (root / "tv.html").read_text()
     player = (root / "tv.js").read_text()
-    assert 'id="tv-html-overlay"' in admin
+    assert 'id="tv-html-overlay" type="checkbox" checked' in admin
     assert 'id="max-bandwidth-mbps"' in admin
     assert 'id="compact-video"' not in admin
     assert '"tv_html_overlay"' not in admin  # UI binds via JS.
