@@ -141,3 +141,96 @@ def test_qwen_pins_runtime_transformers_imports():
     ).read_text()
     names = {line.split("==", 1)[0] for line in requirements.splitlines()}
     assert {"regex", "safetensors"} <= names
+
+
+def test_assets_restart_when_upstream_does_not_support_byte_ranges(
+    tmp_path, monkeypatch
+):
+    import hashlib
+
+    content = b"correct pinned payload" * 100
+    item = {
+        "name": "pinned.bin",
+        "target": "models/pinned.bin",
+        "url": "https://example.test/unsupported-ranges",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "kind": "file",
+    }
+    staged = tmp_path / "downloads/pinned.bin"
+    staged.parent.mkdir()
+    staged.write_bytes(content[:10])
+    calls = []
+
+    def fake_curl(cmd, *, check):
+        calls.append(cmd)
+        assert check is False
+        output = tmp_path / "downloads/pinned.bin"
+        if "--continue-at" in cmd:
+            assert output.read_bytes() == content[:10]
+            return subprocess.CompletedProcess(cmd, 33)
+        assert not output.exists()
+        output.write_bytes(content)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(setup_spark_assets.subprocess, "run", fake_curl)
+    assert setup_spark_assets.download(item, tmp_path) == "downloaded"
+    assert len(calls) == 2
+    assert "--continue-at" in calls[0] and "--continue-at" not in calls[1]
+    assert (tmp_path / item["target"]).read_bytes() == content
+
+
+def test_assets_resumes_when_upstream_supports_byte_ranges(tmp_path, monkeypatch):
+    import hashlib
+
+    content = b"real model bytes" * 100
+    item = {
+        "name": "model.bin",
+        "target": "models/model.bin",
+        "url": "https://example.test/range-enabled",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "kind": "file",
+    }
+    staged = tmp_path / "downloads/model.bin"
+    staged.parent.mkdir()
+    staged.write_bytes(content[:37])
+    calls = []
+
+    def fake_curl(cmd, *, check):
+        calls.append(cmd)
+        assert "--continue-at" in cmd
+        with staged.open("ab") as stream:
+            stream.write(content[37:])
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(setup_spark_assets.subprocess, "run", fake_curl)
+    assert setup_spark_assets.download(item, tmp_path) == "downloaded"
+    assert len(calls) == 1
+    assert (tmp_path / item["target"]).read_bytes() == content
+
+
+def test_assets_discard_invalid_checksum_before_fallback(tmp_path, monkeypatch):
+    import hashlib
+
+    content = b"correct pinned model" * 50
+    item = {
+        "name": "model.bin",
+        "target": "models/model.bin",
+        "url": "https://huggingface.co/example/test",
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "kind": "file",
+    }
+    calls = []
+
+    def fake_curl(cmd, *, check):
+        calls.append(cmd)
+        out = tmp_path / "downloads/model.bin"
+        assert "--continue-at" not in cmd
+        out.write_bytes(b"bad model" if len(calls) == 1 else content)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(setup_spark_assets.subprocess, "run", fake_curl)
+    assert setup_spark_assets.download(item, tmp_path) == "downloaded"
+    assert len(calls) == 2
+    assert "hf-mirror.com" in calls[0][-1]
+    assert "huggingface.co" in calls[1][-1]
+    assert (tmp_path / item["target"]).read_bytes() == content
