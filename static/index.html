@@ -230,6 +230,19 @@
           <button id="admin-account-create" class="btn primary" type="button">✚ 创建管理员</button>
           <div id="admin-account-list" class="archive-list"></div>
         </details>
+        <details class="panel full-width fold-panel hidden" id="netease-admin-panel">
+          <summary>🎵 网易云音乐连接</summary>
+          <p class="muted">仅全局管理员可连接。登录凭据安全地保存在服务器本地，重启后仍可使用；失效时重新扫码。</p>
+          <p id="netease-login-status" class="muted" role="status" aria-live="polite">尚未连接网易云</p>
+          <div id="netease-login-qr-box" class="netease-login-qr-box hidden">
+            <img id="netease-login-qr-image" alt="使用网易云音乐 App 扫描登录二维码">
+            <p class="muted">使用网易云音乐 App 扫码并确认授权，二维码约 3 分钟过期。</p>
+          </div>
+          <div class="input-row">
+            <button id="netease-login-start" class="btn primary" type="button">扫码连接</button>
+            <button id="netease-login-disconnect" class="btn neutral hidden" type="button">断开网易云</button>
+          </div>
+        </details>
         <details class="panel full-width fold-panel" id="event-archive-panel">
           <summary><span class="ui-icon" aria-hidden="true">▣</span> 历史歌单</summary>
 
