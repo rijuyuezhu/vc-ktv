@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import hashlib
 import hmac
@@ -17,7 +18,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import quote
@@ -662,6 +663,7 @@ def create_app(
     password: str | None = None,
     secret: bytes | None = None,
     auto_prepare: bool | None = None,
+    gpu_alignment: bool | None = None,
 ) -> FastAPI:
     root = Path(root or os.getenv("VC_KTV_DATA", "~/.local/share/vc-ktv")).expanduser()
     config = Path(os.getenv("VC_KTV_CONFIG", "~/.config/vc-ktv")).expanduser()
@@ -680,8 +682,33 @@ def create_app(
     media_pins = MediaPins(root)
     if auto_prepare is None:
         auto_prepare = os.getenv("VC_KTV_AUTOPREPARE", "1") != "0"
-    worker = AutoPrep(events.active() if events.active_id else store, probe_media)
+    if gpu_alignment is None:
+        gpu_alignment = os.getenv("VC_KTV_GPU_ALIGNMENT", "1") != "0"
+    worker = AutoPrep(
+        events.active() if events.active_id else store,
+        probe_media,
+        gpu_alignment=gpu_alignment,
+    )
     running = False
+
+    async def monitor_workers():
+        # Restart missing workers without requiring a service restart or a
+        # second scheduler. Failed SQLite recovery is retried by start().
+        while True:
+            await asyncio.sleep(10)
+            with events.lock:
+                if not running or not events.active_id or events.transitioning:
+                    continue
+                live = sum(thread.is_alive() for thread in worker.workers)
+                if live >= worker.max_workers:
+                    continue
+                try:
+                    if live:
+                        worker.resume_after_failed_stop()
+                    else:
+                        worker.start()
+                except Exception:
+                    logging.getLogger(__name__).exception("AutoPrep recovery failed")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -698,10 +725,15 @@ def create_app(
                 events.active()
             )  # Also handle events created before lifespan.
             worker.start()
+        monitor = asyncio.create_task(monitor_workers()) if auto_prepare else None
         try:
             yield
         finally:
             running = False
+            if monitor:
+                monitor.cancel()
+                with suppress(asyncio.CancelledError):
+                    await monitor
             if auto_prepare and worker.worker:
                 worker.stop()
 
@@ -1200,7 +1232,12 @@ def create_app(
                 # A failing thread must not strand the published event.
                 worker.resume_after_failed_stop()
                 if not worker.workers:
-                    bail(503, "场次已创建，但后台自动准备未启动，请检查服务")
+                    # The room is already committed. Report degraded worker
+                    # availability via /api/health instead of returning a 503
+                    # that makes the operator think room creation failed.
+                    logging.getLogger(__name__).error(
+                        "Event created, but no AutoPrep worker could start"
+                    )
         return entry
 
     @app.post("/api/admin/events/close")
@@ -1246,6 +1283,7 @@ def create_app(
                                 download=worker.download,
                                 enhance=worker.enhance,
                                 max_workers=worker.max_workers,
+                                gpu_alignment=worker.gpu_alignment,
                             )
                             # No preparation task is running: failed close
                             # only needs a new worker pool, not startup replay.
@@ -1263,6 +1301,14 @@ def create_app(
             "version": "0.5.0",
             "auto_prepare": auto_prepare,
             "autoprep_workers": sum(thread.is_alive() for thread in worker.workers),
+            "gpu_alignment": gpu_alignment,
+            "autoprep_ready": (
+                auto_prepare
+                and (
+                    not events.active_id
+                    or any(thread.is_alive() for thread in worker.workers)
+                )
+            ),
         }
 
     @app.get("/api/state")
@@ -1383,6 +1429,8 @@ def create_app(
         source_lrc_raw="",
         offset_ms=0,
     ):
+        if timing_mode != "provider" and not gpu_alignment:
+            bail(409, "当前未启用 GPU 对齐，请选用来源逐句时间轴或不加歌词")
         with store.lock:
             current = store.db.execute(
                 "SELECT * FROM songs WHERE id=? AND requester=?",
@@ -1582,6 +1630,8 @@ def create_app(
         vc_guest: str | None = Cookie(default=None),
     ):
         song = own_song(song_id, vc_guest)
+        if not gpu_alignment:
+            bail(409, "CPU 模式暂不支持上传歌词重新对齐，请选择来源逐句时间轴")
         if not (file.filename or "").lower().endswith(".lrc"):
             bail(400, "请上传 .lrc 歌词文件")
         raw = await file.read(MAX_LRC_UPLOAD + 1)

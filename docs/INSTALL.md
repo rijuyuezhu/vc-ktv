@@ -83,6 +83,7 @@ uv run --no-sync python -m scripts.check_install --mode gpu --pipeline "$VC_KTV_
 | `VC_KTV_CONFIG` | `~/.config/vc-ktv` | 私人密钥及密码 |
 | `VC_KTV_DATA` | `~/.local/share/vc-ktv` | 场次、数据库和媒体 |
 | `VC_KTV_AUTOPREPARE` | `1` | 是否启动自动下载/字幕准备 |
+| `VC_KTV_GPU_ALIGNMENT` | `1` | 设为 `0` 时只使用 CPU 下载、原片及来源逐句 LRC 烧录，不执行 GPU 模型对齐 |
 | `VC_KTV_PIPELINE_ROOT` | `~/.local/share/vc-ktv/pipeline` | GPU 模型与运行时根目录 |
 | `VC_KTV_PIPELINE_MODE` | `quality` | 当前默认字幕流水线 |
 | `VC_KTV_PREP_WORKERS` | `1` | 最多同时准备歌曲数（1–4） |
@@ -111,6 +112,18 @@ WantedBy=default.target
 ```
 
 保存到 `~/.config/systemd/user/vc-ktv.service` 后，用 `systemctl --user daemon-reload` 和 `systemctl --user enable --now vc-ktv.service` 启用。示例默认只启动基础服务；完成 GPU 验收后再调整 `VC_KTV_AUTOPREPARE`。**不要在已有生产实例上直接套用模板或覆盖其 unit**。更新前先检查当前队列/准备任务，备份数据；合并 PR 也不意味着要立即部署。经验证的备份与回滚流程见 [升级与回滚验收](RELEASE.md)。
+
+### 无 GPU 的基础点歌模式
+
+保留自动下载/字幕 worker，仅关闭模型对齐能力：
+
+~~~sh
+VC_KTV_AUTOPREPARE=1 VC_KTV_GPU_ALIGNMENT=0 uv run --no-sync python -m vc_ktv
+~~~
+
+用户可以选择**确认带逐句时间戳**的网易云音乐或 LRCLIB 歌词，沿用来源时间轴在 CPU 上使用 FFmpeg 烧录字幕；也可以直接选择原片。没有时间戳的普通歌词和上传 LRC 的重新对齐功能在此模式下不可用。来源时间轴可能与 B 站翻唱版本不一致，需要用户自行校对和调整偏移。管理员仍可手工上传和播放已有视频。
+
+/api/health 提供 gpu_alignment、autoprep_workers 和 autoprep_ready。如果后台 worker 因瞬时启动故障全部不可用，服务仍可使用已有视频，且会定期尝试恢复 worker；健康接口会报告制作能力不可用。
 
 ### 媒体下载的临时链接
 

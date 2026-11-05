@@ -27,7 +27,7 @@ uv run --no-sync python -m scripts.check_install --mode base
 VC_KTV_AUTOPREPARE=0 uv run --no-sync python -m vc_ktv
 ```
 
-访问 `http://127.0.0.1:8778/` 和 `http://127.0.0.1:8778/admin/`。该命令仅运行基础服务，不会自动下载或制作新歌曲；完整 GPU 字幕部署及模型依赖请按照 [安装指南](docs/INSTALL.md) 逐步设置和验收。开发测试：`uv run pytest -q`、`uv run pre-commit run --all-files`。
+访问 `http://127.0.0.1:8778/` 和 `http://127.0.0.1:8778/admin/`。该命令仅运行基础服务，不会自动下载或制作新歌曲；完整 GPU 字幕部署及模型依赖请按照 [安装指南](docs/INSTALL.md) 逐步设置和验收。若没有 GPU，可以设置 VC_KTV_GPU_ALIGNMENT=0，保留自动下载、原片及来源逐句 LRC 的 CPU 字幕制作。开发测试：`uv run pytest -q`、`uv run pre-commit run --all-files`。
 
 ## 文档
 

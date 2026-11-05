@@ -317,6 +317,7 @@ class AutoPrep:
         download=media_download,
         enhance=render_upstream_video,
         max_workers: int | None = None,
+        gpu_alignment: bool = True,
     ):
         # Explicit opt-in. Keep production serial until a concurrent
         # quality-pipeline benchmark demonstrates a throughput improvement.
@@ -328,6 +329,7 @@ class AutoPrep:
         if max_workers not in (1, 2, 3, 4):
             raise ValueError("VC_KTV_PREP_WORKERS must be 1, 2, 3 or 4")
         self.max_workers = max_workers
+        self.gpu_alignment = gpu_alignment
         self.store = store
         self.probe = probe
         self.download = download
@@ -411,6 +413,21 @@ class AutoPrep:
                            ORDER BY requested_at,id LIMIT 1"""
                     ).fetchone()
                     if row:
+                        if (
+                            not self.gpu_alignment
+                            and row["lyric_timing_mode"] != "provider"
+                        ):
+                            # A room restored from GPU mode must not wait
+                            # indefinitely on an unavailable model. Keep its
+                            # original video and allow choosing timed lyrics.
+                            self.store.db.execute(
+                                "UPDATE songs SET prep_state='original',"
+                                "prep_error='GPU 对齐未启用，请选择来源时间轴或使用原片' "
+                                "WHERE id=?",
+                                (row["id"],),
+                            )
+                            self.store.db.commit()
+                            return None
                         self.store.db.execute(
                             "UPDATE songs SET prep_state='aligning',"
                             "prep_stage='queued',prep_stage_at=? WHERE id=?",
@@ -607,6 +624,8 @@ class AutoPrep:
         lyrics = row["lyric_choice"]
         if not lyrics:
             return
+        if not self.gpu_alignment and row.get("lyric_timing_mode") != "provider":
+            raise SubtitleError("gpu_disabled", "GPU 对齐未启用，请选择来源时间轴")
         # A retry must never reuse old alignment output or overwrite diagnostics.
         # Keep all artifacts scoped to this song/event.
         archive = (

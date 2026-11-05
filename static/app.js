@@ -25,6 +25,7 @@ let settingsEventId = null;
 let adminAccountsEventId = null;
 let adminCurrentEvent = null;
 let guestAuthenticated = false;
+let gpuAlignment = true;
 let detailKey = null;
 let playedKey = null;
 const player = $("player");
@@ -383,6 +384,16 @@ function abortLyricRequests(){
   lyricControllers=[];
 }
 async function openLyricPicker(songId,title,query){
+  const health=await api("/api/health");
+  gpuAlignment=health.gpu_alignment!==false;
+  $("guest-lyrics-upload").hidden=!gpuAlignment;
+  document.querySelector('label[for="guest-lyrics-upload"]').hidden=!gpuAlignment;
+  $("netease-review-align").hidden=!gpuAlignment;
+  if(!health.auto_prepare){
+    toast("后台自动制歌已关闭，可播放已有视频或请管理员手动上传",true);
+  }else if(health.autoprep_ready===false){
+    toast("后台制歌暂不可用，服务正在尝试恢复；已有视频仍可播放",true);
+  }
   selectingSongId=songId;
   $("guest-lyrics-song").textContent=title;
   // Server supplies the same extracted name used for the backend search.
@@ -419,6 +430,7 @@ function openNeteaseReview(candidate, useLyrics){
   });
   update();
   $("netease-review-provider").hidden=!(candidate.timed_lrc&&candidate.timing_ticket);
+  $("netease-review-align").hidden=!gpuAlignment;
   $("netease-review-offset").value="0";
   const options=()=>({
     selection_text:original,
@@ -463,6 +475,7 @@ function addLyricCandidates(candidates, songId, sequence){
   const panel=$("guest-lyrics-results");
   candidates.forEach(candidate=>{
     if(lyricHits>=30)return;
+    if(!gpuAlignment && !(candidate.timed_lrc && candidate.timing_ticket))return;
     const key=candidate.title+"\u0000"+candidate.text;
     if(lyricKeys.has(key))return;
     lyricKeys.add(key);
@@ -502,10 +515,13 @@ function addLyricCandidates(candidates, songId, sequence){
       panel.append(card);
       return;
     }
-    const button=appendText(card,"button","使用这一版歌词","btn primary");
-    button.onclick=()=>useLyrics(candidate.text,candidate.ticket,button);
+    if(gpuAlignment){
+      const button=appendText(card,"button","使用这一版歌词","btn primary");
+      button.onclick=()=>useLyrics(candidate.text,candidate.ticket,button);
+    }
     if(candidate.timed_lrc && candidate.timing_ticket){
       const timed=document.createElement("details");
+      timed.open=!gpuAlignment;
       appendText(timed,"summary","可选：沿用来源逐句时间轴（不重新对齐）");
       appendText(timed,"div","仅适用于与歌词来源（如网易云音乐）同一音源的歌曲；不适合演唱会、翻唱或改编版。此模式会把每句时间平均分给各字产生渐变，并非真实逐字对齐；想要更准确的高亮请选择普通歌词对齐。请核对前奏与时间偏移。","muted");
       const preview=candidate.timed_lrc.split("\n");
@@ -529,7 +545,7 @@ function addLyricCandidates(candidates, songId, sequence){
       };
       card.append(timed);
     }
-    if(candidate.unfiltered_text && candidate.unfiltered_ticket){
+    if(gpuAlignment && candidate.unfiltered_text && candidate.unfiltered_ticket){
       const original=document.createElement("details");
       appendText(original,"summary","查看清理前的制作信息");
       appendText(original,"pre",candidate.unfiltered_text);
@@ -544,7 +560,9 @@ function addLyricCandidates(candidates, songId, sequence){
 function updateLyricSearchStatus(){
   $("guest-lyrics-status").textContent=lyricHits?
     `已有 ${lyricHits} 版可选${lyricPending?"，其他来源仍在查询":""}`:
-    (lyricPending?"正在查找歌词……":"没有找到候选，可以更换关键词或上传 LRC");
+    (lyricPending?"正在查找歌词……":gpuAlignment?
+      "没有找到候选，可以更换关键词或上传 LRC":
+      "CPU 模式仅支持带逐句时间轴的歌词，可换关键词或选择不放歌词");
 }
 async function fetchLyricPhase(phase, songId, query, sequence){
   const controller=new AbortController();
@@ -566,7 +584,9 @@ async function fetchLyricPhase(phase, songId, query, sequence){
       lyricPending--;
       if(!lyricHits && !lyricPending){
         $("guest-lyrics-results").replaceChildren();
-        appendText($("guest-lyrics-results"),"div","暂无歌词候选，可修改关键词或上传 LRC","empty");
+        appendText($("guest-lyrics-results"),"div",gpuAlignment?
+          "暂无歌词候选，可修改关键词或上传 LRC":
+          "未找到带逐句时间轴的歌词，可修改关键词或直接使用原片","empty");
       }
       updateLyricSearchStatus();
     }
