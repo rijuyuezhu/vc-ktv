@@ -26,37 +26,37 @@
       <section class="panel full-width" id="guest-access">
         <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 加入本场</h2></div>
         <p class="muted" id="guest-entry-description">正在连接……</p>
-        <div id="entry-code" class="hidden">
+        <form id="entry-code" class="hidden">
           <label for="join-code">六位加入码</label>
           <div class="input-row">
             <input id="join-code" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="六位加入码">
-            <button id="join-btn" class="btn primary" type="button">加入 →</button>
+            <button id="join-btn" class="btn primary" type="submit">加入 →</button>
           </div>
-        </div>
+        </form>
         <div id="entry-account" class="hidden">
           <div class="auth-single" id="auth-register">
-            <div>
+            <form id="register-form">
               <h3>注册账号</h3>
               <label for="register-name">用户名</label>
               <input id="register-name" maxlength="24" autocomplete="username" placeholder="本场显示的名字">
               <label for="register-password">密码</label>
-              <input id="register-password" type="password" autocomplete="new-password" placeholder="至少 6 个字符">
+              <div class="password-field"><input id="register-password" type="password" minlength="6" autocomplete="new-password" placeholder="至少 6 个字符"><button type="button" class="password-toggle" data-password-target="register-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
               <label for="register-confirm">重复密码</label>
-              <input id="register-confirm" type="password" autocomplete="new-password">
-              <button id="register-btn" type="button" class="btn primary wide">注册并进入</button>
+              <div class="password-field"><input id="register-confirm" type="password" autocomplete="new-password"><button type="button" class="password-toggle" data-password-target="register-confirm" aria-label="显示重复密码" aria-pressed="false">显示</button></div>
+              <button id="register-btn" type="submit" class="btn primary wide">注册并进入</button>
               <button id="show-user-login" type="button" class="btn link-switch wide">已有账号？登录</button>
-            </div>
+            </form>
           </div>
           <div class="auth-single hidden" id="auth-login">
-            <div>
+            <form id="user-login-form">
               <h3>登录账号</h3>
               <label for="user-login-name">用户名</label>
               <input id="user-login-name" maxlength="24" autocomplete="username">
               <label for="user-login-password">密码</label>
-              <input id="user-login-password" type="password" autocomplete="current-password">
-              <button id="user-login-btn" type="button" class="btn primary wide">登录</button>
+              <div class="password-field"><input id="user-login-password" type="password" autocomplete="current-password"><button type="button" class="password-toggle" data-password-target="user-login-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
+              <button id="user-login-btn" type="submit" class="btn primary wide">登录</button>
               <button id="show-user-register" type="button" class="btn link-switch wide">没有账号？注册</button>
-            </div>
+            </form>
           </div>
         </div>
       </section>
@@ -82,25 +82,24 @@
 
       </section>
       <section class="panel queue-panel hidden" id="queue-panel">
-        <div class="section-head"><h2>队列</h2><a href="#played" class="mini">已唱歌曲 ›</a><span id="queue-count" class="small-tag">0 首可播</span></div>
+        <div class="section-head"><h2>🎶 队列</h2><a href="#played" class="mini">已唱歌曲 ›</a><span id="queue-count" class="small-tag">0 首可播</span></div>
         <div id="current-guest" class="current-card"><span class="current-label">正在播放</span><p>尚未开始播放</p></div>
-        <h3><span aria-hidden="true">✓</span> 待播放</h3>
+        <h3><span aria-hidden="true">🎵</span> 待播放</h3>
         <div id="queue-ready" class="song-list"><div class="empty">还没有准备好的歌曲</div></div>
-        <h3><span aria-hidden="true">◷</span> 准备中</h3>
+        <h3><span aria-hidden="true">⏳</span> 准备中</h3>
         <div id="queue-waiting" class="song-list"><div class="empty">暂时没有等待中的歌曲</div></div>
-        <p class="muted download-hint">视频准备好后可直接下载，再从乐播投屏的相册或本地视频中选择。</p>
       </section>
 
     </div>
     <div id="admin-view" class="hidden">
-      <div id="login-box" class="panel login-panel">
+      <form id="login-box" class="panel login-panel">
         <h2><span aria-hidden="true">⚙</span> 管理员登录</h2>
 
         <label for="admin-username">本场管理员用户名（全局管理员留空）</label>
         <input id="admin-username" maxlength="24" autocomplete="username" placeholder="本场管理员用户名（可留空）">
         <label for="password">管理员密码</label>
-        <div class="input-row"><input id="password" type="password" autocomplete="current-password" placeholder="密码"><button id="login-btn" class="btn primary">登录</button></div>
-      </div>
+        <div class="input-row"><div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="密码"><button type="button" class="password-toggle" data-password-target="password" aria-label="显示密码" aria-pressed="false">显示</button></div><button id="login-btn" type="submit" class="btn primary">登录</button></div>
+      </form>
       <div id="admin-panel" class="hidden admin-layout">
         <nav class="panel full-width quick-nav" aria-label="管理菜单">
           <a href="#settings">设置 <span aria-hidden="true">›</span></a>
@@ -240,8 +239,8 @@
   <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog">
     <form method="dialog"><div class="section-head"><h2>选择这首歌的歌词</h2><div class="input-row"><button id="guest-lyrics-cancel" class="btn neutral" type="button">✕ 取消点歌</button><button class="btn subtle">稍后</button></div></div></form>
     <p id="guest-lyrics-song" class="muted"></p>
-    <p class="muted">选一版适合演唱的歌词，找不到可以搜索歌名。</p>
-    <p><button id="guest-lyrics-skip" class="btn neutral" type="button">▶ 不放歌词，直接使用原片</button></p>
+    <p class="muted">选择适合这首视频的歌词，找不到可以搜索歌名。</p>
+    <p><button id="guest-lyrics-skip" class="btn neutral" type="button">🎬 不加字幕，使用原片</button></p>
     <label for="guest-lyrics-query">歌词搜索关键词</label>
     <div class="input-row">
       <input id="guest-lyrics-query" maxlength="60" placeholder="歌名，例如：歌曲名称">
@@ -250,9 +249,9 @@
     <p id="guest-lyrics-status" class="muted" aria-live="polite"></p>
     <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
     <button id="guest-lyrics-more" class="btn neutral" type="button">更多歌词来源</button>
-    <label for="guest-lyrics-upload">或者上传自己的 LRC 歌词（UTF-8，最多 128 KiB）</label>
+    <label for="guest-lyrics-upload">📄 上传自己的 LRC 歌词</label>
     <input id="guest-lyrics-upload" type="file" accept=".lrc,text/plain">
-    <p class="muted">上传文件的时间戳仅用于识别歌词行，最终字幕仍会重新对齐。</p>
+    <details class="upload-help"><summary>关于上传的歌词</summary><p class="muted">支持 UTF-8 格式、最大 128 KiB。上传后将重新对齐歌词时间。</p></details>
 
   </dialog>
   <dialog id="netease-review-dialog" class="netease-review-dialog" aria-labelledby="netease-review-title">
@@ -260,17 +259,24 @@
       <h2 id="netease-review-title">逐行校正网易云歌词</h2>
       <button id="netease-review-back" class="btn subtle" type="button">返回</button>
     </div>
-    <p class="muted">点击每一行切换是否保留。标黄的行将用于制作歌词，普通颜色的行将删除；已按现有规则预先选好。</p>
+    <p class="muted review-help">点击歌词行，选择要保留的内容。黄色 ✓ 为保留，灰色 ✕ 为删除。</p>
+    <div class="review-toolbar"><span id="netease-review-count" aria-live="polite"></span><button id="netease-review-select-all" class="btn subtle" type="button">全部保留</button></div>
     <div id="netease-review-lines" class="netease-review-lines"></div>
-    <p id="netease-review-count" class="muted" aria-live="polite"></p>
-    <div class="input-row">
-      <button id="netease-review-align" class="btn primary" type="button">确认并重新对齐</button>
-    </div>
-    <div id="netease-review-provider" hidden>
-      <p class="muted">沿用网易云时间轴仅适用于同一音源，不适合演唱会或改编版；逐字渐变为等分估算。保留的歌词都需要原始时间戳。</p>
-      <label for="netease-review-offset">时间偏移（秒）</label>
-      <input id="netease-review-offset" type="number" min="-60" max="60" step="0.1" value="0">
-      <button id="netease-review-timed" class="btn neutral" type="button">直接使用网易云时间轴</button>
+    <h3 class="alignment-title">🎵 选择字幕制作方式</h3>
+    <div class="alignment-cards">
+      <section id="netease-review-provider" class="alignment-card" hidden>
+        <div class="alignment-heading"><strong>⚡ 快速使用</strong><span>网易云原时间轴</span></div>
+        <p>采用原逐句时间，速度快，适合同一录音版本。</p>
+        <p class="alignment-note">逐字效果为估算，翻唱或改编版可能不同步。</p>
+        <details class="offset-details"><summary>⏱ 调整时间偏移（默认 0 秒）</summary><label for="netease-review-offset">时间偏移（秒，视频更晚则填正数）</label><input id="netease-review-offset" type="number" min="-60" max="60" step="0.1" value="0"></details>
+        <button id="netease-review-timed" class="btn primary choice-action" type="button">使用原时间轴</button>
+      </section>
+      <section id="netease-review-ai-card" class="alignment-card">
+        <div class="alignment-heading"><strong>✨ AI 精细对齐</strong><span>重新分析这首视频</span></div>
+        <p>按视频演唱重新对齐，适合翻唱。</p>
+        <p class="alignment-note">逐字定位更细，但制作较慢，也可能有误。</p>
+        <button id="netease-review-align" class="btn primary choice-action" type="button">AI 重新对齐</button>
+      </section>
     </div>
   </dialog>
   <dialog id="lyrics-dialog">

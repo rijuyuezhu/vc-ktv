@@ -71,7 +71,8 @@ def test_tv_banner_transparency_control_exists():
 
 def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
     js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
-    assert "沿用来源逐句时间轴" in js
+    assert "使用来源原时间轴" in js
+    assert "普通歌词对齐" in js
     for warning in (
         "网易云音乐",
         "同一音源",
@@ -79,7 +80,6 @@ def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
         "改编版",
         "逐字渐变",
         "等分估算",
-        "普通歌词对齐",
     ):
         assert warning in js
 
@@ -102,7 +102,11 @@ def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     assert "selected_lines:" in js and "selection_ticket:" in js
     assert ".netease-review-line.kept" in css
     assert "background: #fff0a8" in css
-    assert ">直接使用网易云时间轴</button>" in html
+    assert 'id="netease-review-ai-card"' in html
+    assert 'id="netease-review-select-all"' in html
+    assert ">使用原时间轴</button>" in html
+    assert ">AI 重新对齐</button>" in html
+    assert "review-check" in js
 
 
 def test_tv_html_overlay_and_bandwidth_ui_controls():
@@ -174,3 +178,28 @@ def test_tv_font_fallback_and_admin_preview_share_family_list():
     ):
         assert f'"{family}"' in overlay
         assert f'"{family}"' in css
+
+
+def test_guest_auth_uses_native_forms_and_password_visibility_controls():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    for form, button in (
+        ("entry-code", "join-btn"),
+        ("register-form", "register-btn"),
+        ("user-login-form", "user-login-btn"),
+        ("login-box", "login-btn"),
+    ):
+        assert f'id="{form}"' in html
+        assert f'id="{button}" type="submit"' in html or (
+            f'id="{button}" class="btn primary" type="submit"' in html
+        )
+        assert f'$("{form}").addEventListener("submit"' in js
+    for password in (
+        "register-password",
+        "register-confirm",
+        "user-login-password",
+        "password",
+    ):
+        assert f'data-password-target="{password}"' in html
+    assert "button.dataset.passwordTarget" in js
