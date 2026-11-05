@@ -59,11 +59,12 @@ model asset lock separately if upstream changes its model versions.
 
 VC KTV issue #36 originally copied the upstream `lyric_names.py`,
 `lyric_netease.py`, `lyric_sources.py`, and `web_search.py` modules at the
-same pinned source commit. The standalone NetEase lookup and web-search
-wrapper were subsequently removed as unused by VC KTV (#146); the
-`lyric_names.py` helpers and `lyric_sources.py` parser remain for tested
-source-lyrics extraction. Guest-facing retrieval continues through VC KTV's
-own lyric selection and authentication flow. Upstream provenance is unchanged.
+same pinned source commit. The unused standalone NetEase, web-search, and UtaTen/J-Lyric lookups were
+removed during VC KTV's dead-code review (#146). The active
+ktv_app/lyric_names.py still supplies Chinese/Japanese title variants to
+vc_ktv/lyric_selection.py. Guest-facing retrieval uses
+vc_ktv/lyric_sources.py and the normal authentication flow. Upstream
+provenance and source attribution remain unchanged.
 
 ## VC KTV #45 performance changes and later quality-mode restoration
 
