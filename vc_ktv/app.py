@@ -37,6 +37,8 @@ from .karaoke import render_video, write_ass
 from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
 from .media_pins import MediaPins
+from .netease_catalog import lookup_netease_song
+from .netease_source import parse_netease_song_id
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
@@ -743,6 +745,7 @@ def create_app(
     app.state.store = store
     app.state.events = events
     app.state.lookup = bilibili_lookup
+    app.state.netease_lookup = lookup_netease_song
     app.state.lyrics_lookup = vcpedia_find
     app.state.candidate_search = search_lyric_candidates
     lyric_search_times = {}
@@ -1343,6 +1346,27 @@ def create_app(
     ):
         require_user(vc_guest)
         return await app.state.lookup(get_bvid(bvid), page)
+
+    @app.get("/api/netease/preview")
+    async def netease_preview(
+        ref: str,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        # Read-only previews are available to joined users and either admin role.
+        # Account connection and credential endpoints will be global-admin-only.
+        if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
+            require_user(vc_guest)
+        try:
+            song_id = parse_netease_song_id(ref)
+        except ValueError as error:
+            bail(400, str(error))
+        try:
+            return await app.state.netease_lookup(song_id)
+        except LookupError:
+            bail(404, "网易云未找到该单曲")
+        except (httpx.HTTPError, ValueError, TypeError):
+            bail(502, "网易云歌曲信息暂不可用")
 
     @app.get("/api/lyrics/search")
     async def lyrics_search(query: str, vc_guest: str | None = Cookie(default=None)):
