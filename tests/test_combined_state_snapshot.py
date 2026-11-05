@@ -7,7 +7,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from tests.test_manual_casting_queue import add_song, new_app
 from vc_ktv.app import Store
 
@@ -32,9 +32,7 @@ def test_state_and_active_are_one_snapshot_during_finish(
             poller.cookies.update(admin.cookies)
             route = "/api/admin/state"
         else:
-            token = (
-                admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
-            )
+            token = primary_tv_token(admin)
             route = f"/api/tv/state?token={token}"
 
         started = threading.Event()

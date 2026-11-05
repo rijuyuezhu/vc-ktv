@@ -34,13 +34,14 @@ function tvHarness(){
     return nodes.get(id);
   }
   const context={
-    document:{getElementById:el,createElement:()=>({textContent:""}),querySelectorAll:()=>[]},location:{search:"?token=test"},
+    document:{getElementById:el,createElement:()=>({textContent:""}),querySelectorAll:()=>[]},location:{search:"?pair=test-pair"},
     TVOverlay:{reset(){},draw(){},setup(){},setOffset(){}},requestAnimationFrame:()=>0,
     URLSearchParams,performance:{now:()=>now},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,String(value))},
     setTimeout:(fn,delay)=>{const id=nextTimer++;timers.set(id,{fn,at:now+delay});return id;},
     clearTimeout:(id)=>timers.delete(id),setInterval:()=>0,
     fetch:async(url)=>({ok:true,async json(){
+      if(url.includes("/api/tv/activate"))return {token:"test"};
       if(url.includes("/api/tv/next"))return {active:++calls.nexts===1?{id:1,title:"A",nickname:"guest",media_url:"/media/1",media_file:"1.mp4"}:null};
       if(url.includes("/api/tv/preload")){calls.preloads++;return {candidate:{id:2,media_url:"/media/2",media_file:"2.mp4"}};}
       if(url.includes("/api/tv/state"))return {queue:calls.queue,playback_mode:"browser",current:calls.current};
@@ -60,11 +61,19 @@ function tvHarness(){
     now=end;
     await Promise.resolve();
   }
-  return {el,calls,storage,evaluate,advance,setFetch:(fn)=>{context.fetch=fn;}};
+  async function ready(){
+    for(let i=0;i<30;i++){
+      await Promise.resolve();
+      if(!el("start").disabled)return;
+    }
+    throw Error("TV pairing did not finish");
+  }
+  return {el,calls,storage,evaluate,advance,ready,setFetch:(fn)=>{context.fetch=fn;}};
 }
 
 test("new song waits for native 12-second buffer instead of starting at one frame",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.el("start").onclick();
   assert.deepEqual(h.calls.plays,[]);
   h.el("video").bufferEnd=11;
@@ -79,6 +88,7 @@ test("new song waits for native 12-second buffer instead of starting at one fram
 
 test("bounded timeout allows a non-preloading browser to play",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.el("start").onclick();
   await h.advance(11999);
   assert.equal(h.calls.plays.length,0);
@@ -88,12 +98,14 @@ test("bounded timeout allows a non-preloading browser to play",async()=>{
 
 test("manual resume bypasses buffer; a skipped track cannot play from a stale timer",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.el("start").onclick();
   await h.el("pause-resume").onclick();
   assert.deepEqual(h.calls.plays,["video"]);
   await h.advance(13000);
   assert.equal(h.calls.plays.length,1);
   const next=tvHarness();
+  await next.ready();
   await next.el("start").onclick();
   await next.evaluate("complete('skip')");
   await next.advance(13000);
@@ -102,6 +114,7 @@ test("manual resume bypasses buffer; a skipped track cannot play from a stale ti
 
 test("preload only when current song has a reserve; cancel when it runs low",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.el("start").onclick();
   h.el("video").duration=200;
   h.el("video").currentTime=100;
@@ -120,6 +133,7 @@ test("preload only when current song has a reserve; cancel when it runs low",asy
 
 test("default TV mode starts immediately without extra caching delay",async()=>{
   const h=tvHarness();
+  await h.ready();
   h.evaluate("smoothPlayback=false");
   await h.el("start").onclick();
   assert.deepEqual(h.calls.plays,["video"]);
@@ -128,6 +142,7 @@ test("default TV mode starts immediately without extra caching delay",async()=>{
 
 test("next song stays visible with empty state and highlights only when the first item changes",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.evaluate("syncQueue()");
   assert.equal(h.el("next-up").textContent,"暂无下一首可播放歌曲");
   assert.equal(h.el("next-up-row").classList.contains("highlight"),false);
@@ -174,6 +189,7 @@ test("TV bottom banner transparency updates background live and persists the bro
 
 test("current and next song share a separator-free title and nickname format",async()=>{
   const h=tvHarness();
+  await h.ready();
   h.calls.current={id:1,title:"Now",nickname:"Alice"};
   h.calls.queue=[{id:2,title:"Next",nickname:"Bob"}];
   await h.evaluate("syncQueue()");
@@ -187,6 +203,7 @@ test("current and next song share a separator-free title and nickname format",as
 
 test("TV source icon distinguishes NetEase from Bilibili without exposing IDs",async()=>{
   const h=tvHarness();
+  await h.ready();
   h.calls.current={id:5,title:"沦为尘埃",nickname:"Alice",source_type:"netease",source_id:"3434373208"};
   h.calls.queue=[{id:6,title:"Sample",nickname:"Bob",source_type:"bilibili",bvid:"BV0000000009"}];
   await h.evaluate("syncQueue()");
@@ -201,6 +218,7 @@ test("TV source icon distinguishes NetEase from Bilibili without exposing IDs",a
 
 test("delayed earlier TV state response cannot overwrite a newer next-song view",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.evaluate("syncQueue()");
   const pending=[];
   h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));
@@ -217,6 +235,7 @@ test("delayed earlier TV state response cannot overwrite a newer next-song view"
 
 test("stale TV polling error must not replace a newer healthy queue view",async()=>{
   const h=tvHarness();
+  await h.ready();
   await h.evaluate("syncQueue()");
   const pending=[];
   h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));

@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from vc_ktv.app import create_app
 
 
@@ -103,7 +103,7 @@ def test_tv_and_media_signatures_cannot_authorize_other_capabilities(secured_app
             ).status_code
             == 200
         )
-        tv_token = admin.get("/api/admin/tv-link").json()["url"].split("token=")[1]
+        tv_token = primary_tv_token(admin)
         active = admin.post("/api/admin/next").json()["active"]
         assert active["id"] == song_id
         media_path = active["media_url"]

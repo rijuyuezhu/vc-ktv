@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import primary_tv_token
 from tests.test_events import admin_login, make_app
 
 
@@ -90,7 +91,7 @@ def test_event_closing_invalidates_operator_cookie_and_tv_link(tmp_path):
         a = owner.post("/api/admin/events", json={"name": "A"}).json()
         create_account(owner)
         assert event_login(operator).status_code == 200
-        tv_a = operator.get("/api/admin/tv-link").json()["url"].split("token=")[1]
+        tv_a = primary_tv_token(operator)
         assert operator.get("/api/tv/state", params={"token": tv_a}).status_code == 200
         # An event operator can end their own show.
         assert operator.post("/api/admin/events/close").status_code == 200
@@ -129,7 +130,7 @@ def test_password_reset_and_revocation_invalidate_cookie_and_tv_immediately(tmp_
         )
         assert event_login(first, password="x" * 1000).status_code == 401
         assert event_login(first).status_code == 200
-        tv_old = first.get("/api/admin/tv-link").json()["url"].split("token=")[1]
+        tv_old = primary_tv_token(first)
         assert first.get("/api/tv/state", params={"token": tv_old}).status_code == 200
         assert (
             owner.put(
@@ -142,7 +143,7 @@ def test_password_reset_and_revocation_invalidate_cookie_and_tv_immediately(tmp_
         assert first.get("/api/tv/state", params={"token": tv_old}).status_code == 401
         assert event_login(second).status_code == 401
         assert event_login(second, password="new-password-123").status_code == 200
-        tv_new = second.get("/api/admin/tv-link").json()["url"].split("token=")[1]
+        tv_new = primary_tv_token(second, replace=True)
         assert second.get("/api/tv/state", params={"token": tv_new}).status_code == 200
         assert owner.delete(f"/api/admin/accounts/{account_id}").status_code == 200
         assert second.get("/api/admin/state").status_code == 401

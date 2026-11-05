@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import primary_tv_token
 from tests.test_manual_casting_queue import add_song, new_app
 
 
@@ -49,7 +50,7 @@ def test_repeated_tv_replay_pin_failure_preserves_previous_next_song(tmp_path, f
             admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
             == 200
         )
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        token = primary_tv_token(admin)
         assert admin.post("/api/admin/next").json()["active"]["id"] == first
         path = "/api/tv/replay-next"
         body = {"song_id": first}

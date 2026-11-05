@@ -153,7 +153,14 @@
           <div id="manual-controls" class="hidden">
             <p id="manual-instruction" class="muted">下载视频后投屏，唱完点完成。</p>
           </div>
-          <button id="tv-link-btn" class="btn neutral wide" type="button">▣ 打开电视播放页</button>
+          <div id="tv-primary-management" class="wide hidden">
+            <p class="muted" id="tv-primary-status">正在查询主屏状态……</p>
+            <div class="control-row">
+              <button id="tv-link-btn" class="btn neutral" type="button">▣ 打开主屏</button>
+              <button id="tv-copy-btn" class="btn neutral" type="button">⧉ 复制主屏链接</button>
+              <button id="tv-revoke-btn" class="btn subtle hidden" type="button">撤回主屏</button>
+            </div>
+          </div>
 
           <div class="control-row"><button id="start-btn" class="btn primary">▶ 开始播放</button><button id="finish-btn" class="btn neutral">✓ 唱完</button><button id="skip-btn" class="btn neutral">跳过</button></div>
           <label class="toggle" id="autoplay-label"><input id="autoplay" type="checkbox" checked> 播放完毕自动切到下一首</label>

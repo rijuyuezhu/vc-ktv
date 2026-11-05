@@ -58,7 +58,11 @@ async function loadOverlay(song){
   }
 }
 
-const token=new URLSearchParams(location.search).get("token");
+const tvParams=new URLSearchParams(location.search);
+const pair=tvParams.get("pair");
+// Keep the control token in this page only: duplicating a TV tab must not
+// clone its authority. A refreshed TV needs a new pairing link from admin.
+let token=null;
 let activeId=null;
 let started=false;
 let inFlight=false;
@@ -183,6 +187,7 @@ function updateControls(){
 }
 let queueRequestId=0;
 async function syncQueue(){
+  if(!token)return;
   const requestId=++queueRequestId;
   try{
     const state=await api("/api/tv/state");
@@ -205,7 +210,12 @@ async function syncQueue(){
     else if(controlError.textContent.includes("手动投屏"))controlError.textContent="";
     if(preloaded&&(!queue.length||preloaded.id!==queue[0].id))clearPreload();
     updateControls();
-  }catch(e){if(requestId===queueRequestId)controlError.textContent=e.message||String(e);}
+  }catch(e){
+    if(requestId===queueRequestId){
+      if(e.status===401||e.status===403)losePrimary(e.message);
+      else controlError.textContent=e.message||String(e);
+    }
+  }
 }
 async function api(path,method="GET",body=null){
   const options={method,cache:"no-store"};
@@ -213,10 +223,41 @@ async function api(path,method="GET",body=null){
   const join=path.includes("?")?"&":"?";
   const response=await fetch(path+join+"token="+encodeURIComponent(token||""),options);
   const result=await response.json();
-  if(!response.ok)throw Error(result.detail||"请求失败");
+  if(!response.ok){
+    const err=new Error(result.detail||"请求失败");
+    err.status=response.status;
+    throw err;
+  }
   return result;
 }
+function losePrimary(message="主屏权限已撤回，请管理员重新连接"){
+  token=null;started=false;activeId=null;inFlight=false;
+  cancelWarmup();clearPreload();resetOverlay();activeBakedUrl=null;
+  for(const element of [video,standby]){
+    element.pause();element.removeAttribute("src");element.load();
+  }
+  cover.classList.remove("hidden");start.disabled=true;start.textContent="主屏不可用";
+  status.textContent="主屏已撤回";error.textContent=message;
+  updateControls();
+}
+async function connectPrimary(){
+  if(!pair)return;
+  start.disabled=true;
+  try{
+    const response=await fetch("/api/tv/activate",{
+      method:"POST",cache:"no-store",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({pair})
+    });
+    const result=await response.json();
+    if(!response.ok)throw Error(result.detail||"主屏配对失败");
+    token=result.token;
+    error.textContent="";start.disabled=false;
+    await syncQueue();
+  }catch(e){losePrimary(e.message||String(e));}
+}
 function fail(e){
+  if(e.status===401||e.status===403){losePrimary(e.message);return;}
   const message=e.message||String(e);
   if(message.includes("手动投屏")) {
     error.textContent="";status.textContent="当前使用手动投屏，请在管理后台切歌";return;
@@ -264,7 +305,7 @@ async function checkPreload(){
   }finally{preloadInFlight=false;}
 }
 async function next(){
-  if(inFlight||finishing||!started||activeId!==null)return;
+  if(!token||inFlight||finishing||!started||activeId!==null)return;
   inFlight=true;
   try{
     const answer=await api("/api/tv/next","POST");
@@ -338,6 +379,7 @@ for(const element of [video,standby]){
   element.addEventListener("pause",()=>{if(element===video)updateControls();});
 }
 start.onclick=async()=>{
+  if(!token)return;
   started=true;error.textContent="";
   if(activeId!==null){
     cancelWarmup();cover.classList.add("hidden");
@@ -380,7 +422,9 @@ replayNext.onclick=async()=>{
 };
 volume.oninput=()=>{video.volume=standby.volume=Number(volume.value)/100;showPanel();};
 setInterval(syncQueue,3500);
-syncQueue();updateControls();
+if(pair)connectPrimary();
+else losePrimary("请从管理员页面重新打开主屏链接");
+updateControls();
 
 function overlayFrame(){if(activeOverlay)TVOverlay.draw(video.currentTime,video);requestAnimationFrame(overlayFrame);}
 requestAnimationFrame(overlayFrame);

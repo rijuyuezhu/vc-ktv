@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from vc_ktv.app import create_app
 
 
@@ -33,9 +33,8 @@ def test_tv_token_can_only_be_issued_by_admin(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
-        link = admin.get("/api/admin/tv-link").json()["url"]
-        token = link.partition("?token=")[2]
-        assert token and "tv.html" in link
+        token = primary_tv_token(admin)
+        assert token
         assert guest.get("/api/tv/state", params={"token": token}).status_code == 200
         song = guest.post("/api/songs", json={"bvid": "BV0000000001"}).json()["id"]
         media = admin.post(
@@ -99,7 +98,7 @@ def test_tv_preload_is_read_only_and_tracks_queue_changes(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        token = primary_tv_token(admin)
         url = "/api/tv/preload"
         assert guest.get(url).status_code == 422
         assert guest.get(url, params={"token": "wrong"}).status_code == 401
@@ -196,7 +195,7 @@ def test_tv_replay_next_is_scoped_idempotent_and_preserves_fairness(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        token = primary_tv_token(admin)
         store = app.state.store
         for name in ("A", "B"):
             guest_id = store.rows("SELECT id FROM guests WHERE name=?", (name,))[0][
@@ -313,7 +312,7 @@ def test_tv_live_next_up_tracks_three_people_pin_and_cancel(tmp_path):
         store = app.state.store
         for name in guests:
             ready(store, name, 2)
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        token = primary_tv_token(admin)
         first = admin.post("/api/admin/next").json()["active"]
         assert first["nickname"] == "A"
         before = store.rows("SELECT plays,fair_offset FROM guests ORDER BY name")

@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from vc_ktv.app import create_app
 
 
@@ -223,7 +223,7 @@ def test_priority_replay_during_current_manual_cast_next_and_tv_guard(tmp_path):
             "/api/admin/playback-mode", json={"mode": "manual"}
         ).json() == {"mode": "manual"}
         assert guest.get("/api/state").json()["playback_mode"] == "manual"
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        token = primary_tv_token(admin)
         assert guest.post("/api/tv/next", params={"token": token}).status_code == 409
         assert admin.post("/api/admin/next").json()["active"]["id"] == first
         assert (

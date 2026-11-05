@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from vc_ktv.app import create_app
 from vc_ktv.autoprep import prepare_tv_source, stream_video_kbps
 
@@ -127,7 +127,7 @@ def test_signed_original_and_timeline_preserve_baked_download(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("token=")[2]
+        token = primary_tv_token(admin)
         # Explicitly switching off still works; switching back on enables
         # the original video and HTML subtitles for the same song.
         disabled = admin.put(
@@ -166,7 +166,7 @@ def test_large_original_requires_matching_bitrate_cache(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("token=")[2]
+        token = primary_tv_token(admin)
         enable(admin)
         first = guest.post("/api/tv/next", params={"token": token}).json()["active"]
         assert first["html_overlay"] is None
