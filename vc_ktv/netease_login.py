@@ -57,6 +57,8 @@ class NeteaseLogin:
     ):
         self.lock = threading.RLock()
         self.clock = clock
+        self.transport = transport
+        self.qr_requires_verification = False
         self.storage_path = Path(storage_path) if storage_path is not None else None
         self.client = httpx.Client(
             timeout=httpx.Timeout(8, connect=3),
@@ -103,6 +105,7 @@ class NeteaseLogin:
     def _expire(self) -> None:
         now = self.clock()
         if self.qr_key and now >= self.qr_expires:
+            self.qr_requires_verification = False
             self.qr_key = None
             self.qr_image = None
             self.qr_expires = 0
@@ -123,6 +126,11 @@ class NeteaseLogin:
                 "qr_expires_in": max(0, int(self.qr_expires - now))
                 if self.qr_key
                 else 0,
+                **(
+                    {"phase": "verification_required"}
+                    if self.qr_requires_verification
+                    else {}
+                ),
             }
 
     def start_qr(self) -> dict:
@@ -131,6 +139,7 @@ class NeteaseLogin:
             if self.music_cookie:
                 return self.status()
             if not self.qr_key:
+                self.qr_requires_verification = False
                 response = self.client.post(
                     f"{QR_ORIGIN}/weapi/login/qrcode/unikey",
                     data=encode_weapi_form({"type": 1, "noCheckToken": True}),
@@ -167,6 +176,12 @@ class NeteaseLogin:
                 return {**self.status(), "phase": "connected"}
             if not self.qr_key:
                 return {**self.status(), "phase": "expired"}
+            if self.qr_requires_verification:
+                return {
+                    **self.status(),
+                    "phase": "verification_required",
+                    "provider_code": 8821,
+                }
             response = self.client.post(
                 f"{QR_ORIGIN}/weapi/login/qrcode/client/login",
                 data=encode_weapi_form(
@@ -177,6 +192,13 @@ class NeteaseLogin:
             response.raise_for_status()
             data = response.json()
             code = data.get("code") if isinstance(data, dict) else None
+            if code == 8821:
+                self.qr_requires_verification = True
+                return {
+                    **self.status(),
+                    "phase": "verification_required",
+                    "provider_code": 8821,
+                }
             if code == 803:
                 cookie = _read_music_cookie(response, self.client)
                 if not cookie or not 10 <= len(cookie) <= 4096:
@@ -185,11 +207,13 @@ class NeteaseLogin:
                     )
                 self._save_cookie(cookie)
                 self.music_cookie = cookie
+                self.qr_requires_verification = False
                 self.qr_key = None
                 self.qr_image = None
                 self.qr_expires = 0
                 return {**self.status(), "phase": "connected"}
             if code == 800:
+                self.qr_requires_verification = False
                 self.qr_key = None
                 self.qr_image = None
                 self.qr_expires = 0
@@ -202,8 +226,48 @@ class NeteaseLogin:
                 raise NeteaseLoginError("网易云返回了未知的扫码状态，请稍后再试")
             return {**self.status(), "phase": "confirm" if code == 802 else "waiting"}
 
+    def import_cookie(self, raw_value: str) -> dict:
+        """Validate an account's browser MUSIC_U directly with NetEase before storing.
+
+        Only a global-admin API may invoke this. No credentials are returned.
+        """
+        value = raw_value.strip() if isinstance(raw_value, str) else ""
+        if value.startswith("MUSIC_U="):
+            value = value[len("MUSIC_U=") :]
+        if not 10 <= len(value) <= 4096 or any(
+            not 33 <= ord(char) <= 126 or char in ';,\\"' for char in value
+        ):
+            raise NeteaseLoginError("MUSIC_U 格式不正确，请只复制 Cookie 的 Value")
+        with self.lock:
+            with httpx.Client(
+                timeout=httpx.Timeout(8, connect=3),
+                follow_redirects=False,
+                transport=self.transport,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": QR_ORIGIN + "/"},
+                cookies={"MUSIC_U": value},
+            ) as client:
+                response = client.get(f"{QR_ORIGIN}/api/nuser/account/get")
+                response.raise_for_status()
+                result = response.json()
+            if (
+                not isinstance(result, dict)
+                or result.get("code") != 200
+                or not isinstance(result.get("account"), dict)
+                or not isinstance(result["account"].get("id"), int)
+            ):
+                raise NeteaseLoginError("网易云未认可该登录态，请先在官方网页确认登录")
+            self._save_cookie(value)
+            self.music_cookie = value
+            self.qr_requires_verification = False
+            self.qr_key = None
+            self.qr_image = None
+            self.qr_expires = 0
+            self.client.cookies.clear()
+            return self.status()
+
     def disconnect(self) -> dict:
         with self.lock:
+            self.qr_requires_verification = False
             self.qr_key = None
             self.qr_image = None
             self.qr_expires = 0
