@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .netease_catalog import HEADERS, _cover_url
+from .netease_weapi import encode_weapi_form
 
 MAX_AUDIO_BYTES = 80 * 1024 * 1024
 MAX_COVER_BYTES = 4 * 1024 * 1024
@@ -26,11 +27,15 @@ class MusicUnavailable(ValueError):
 
 
 def validate_media_url(value: str) -> str:
-    """Accept only HTTPS media URLs from known NetEase media CDN hosts."""
+    """Accept NetEase-signed HTTP/HTTPS audio URLs only on its fixed CDN host pattern.
+
+    NetEase currently returns HTTP URLs for legitimate tracks. Never follow
+    redirects or fetch arbitrary hosts supplied by a user.
+    """
     try:
         p = urlsplit(value)
         if (
-            p.scheme != "https"
+            p.scheme not in {"http", "https"}
             or p.username is not None
             or p.password is not None
             or p.port is not None
@@ -63,8 +68,11 @@ def fetch_audio_url(
     *,
     cookies: dict[str, str] | None = None,
     transport: httpx.BaseTransport | None = None,
+    level: str = "exhigh",
 ) -> str:
-    """Request the normal NetEase audio endpoint; do not log the signed URL."""
+    """Resolve a full track via NetEase's regular authenticated web player API."""
+    if level not in {"exhigh", "higher", "standard"}:
+        raise ValueError("不支持的网易云音质等级")
     with httpx.Client(
         timeout=12,
         headers=HEADERS,
@@ -72,9 +80,12 @@ def fetch_audio_url(
         cookies=cookies or {},
         transport=transport,
     ) as client:
-        response = client.get(
-            "https://music.163.com/api/song/enhance/player/url",
-            params={"ids": json.dumps([song_id]), "br": 320000},
+        response = client.post(
+            "https://music.163.com/weapi/song/enhance/player/url/v1",
+            data=encode_weapi_form(
+                {"ids": json.dumps([song_id]), "level": level, "encodeType": "mp3"}
+            ),
+            headers={"Origin": "https://music.163.com"},
         )
         response.raise_for_status()
         return parse_audio_response(song_id, response.json())
@@ -82,19 +93,39 @@ def fetch_audio_url(
 
 def download_limited(client: httpx.Client, url: str, path: Path, limit: int) -> None:
     """Stream with a strict size bound, no redirects, and no persisted URL."""
-    with client.stream("GET", url, follow_redirects=False) as response:
-        response.raise_for_status()
-        if response.status_code != 200:
-            raise MusicUnavailable("网易云音频地址已失效")
+    # NetEase CDN regularly serves byte-range downloads but can reject a
+    # plain GET. Ask for the complete file starting at byte zero.
+    with client.stream(
+        "GET", url, headers={"Range": "bytes=0-"}, follow_redirects=False
+    ) as response:
+        if response.status_code not in (200, 206):
+            raise MusicUnavailable(f"网易云媒体下载失败（HTTP {response.status_code}）")
+        if "text/html" in response.headers.get("content-type", "").lower():
+            raise MusicUnavailable("网易云媒体地址返回了网页，无法下载音频")
+        expected = None
+        if response.status_code == 206:
+            match = re.fullmatch(
+                r"bytes 0-(\d+)/(\d+)", response.headers.get("content-range", "")
+            )
+            if not match or int(match[1]) + 1 != int(match[2]):
+                raise MusicUnavailable("网易云只返回了部分媒体内容")
+            expected = int(match[2])
+            if expected > limit:
+                raise MusicUnavailable("媒体大小超过限制")
         size = 0
-        with path.open("wb") as out:
-            for chunk in response.iter_bytes(256 * 1024):
-                size += len(chunk)
-                if size > limit:
-                    raise MusicUnavailable("媒体大小超过限制")
-                out.write(chunk)
-        if size < 1024:
-            raise MusicUnavailable("音频或封面内容为空")
+        temporary = path.with_name(path.name + ".part")
+        try:
+            with temporary.open("wb") as out:
+                for chunk in response.iter_bytes(256 * 1024):
+                    size += len(chunk)
+                    if size > limit:
+                        raise MusicUnavailable("媒体大小超过限制")
+                    out.write(chunk)
+            if size < 1024 or (expected is not None and size != expected):
+                raise MusicUnavailable("音频或封面内容不完整")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 def _audio_duration(audio: Path) -> float:
@@ -176,11 +207,25 @@ def download_netease_video(
 ) -> Path:
     """Fetch a normal full stream, validate duration, encode a playable MP4."""
     target_dir.mkdir(parents=True, exist_ok=True)
-    url = fetch_audio_url(song_id, cookies=cookies)
     audio = target_dir / "netease-audio.bin"
     cover = target_dir / "netease-cover.jpg"
     with httpx.Client(timeout=httpx.Timeout(45, connect=8), headers=HEADERS) as client:
-        download_limited(client, url, audio, MAX_AUDIO_BYTES)
+        # An individual CDN edge can reject a signed URL even when the track
+        # is available. Resolve a fresh URL at lower qualities before failing.
+        last_error: Exception | None = None
+        for level in ("exhigh", "higher", "standard"):
+            try:
+                url = fetch_audio_url(song_id, cookies=cookies, level=level)
+                download_limited(client, url, audio, MAX_AUDIO_BYTES)
+                break
+            except (MusicUnavailable, httpx.HTTPError) as error:
+                # A lower offered quality may have a different signed CDN URL.
+                # Do not retry arbitrary hosts, bypass restrictions or accept trials.
+                last_error = error
+        else:
+            if isinstance(last_error, MusicUnavailable):
+                raise last_error
+            raise MusicUnavailable("网易云媒体服务暂时不可用") from last_error
         checked_cover = _cover_url(cover_url)
         if checked_cover:
             try:

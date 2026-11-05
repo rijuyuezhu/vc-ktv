@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import time
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -13,6 +14,9 @@ from vc_ktv.lyric_selection import _candidate
 from vc_ktv.netease_media import (
     MusicUnavailable,
     assemble_album_video,
+    download_limited,
+    download_netease_video,
+    fetch_audio_url,
     parse_audio_response,
     validate_media_url,
 )
@@ -22,8 +26,9 @@ RAW = "[00:01.00]第一行测试歌词\n[00:05.00]第二行测试歌词"
 
 def test_media_url_and_trial_validation():
     assert validate_media_url("https://m10.music.126.net/test.mp3")
+    assert validate_media_url("http://m804.music.126.net/test.mp3")
     for url in (
-        "http://m10.music.126.net/test.mp3",
+        "http://m10.music.126.net.evil.org/test.mp3",
         "https://music.126.net.evil.test/test.mp3",
         "https://127.0.0.1/internal",
         "https://m10.music.126.net:9090/test.mp3",
@@ -46,6 +51,123 @@ def test_media_url_and_trial_validation():
                 ]
             },
         )
+
+
+def test_audio_url_uses_new_weapi_and_carries_login_cookie():
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "code": 200,
+                "data": [
+                    {
+                        "id": 42,
+                        "code": 200,
+                        "url": "http://m804.music.126.net/authorized.mp3",
+                        "freeTrialInfo": None,
+                    }
+                ],
+            },
+        )
+
+    url = fetch_audio_url(
+        42,
+        cookies={"MUSIC_U": "valid_test_cookie"},
+        transport=httpx.MockTransport(handler),
+    )
+    assert url == "http://m804.music.126.net/authorized.mp3"
+    assert len(seen) == 1
+    assert seen[0].method == "POST"
+    assert seen[0].url.host == "music.163.com"
+    assert seen[0].url.path == "/weapi/song/enhance/player/url/v1"
+    assert seen[0].headers["cookie"] == "MUSIC_U=valid_test_cookie"
+    assert b"encSecKey=" in seen[0].content and b"params=" in seen[0].content
+
+
+def test_netease_cdn_download_accepts_http_and_rejects_errors(tmp_path):
+    def handler(request):
+        assert request.url.host == "m804.music.126.net"
+        return httpx.Response(
+            200, headers={"content-type": "audio/mpeg"}, content=b"x" * 4096
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        out = tmp_path / "audio.mp3"
+        download_limited(client, "http://m804.music.126.net/sample", out, 8192)
+        assert out.stat().st_size == 4096
+        with pytest.raises(MusicUnavailable, match="大小超过限制"):
+            download_limited(client, "http://m804.music.126.net/sample", out, 100)
+
+    def range_handler(request):
+        assert request.headers["range"] == "bytes=0-"
+        return httpx.Response(
+            206,
+            headers={
+                "content-range": "bytes 0-4095/4096",
+                "content-type": "audio/mpeg",
+            },
+            content=b"a" * 4096,
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(range_handler)) as client:
+        download_limited(client, "http://m804.music.126.net/sample", out, 8192)
+        assert out.stat().st_size == 4096
+
+    def incomplete(_request):
+        return httpx.Response(
+            206, headers={"content-range": "bytes 0-1023/8192"}, content=b"a" * 1024
+        )
+
+    with httpx.Client(transport=httpx.MockTransport(incomplete)) as client:
+        with pytest.raises(MusicUnavailable, match="部分媒体"):
+            download_limited(client, "http://m804.music.126.net/sample", out, 8192)
+
+    for code in (403, 404):
+        with httpx.Client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(code))
+        ) as client:
+            with pytest.raises(MusicUnavailable, match=f"HTTP {code}"):
+                download_limited(
+                    client,
+                    "http://m804.music.126.net/sample",
+                    tmp_path / "missing",
+                    8192,
+                )
+
+
+def test_download_tries_next_official_quality_on_cdn_rejection(tmp_path, monkeypatch):
+    from vc_ktv import netease_media
+
+    levels = []
+
+    def fake_resolve(song_id, *, cookies, level):
+        assert song_id == 42 and cookies == {"MUSIC_U": "test-session"}
+        levels.append(level)
+        return "http://m804.music.126.net/" + level
+
+    def fake_download(client, url, path, limit):
+        assert limit == netease_media.MAX_AUDIO_BYTES
+        if url.endswith("/exhigh"):
+            raise MusicUnavailable("网易云媒体下载失败（HTTP 403）")
+        path.write_bytes(b"audio" * 700)
+
+    def fake_render(audio, cover, destination, actual):
+        assert actual == 90 and cover is None and audio.is_file()
+        destination.write_bytes(b"video" * 700)
+        return destination
+
+    monkeypatch.setattr(netease_media, "fetch_audio_url", fake_resolve)
+    monkeypatch.setattr(netease_media, "download_limited", fake_download)
+    monkeypatch.setattr(netease_media, "_audio_duration", lambda _p: 90)
+    monkeypatch.setattr(netease_media, "assemble_album_video", fake_render)
+    result = download_netease_video(
+        42, "", tmp_path, duration=87, cookies={"MUSIC_U": "test-session"}
+    )
+    assert levels == ["exhigh", "higher"]
+    assert result.read_bytes().startswith(b"video")
 
 
 def test_real_ffmpeg_netease_song_to_karaoke_queue_and_tv(tmp_path):
@@ -108,6 +230,12 @@ def test_real_ffmpeg_netease_song_to_karaoke_queue_and_tv(tmp_path):
 
     app.state.netease_lookup = lookup
     app.state.candidate_search = search
+
+    async def direct_lyrics(_id, *, title):
+        assert _id == 28391863 and title == "测试歌曲"
+        return await search(title)
+
+    app.state.netease_lyrics = direct_lyrics
     app.state.autoprep.netease_download = fake_download
     with TestClient(app) as guest, TestClient(app) as admin:
         join_and_register(guest, "Music singer")
@@ -151,6 +279,8 @@ def test_real_ffmpeg_netease_song_to_karaoke_queue_and_tv(tmp_path):
         assert seen == [28391863]
         assert row["status"] == "ready" and row["prep_state"] == "done", row
         assert row["source_type"] == "netease" and row["source_id"] == "28391863"
+        detail = guest.get(f"/api/songs/{song_id}/detail").json()
+        assert detail["source_type"] == "netease" and detail["source_id"] == "28391863"
         assert row["lyric_timing_mode"] == "provider"
         media = app.state.events.current_store.media / row["media_file"]
         assert media.exists() and media.stat().st_size > 1024
@@ -176,3 +306,9 @@ def test_real_ffmpeg_netease_song_to_karaoke_queue_and_tv(tmp_path):
         )
         played = admin.get("/api/admin/played").json()["songs"][0]
         assert played["id"] == song_id
+        assert (played["source_type"], played["source_id"]) == ("netease", "28391863")
+        guest_history = guest.get("/api/songs/played").json()["songs"][0]
+        assert (guest_history["source_type"], guest_history["source_id"]) == (
+            "netease",
+            "28391863",
+        )

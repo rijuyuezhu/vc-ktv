@@ -38,6 +38,7 @@ def test_queue_current_detail_and_played_history_expose_original_bv(tmp_path):
             admin.get("/api/admin/state").json()["waiting"][0]["bvid"] == "BV0000000009"
         )
         assert guest.get(f"/api/songs/{sid}/detail").json()["bvid"] == "BV0000000009"
+        assert guest.get(f"/api/songs/{sid}/detail").json()["source_type"] == "bilibili"
         assert admin.get(f"/api/songs/{sid}/detail").json()["bvid"] == "BV0000000009"
         with app.state.store.lock:
             app.state.store.db.execute(

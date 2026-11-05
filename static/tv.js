@@ -158,7 +158,7 @@ panel.onpointerleave=()=>{
   clearTimeout(panelTimer);
   panelTimer=setTimeout(()=>{if(!panel.matches(":focus-within"))hidePanel();},4000);
 };
-function songLabel(song){return song.title+"  "+song.nickname;}
+function songLabel(song){return (song.source_type==="netease"?"🎵 ":"📺 ")+song.title+"  "+song.nickname;}
 function updateNextSong(song){
   const key=song?JSON.stringify([song.id,song.title,song.nickname]):"";
   if(nextKey===key)return;

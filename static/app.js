@@ -82,32 +82,43 @@ function preparationStatus(song) {
   if(song.prep_state==="aligning")return "◷ "+(stages[song.prep_stage]||"制作字幕中");
   return states[song.prep_state]||"◷ 准备中";
 }
-async function copyBv(bvid){
-  if(!bvid)return;
+function songSource(song){
+  return song.source_type==="netease"?
+    {label:"🎵 网易云",copyLabel:"网易云链接",ref:song.source_id?
+      "https://music.163.com/#/song?id="+encodeURIComponent(song.source_id):""}:
+    {label:"📺 B站",copyLabel:"BV 号",ref:song.bvid||""};
+}
+function addSourceTag(parent,song){
+  const tag=appendText(parent,"span",songSource(song).label,"source-tag");
+  tag.title="歌曲来源："+(song.source_type==="netease"?"网易云音乐":"哔哩哔哩");
+}
+async function copySongSource(song){
+  const source=songSource(song);
+  if(!source.ref)return;
   try{
     if(navigator.clipboard?.writeText){
-      await navigator.clipboard.writeText(bvid);
+      await navigator.clipboard.writeText(source.ref);
     }else{
-      // Most local/tailnet HTTP pages do not have secure-context Clipboard API.
+      // Local/tailnet HTTP may not provide the secure-context clipboard API.
       const field=document.createElement("textarea");
-      field.value=bvid;
+      field.value=source.ref;
       field.style.cssText="position:fixed;left:-9999px;top:0";
       document.body.append(field);field.focus();field.select();
       let copied=false;
       try{copied=document.execCommand("copy");}finally{field.remove();}
       if(!copied)throw new Error("clipboard unavailable");
     }
-    toast("✓ 已复制 "+bvid);
+    toast("✓ 已复制"+source.copyLabel);
   }catch(e){
-    // Do not claim copy succeeded; offer a selectable BV to copy manually.
-    prompt("复制此 BV 号",bvid);
+    prompt("复制"+source.copyLabel,source.ref);
   }
 }
-function addCopyBv(parent,song,cls="mini"){
-  if(!song.bvid)return;
-  const button=appendText(parent,"button","⧉ 复制 BV",cls+" bv-copy");
-  button.type="button";button.title="复制 "+song.bvid;
-  button.onclick=(event)=>{event.stopPropagation();guarded(()=>copyBv(song.bvid),button);};
+function addCopySource(parent,song,cls="mini"){
+  const source=songSource(song);
+  if(!source.ref)return;
+  const button=appendText(parent,"button","⧉ 复制"+source.copyLabel,cls+" source-copy");
+  button.type="button";button.title="复制"+source.copyLabel;
+  button.onclick=(event)=>{event.stopPropagation();guarded(()=>copySongSource(song),button);};
 }
 function addMediaActions(parent,song,large=false){
   const bar=appendText(parent,"div","","media-controls");
@@ -117,7 +128,7 @@ function addMediaActions(parent,song,large=false){
     link.onclick=(event)=>event.stopPropagation();
     link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
   }
-  addCopyBv(bar,song,large?"btn neutral":"mini");
+  addCopySource(bar,song,large?"btn neutral":"mini");
   if(!bar.children.length)bar.remove();
 }
 async function cancelGuestSong(songId){
@@ -145,8 +156,10 @@ function makeSong(song, order, mode="row") {
   }
   appendText(outer,"span",String(order),"ordinal");
   const copy = document.createElement("div");copy.className="song-copy";outer.append(copy);
-  appendText(copy,"strong",song.title+(song.page>1?` (P${song.page})`:"")+
+  const heading=appendText(copy,"div","","song-heading");
+  appendText(heading,"strong",song.title+(song.source_type!=="netease"&&song.page>1?` (P${song.page})`:"")+
     (song.priority_next?(song.replay_of?"  ↻ 下一首重唱":"  ↥ 下一首播放"):""));
+  addSourceTag(heading,song);
   appendText(copy,"small",`${song.nickname}  ${duration(song.duration)}  ${song.uploader}`);
   if(mode==="row" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
     const detail=appendText(outer,"button","详情 / 取消","mini");
@@ -174,7 +187,8 @@ function makeSong(song, order, mode="row") {
     }
   }else if(mode==="admin"){
     const stageNames={
-      download:"下载原片",downloaded:"原片已下载",queued:"等待模型",
+      download:song.source_type==="netease"?"下载网易云音源":"下载原片",
+      downloaded:song.source_type==="netease"?"音乐视频已生成":"原片已下载",queued:"等待模型",
       extract:"提取音频",kim:"Kim 人声分离",
       align:"Qwen/TIFA 对齐",subtitles:"生成字幕",render:"FFmpeg 烧录",
       done:"字幕已完成",skipped:"使用原视频"
@@ -190,6 +204,14 @@ function makeSong(song, order, mode="row") {
       line.title="按阶段变更更新，不通过 GPU 采样估算百分比";
     }
     const actions=document.createElement("div");actions.className="song-actions";outer.append(actions);
+    if(song.status==="waiting" && song.prep_state==="unavailable"){
+      const retry=appendText(actions,"button","↻ 重试下载","mini");
+      retry.title=song.prep_error||"重新请求音源并制作视频";
+      retry.onclick=()=>guarded(async()=>{
+        await api(`/api/admin/songs/${song.id}/download/retry`,"POST");
+        toast("◷ 已重新排队下载");await refresh();
+      },retry);
+    }
     if(song.status==="waiting" && !["downloading","pending"].includes(song.prep_state)){
       const upload=appendText(actions,"label","上传 MP4","mini upload-label");
       const file=document.createElement("input");file.type="file";file.accept=".mp4,.webm,.m4v,video/mp4,video/webm";
@@ -305,7 +327,9 @@ async function refreshSongDetail(){
   const timingWasOpen=Boolean(target.querySelector(".timing-details")?.open);
   target.replaceChildren();
   const panel=appendText(target,"section","","panel song-detail-panel");
-  appendText(panel,"h2",song.title);
+  const heading=appendText(panel,"div","","song-detail-heading");
+  appendText(heading,"h2",song.title);
+  addSourceTag(heading,song);
   appendText(panel,"small",song.nickname+"  "+duration(song.duration),"muted");
   addMediaActions(panel,song,true);
   appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
@@ -934,11 +958,16 @@ async function playNext(){
   if(manualMode)toast("已领取当前歌曲，请下载后手动投屏");
   await refresh();
 }
+function setPlayingTitle(prefix,song){
+  const title=$("playing-title");
+  title.replaceChildren(document.createTextNode(prefix+song.title+"  "+song.nickname+"  "));
+  addSourceTag(title,song);
+}
 async function assignPlayer(active, start){
   if(!active || !active.media_url)return;
   if(manualMode){
     currentMediaId=active.id;
-    $("playing-title").textContent="当前歌曲："+active.title+"  "+active.nickname;
+    setPlayingTitle("当前歌曲：",active);
     updatePlaybackUI();
     return;
   }
@@ -948,7 +977,7 @@ async function assignPlayer(active, start){
     player.load();
     $("player-empty").classList.add("hidden");
   }
-  $("playing-title").textContent=`正在播放：${active.title}  ${active.nickname}`;
+  setPlayingTitle("正在播放：",active);
   if(start){
     try{await player.play();}catch{toast("浏览器阻止自动播放，请手动点击播放器的播放按钮",true);}
   }
@@ -1318,7 +1347,9 @@ async function refresh(){
           appendText(current,"span",state.playback_mode==="manual"?
             "◷ 手动投屏中":"▶ 正在播放","current-label");
           if(state.current){
-            appendText(current,"strong",state.current.title);
+            const heading=appendText(current,"div","","song-heading");
+            appendText(heading,"strong",state.current.title);
+            addSourceTag(heading,state.current);
             appendText(current,"small","点歌者："+state.current.nickname);
             addMediaActions(current,state.current);
           }else appendText(current,"p","当前空闲，等待管理员开始播放");
@@ -1355,14 +1386,14 @@ async function refresh(){
             appendText(c,"small",u.plays+" 首  "+duration(u.seconds));stats.append(c);
           });
           $("current-song-download").classList.toggle("hidden",!adm.active);
-          $("current-song-copy-bv").classList.toggle("hidden",!adm.active);
+          $("current-song-copy-source").classList.toggle("hidden",!adm.active||!songSource(adm.active).ref);
           if(adm.active){
             $("current-song-download").href=`/api/songs/${adm.active.id}/download`;
-            $("current-song-copy-bv").onclick=()=>guarded(
-              ()=>copyBv(adm.active.bvid),$("current-song-copy-bv"));
+            $("current-song-copy-source").textContent="⧉ 复制"+songSource(adm.active).copyLabel;
+            $("current-song-copy-source").onclick=()=>guarded(
+              ()=>copySongSource(adm.active),$("current-song-copy-source"));
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
-            $("playing-title").textContent=(manualMode?"当前歌曲：":"正在播放：")+
-              adm.active.title+"  "+adm.active.nickname;
+            setPlayingTitle(manualMode?"当前歌曲：":"正在播放：",adm.active);
           }else if(currentMediaId!==null){
             currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
             $("player-empty").classList.remove("hidden");

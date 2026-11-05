@@ -267,3 +267,21 @@ def test_netease_cookie_fallback_global_admin_ui():
     assert 'if(state.phase==="verification_required")' in js
     assert 'state.phase==="verification_required")stopNeteaseLoginPolling()' in js
     assert 'finally{field.value="";}' in js
+
+
+def test_provider_tag_and_copy_are_source_aware():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    css = (root / "style.css").read_text()
+    tv_js = (root / "tv.js").read_text()
+    assert "📺 B站" in js and "🎵 网易云" in js
+    assert 'song.source_type==="netease"' in js
+    assert '"https://music.163.com/#/song?id="+encodeURIComponent(song.source_id)' in js
+    assert 'song.bvid||""' in js
+    assert 'id="current-song-copy-source"' in html
+    assert 'id="current-song-copy-bv"' not in html
+    assert 'class="source-tag"' not in html  # Only actual songs get a tag.
+    assert ".source-tag" in css
+    assert 'song.source_type==="netease"' in tv_js
+    assert "/download/retry" in js

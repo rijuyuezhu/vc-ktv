@@ -28,7 +28,7 @@ from ktv_app.timeline import Line, Timeline, Unit
 
 from .bilibili_media import QUALITY_HEIGHTS, public_media_download
 from .karaoke import parse_lrc
-from .netease_media import download_netease_video
+from .netease_media import MusicUnavailable, download_netease_video
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .timed_lyrics import offset_timeline
 from .upstream_pipeline import make_karaoke_video, spark_settings
@@ -471,7 +471,10 @@ class AutoPrep:
                     )
                     # Only show trusted, short diagnostic text; never expose signed media URLs.
                     reason = (
-                        "网易云音源不可用"
+                        str(error)[:90]
+                        if row.get("source_type") == "netease"
+                        and isinstance(error, MusicUnavailable)
+                        else "网易云音源不可用"
                         if row.get("source_type") == "netease"
                         else "公开媒体下载失败"
                     )
