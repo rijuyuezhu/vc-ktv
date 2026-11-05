@@ -247,7 +247,9 @@ def test_authenticated_media_request_carries_restored_cookie():
     assert url == "https://m10.music.126.net/test.mp3"
     assert len(requests) == 1
     assert requests[0].url.host == "music.163.com"
-    assert requests[0].headers["cookie"] == f"MUSIC_U={COOKIE}"
+    assert f"MUSIC_U={COOKIE}" in requests[0].headers["cookie"]
+    assert "os=pc" in requests[0].headers["cookie"]
+    assert "__remember_me=true" in requests[0].headers["cookie"]
 
 
 def test_qr_failure_exposes_only_upstream_status_not_credentials(tmp_path):

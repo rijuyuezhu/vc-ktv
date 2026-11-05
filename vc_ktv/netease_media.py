@@ -50,6 +50,8 @@ def validate_media_url(value: str) -> str:
 def parse_audio_response(song_id: int, payload: dict) -> str:
     """Distinguish full media from unavailable or trial-only audio."""
     items = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(items, dict):
+        items = [items]  # Official download/v1 returns one object, player/v1 a list.
     if not isinstance(items, list):
         raise MusicUnavailable("网易云音源暂不可用")
     track = next(
@@ -77,14 +79,41 @@ def fetch_audio_url(
         timeout=12,
         headers=HEADERS,
         follow_redirects=False,
-        cookies=cookies or {},
+        # NetEase signs CDN links according to the web client's cookie context.
+        # go-musicfox includes these cookies even when MUSIC_U is already valid.
+        cookies={"os": "pc", "__remember_me": "true", **(cookies or {})},
         transport=transport,
     ) as client:
         response = client.post(
             "https://music.163.com/weapi/song/enhance/player/url/v1",
             data=encode_weapi_form(
-                {"ids": json.dumps([song_id]), "level": level, "encodeType": "mp3"}
+                {"ids": json.dumps([song_id]), "level": level, "encodeType": "flac"}
             ),
+            headers={"Origin": "https://music.163.com"},
+        )
+        response.raise_for_status()
+        return parse_audio_response(song_id, response.json())
+
+
+def fetch_download_url(
+    song_id: int,
+    *,
+    cookies: dict[str, str] | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> str:
+    """Resolve the official download endpoint when player CDN links are rejected."""
+    with httpx.Client(
+        timeout=12,
+        headers=HEADERS,
+        follow_redirects=False,
+        # NetEase signs CDN links according to the web client's cookie context.
+        # go-musicfox includes these cookies even when MUSIC_U is already valid.
+        cookies={"os": "pc", "__remember_me": "true", **(cookies or {})},
+        transport=transport,
+    ) as client:
+        response = client.post(
+            "https://music.163.com/weapi/song/enhance/download/url/v1",
+            data=encode_weapi_form({"id": song_id, "level": "standard"}),
             headers={"Origin": "https://music.163.com"},
         )
         response.raise_for_status()
@@ -223,9 +252,17 @@ def download_netease_video(
                 # Do not retry arbitrary hosts, bypass restrictions or accept trials.
                 last_error = error
         else:
-            if isinstance(last_error, MusicUnavailable):
-                raise last_error
-            raise MusicUnavailable("网易云媒体服务暂时不可用") from last_error
+            # The official download API can issue a different valid CDN URL
+            # for the same authorized track. Keep it as the final bounded fallback.
+            try:
+                url = fetch_download_url(song_id, cookies=cookies)
+                download_limited(client, url, audio, MAX_AUDIO_BYTES)
+            except (MusicUnavailable, httpx.HTTPError) as error:
+                if isinstance(error, MusicUnavailable):
+                    raise
+                if isinstance(last_error, MusicUnavailable):
+                    raise last_error from error
+                raise MusicUnavailable("网易云媒体服务暂时不可用") from error
         checked_cover = _cover_url(cover_url)
         if checked_cover:
             try:
