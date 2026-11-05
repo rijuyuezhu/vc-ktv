@@ -382,7 +382,7 @@ class Store:
             "video_quality": int(values.get("video_quality", "720")),
             "max_bandwidth_mbps": float(values.get("max_bandwidth_mbps", "3")),
             "orders_paused": values.get("orders_paused", "0") == "1",
-            "tv_html_overlay": values.get("tv_html_overlay", "0") == "1",
+            "tv_html_overlay": values.get("tv_html_overlay", "1") == "1",
         }
 
     def playback_mode(self):
