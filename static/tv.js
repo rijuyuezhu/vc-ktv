@@ -160,7 +160,7 @@ panel.onpointerleave=()=>{
 };
 function songLabel(song){return (song.source_type==="netease"?"🎵 ":"📺 ")+song.title+"  "+song.nickname;}
 function updateNextSong(song){
-  const key=song?JSON.stringify([song.id,song.title,song.nickname]):"";
+  const key=song?JSON.stringify([song.id,song.title,song.nickname,song.source_type]):"";
   if(nextKey===key)return;
   nextUp.textContent=song?songLabel(song):"暂无下一首可播放歌曲";
   if(nextKey!==null){
