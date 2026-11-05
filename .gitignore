@@ -9,6 +9,8 @@ __pycache__/
 htmlcov/
 
 # Machine-specific private data and runtime models
+.private/
+netease-session.json
 .env
 .env.*
 !.env.example

@@ -39,6 +39,7 @@ from .lyric_sources import vcpedia_lyric_candidates
 from .media_pins import MediaPins
 from .netease_catalog import lookup_netease_song
 from .netease_discovery import resolve_song_reference, search_netease_songs
+from .netease_login import NeteaseLogin, NeteaseLoginError
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
@@ -698,6 +699,10 @@ def create_app(
         probe_media,
         gpu_alignment=gpu_alignment,
     )
+    netease_login = NeteaseLogin(
+        storage_path=root / ".private" / "netease-session.json"
+    )
+    worker.netease_cookies = netease_login.cookies
     running = False
 
     async def monitor_workers():
@@ -745,6 +750,7 @@ def create_app(
                     await monitor
             if auto_prepare and worker.worker:
                 worker.stop()
+            netease_login.close()
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.autoprep = worker
@@ -755,6 +761,7 @@ def create_app(
     app.state.netease_lookup = lookup_netease_song
     app.state.netease_resolve = resolve_song_reference
     app.state.netease_search = search_netease_songs
+    app.state.netease_login = netease_login
     app.state.lyrics_lookup = vcpedia_find
     app.state.candidate_search = search_lyric_candidates
     lyric_search_times = {}
@@ -1152,6 +1159,44 @@ def create_app(
         response.delete_cookie("vc_join", path="/")
         return {"ok": True}
 
+    @app.get("/api/admin/netease/status")
+    def netease_session_status(
+        response: Response, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_global_admin(vc_admin)
+        response.headers["Cache-Control"] = "no-store"
+        return netease_login.status()
+
+    @app.post("/api/admin/netease/qr")
+    def netease_session_qr(
+        response: Response, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_global_admin(vc_admin)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return netease_login.start_qr()
+        except (httpx.HTTPError, NeteaseLoginError, ValueError):
+            bail(502, "网易云登录二维码暂不可用")
+
+    @app.post("/api/admin/netease/check")
+    def netease_session_check(
+        response: Response, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_global_admin(vc_admin)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return netease_login.poll()
+        except (httpx.HTTPError, NeteaseLoginError, ValueError):
+            bail(502, "网易云扫码状态暂不可用")
+
+    @app.post("/api/admin/netease/disconnect")
+    def netease_session_disconnect(
+        response: Response, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_global_admin(vc_admin)
+        response.headers["Cache-Control"] = "no-store"
+        return netease_login.disconnect()
+
     @app.get("/api/admin/settings")
     def get_playback_settings(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
@@ -1238,6 +1283,7 @@ def create_app(
         with events.lock:
             entry = events.create(body.name, body.code)
             worker = AutoPrep(events.active(), probe_media)
+            worker.netease_cookies = netease_login.cookies
             app.state.autoprep = worker
             if running and auto_prepare:
                 # A new event has no unfinished preparation to replay.
@@ -1301,6 +1347,7 @@ def create_app(
                             # only needs a new worker pool, not startup replay.
                             resumed.resume_after_failed_stop()
                             worker = resumed
+                            worker.netease_cookies = netease_login.cookies
                             app.state.autoprep = resumed
                     raise
             finally:

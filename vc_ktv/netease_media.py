@@ -58,13 +58,23 @@ def parse_audio_response(song_id: int, payload: dict) -> str:
     return validate_media_url(url)
 
 
-def fetch_audio_url(song_id: int, *, cookies: dict[str, str] | None = None) -> str:
+def fetch_audio_url(
+    song_id: int,
+    *,
+    cookies: dict[str, str] | None = None,
+    transport: httpx.BaseTransport | None = None,
+) -> str:
     """Request the normal NetEase audio endpoint; do not log the signed URL."""
-    with httpx.Client(timeout=12, headers=HEADERS, follow_redirects=False) as client:
+    with httpx.Client(
+        timeout=12,
+        headers=HEADERS,
+        follow_redirects=False,
+        cookies=cookies or {},
+        transport=transport,
+    ) as client:
         response = client.get(
             "https://music.163.com/api/song/enhance/player/url",
             params={"ids": json.dumps([song_id]), "br": 320000},
-            cookies=cookies or {},
         )
         response.raise_for_status()
         return parse_audio_response(song_id, response.json())

@@ -1001,6 +1001,71 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
   await api(`/api/admin/songs/${popupSongId}/lyrics`,"POST",{text:$("lyrics-textarea").value});
   $("lyrics-dialog").close();toast("已保存参考歌词");await refresh();
 },$("lyrics-save"));
+let neteaseLoginPolling=null;
+let neteaseLoginChecking=false;
+function stopNeteaseLoginPolling(){
+  if(neteaseLoginPolling!==null)clearInterval(neteaseLoginPolling);
+  neteaseLoginPolling=null;
+}
+function displayNeteaseLoginStatus(state){
+  const connected=Boolean(state.connected);
+  const pending=Boolean(state.pending)&&!connected;
+  $("netease-login-start").classList.toggle("hidden",connected||pending);
+  $("netease-login-disconnect").classList.toggle("hidden",!connected&&!pending);
+  if(!pending)$("netease-login-qr-box").classList.add("hidden");
+  $("netease-login-status").textContent=connected?
+    "✓ 已保存网易云登录态（服务重启后可继续使用）":
+    pending?(state.phase==="confirm"?"请在网易云音乐 App 中确认登录":"等待扫码确认……"):
+    state.phase==="expired"?"二维码已过期，请重新扫码":"尚未连接网易云";
+  if(connected||!pending)stopNeteaseLoginPolling();
+}
+async function refreshNeteaseLogin(){
+  const state=await api("/api/admin/netease/status");
+  displayNeteaseLoginStatus(state);
+  if(state.pending){
+    if($("netease-login-qr-image").getAttribute("src")){
+      stopNeteaseLoginPolling();
+      neteaseLoginPolling=setInterval(checkNeteaseLogin,2500);
+    }else{
+      // Another browser initiated the QR; cancel and start a new one here.
+      $("netease-login-status").textContent="其他页面正在扫码，可取消后重新连接";
+    }
+  }
+}
+async function checkNeteaseLogin(){
+  if(neteaseLoginChecking)return;
+  neteaseLoginChecking=true;
+  try{
+    const state=await api("/api/admin/netease/check","POST");
+    displayNeteaseLoginStatus(state);
+    if(state.connected)toast("✓ 网易云音乐已连接");
+  }catch(e){
+    stopNeteaseLoginPolling();
+    error(e);
+  }finally{neteaseLoginChecking=false;}
+}
+$("netease-admin-panel").addEventListener("toggle",()=>{
+  if(!$("netease-admin-panel").open){stopNeteaseLoginPolling();return;}
+  guarded(refreshNeteaseLogin);
+});
+$("netease-login-start").onclick=()=>guarded(async()=>{
+  const state=await api("/api/admin/netease/qr","POST");
+  displayNeteaseLoginStatus(state);
+  if(state.qr_image){
+    $("netease-login-qr-image").src=state.qr_image;
+    $("netease-login-qr-box").classList.remove("hidden");
+    stopNeteaseLoginPolling();
+    neteaseLoginPolling=setInterval(checkNeteaseLogin,2500);
+  }
+},$("netease-login-start"));
+$("netease-login-disconnect").onclick=()=>guarded(async()=>{
+  stopNeteaseLoginPolling();
+  const wasConnected=!$("netease-login-disconnect").classList.contains("hidden") && $("netease-login-qr-box").classList.contains("hidden");
+  const state=await api("/api/admin/netease/disconnect","POST");
+  $("netease-login-qr-image").removeAttribute("src");
+  displayNeteaseLoginStatus(state);
+  toast(wasConnected?"已断开网易云连接":"已取消扫码");
+},$("netease-login-disconnect"));
 async function refreshAdminAccounts(){
   const target=$("admin-account-list");
   const data=await api("/api/admin/accounts");
@@ -1060,6 +1125,11 @@ async function refreshEvents(){
   document.querySelector('a[href="#settings-accounts"]')?.classList.toggle("hidden",data.role!=="global");
   if(data.role!=="global"&&currentRoute()==="settings-accounts")location.hash="settings";
   $("admin-accounts-panel").classList.toggle("hidden",!canManageAccounts);
+  $("netease-admin-panel").classList.toggle("hidden",data.role!=="global");
+  if(data.role!=="global"){
+    stopNeteaseLoginPolling();
+    $("netease-admin-panel").open=false;
+  }
   if(adminAccountsEventId!==(canManageAccounts?active.id:null)){
     adminAccountsEventId=canManageAccounts?active.id:null;
     $("admin-account-list").replaceChildren();
