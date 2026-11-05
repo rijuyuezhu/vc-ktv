@@ -253,3 +253,17 @@ def test_netease_connection_lives_in_global_admin_settings_subpage():
     assert 'currentRoute()==="settings-netease"&&!neteaseLoginPageActive' in js
     assert 'id="netease-login-check"' in html
     assert '$("netease-login-status").textContent=e.message' in js
+
+
+def test_netease_cookie_fallback_global_admin_ui():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    assert 'id="netease-cookie-import-panel"' in html
+    assert 'id="netease-cookie-import-value"' in html
+    assert 'type="password" id="netease-cookie-import-value"' in html
+    assert 'id="netease-cookie-import-form"' in html
+    assert "/api/admin/netease/import" in js
+    assert 'if(state.phase==="verification_required")' in js
+    assert 'state.phase==="verification_required")stopNeteaseLoginPolling()' in js
+    assert 'finally{field.value="";}' in js

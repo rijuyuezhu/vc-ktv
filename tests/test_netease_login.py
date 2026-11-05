@@ -1,4 +1,4 @@
-"""Global-admin-only QR login, in-memory credentials, expiration and worker handoff."""
+"""Global-admin QR login, persisted credentials, expiration and worker handoff."""
 
 import base64
 import stat
@@ -318,3 +318,131 @@ def test_qr_success_without_cookie_reports_missing_auth(tmp_path):
     assert login.cookies() is None
     assert not (tmp_path / "session.json").exists()
     login.close()
+
+
+def test_8821_stops_polling_and_retains_single_qr_attempt():
+    login = NeteaseLogin(transport=fake_transport([{"code": 8821}]))
+    first = login.start_qr()
+    result = login.poll()
+    assert result["phase"] == "verification_required"
+    assert result["provider_code"] == 8821
+    assert result["pending"] is True
+    assert login.status()["phase"] == "verification_required"
+    assert (
+        login.poll()["phase"] == "verification_required"
+    )  # no further upstream request
+    assert login.start_qr()["qr_image"] == first["qr_image"]
+    assert login.cookies() is None
+    assert login.disconnect()["pending"] is False
+    assert not login.status().get("phase")
+    login.close()
+
+
+def test_import_web_session_verifies_and_persists_without_exposing_cookie(tmp_path):
+    observed = []
+
+    def upstream(request):
+        observed.append(request)
+        assert request.url.host == "music.163.com"
+        assert request.url.path == "/api/nuser/account/get"
+        assert request.headers["cookie"] == f"MUSIC_U={COOKIE}"
+        return httpx.Response(
+            200,
+            json={"code": 200, "account": {"id": 42}, "profile": {"nickname": "demo"}},
+        )
+
+    path = tmp_path / "private" / "netease-session.json"
+    login = NeteaseLogin(storage_path=path, transport=httpx.MockTransport(upstream))
+    status = login.import_cookie(f"MUSIC_U={COOKIE}")
+    assert status["connected"] is True and COOKIE not in str(status)
+    assert len(observed) == 1
+    assert login.cookies() == {"MUSIC_U": COOKIE}
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    login.close()
+    recovered = NeteaseLogin(storage_path=path)
+    assert recovered.cookies() == {"MUSIC_U": COOKIE}
+    recovered.disconnect()
+    assert not path.exists()
+    recovered.close()
+
+
+def test_import_rejects_invalid_and_does_not_replace_existing_cookie(tmp_path):
+    calls = []
+
+    def upstream(request):
+        calls.append(request)
+        return httpx.Response(200, json={"code": 200, "account": None, "profile": None})
+
+    path = tmp_path / "private" / "netease-session.json"
+    login = NeteaseLogin(storage_path=path, transport=httpx.MockTransport(upstream))
+    for value in (
+        "x",
+        "MUSIC_U=x; __csrf=x",
+        "MUSIC_U=hello\\nattack",
+        "MUSIC_U=",
+        " ",
+    ):
+        with pytest.raises(NeteaseLoginError):
+            login.import_cookie(value)
+    assert calls == []
+    with pytest.raises(NeteaseLoginError, match="未认可"):
+        login.import_cookie(COOKIE)
+    assert len(calls) == 1
+    assert login.cookies() is None and not path.exists()
+    login.close()
+
+
+def test_cookie_import_endpoint_is_global_admin_only(tmp_path):
+    app = create_app(
+        root=tmp_path / "room",
+        password="global-pass",
+        secret=b"cookie-import-auth",
+        auto_prepare=False,
+    )
+    login = app.state.netease_login
+    logged_requests = []
+
+    def upstream(request):
+        logged_requests.append(request)
+        return httpx.Response(200, json={"code": 200, "account": {"id": 456}})
+
+    login.transport = httpx.MockTransport(upstream)
+    url = "/api/admin/netease/import"
+    with (
+        TestClient(app) as owner,
+        TestClient(app) as operator,
+        TestClient(app) as stranger,
+    ):
+        assert stranger.post(url, json={"music_u": COOKIE}).status_code == 401
+        assert (
+            owner.post("/api/admin/login", json={"password": "global-pass"}).status_code
+            == 200
+        )
+        assert owner.post("/api/admin/events", json={"name": "Test"}).status_code == 200
+        assert (
+            owner.post(
+                "/api/admin/accounts",
+                json={"username": "eventmgr", "password": "passw0rd-123"},
+            ).status_code
+            == 201
+        )
+        assert (
+            operator.post(
+                "/api/admin/login",
+                json={"username": "eventmgr", "password": "passw0rd-123"},
+            ).status_code
+            == 200
+        )
+        assert operator.post(url, json={"music_u": COOKIE}).status_code == 403
+        assert logged_requests == []
+        response = owner.post(url, json={"music_u": COOKIE})
+        assert response.status_code == 200, response.text
+        assert response.headers["cache-control"] == "no-store"
+        assert response.json()["connected"] is True
+        assert COOKIE not in response.text
+        assert len(logged_requests) == 1
+        assert app.state.autoprep.netease_cookies() == {"MUSIC_U": COOKIE}
+        assert owner.post("/api/admin/netease/disconnect").status_code == 200
+        assert app.state.autoprep.netease_cookies() is None
+        assert not (tmp_path / "room" / ".private" / "netease-session.json").exists()

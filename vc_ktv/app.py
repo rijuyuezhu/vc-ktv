@@ -88,6 +88,10 @@ class RequestNetEaseSong(BaseModel):
     ref: str = Field(min_length=1, max_length=2048)
 
 
+class ImportNetEaseCookie(BaseModel):
+    music_u: str = Field(min_length=1, max_length=4104)
+
+
 class GuestLyricChoice(BaseModel):
     text: str = Field(min_length=10, max_length=12_000)
     ticket: str = Field(min_length=10, max_length=256)
@@ -1192,6 +1196,21 @@ def create_app(
             bail(502, f"网易云扫码接口返回 HTTP {exc.response.status_code}，请稍后再试")
         except (httpx.HTTPError, ValueError):
             bail(502, "网易云扫码接口网络异常，请稍后重试")
+
+    @app.post("/api/admin/netease/import")
+    def netease_session_import(
+        body: ImportNetEaseCookie,
+        response: Response,
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        require_global_admin(vc_admin)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return netease_login.import_cookie(body.music_u)
+        except NeteaseLoginError as exc:
+            bail(409, str(exc))
+        except (httpx.HTTPError, ValueError):
+            bail(502, "网易云登录状态验证暂不可用，请稍后再试")
 
     @app.post("/api/admin/netease/disconnect")
     def netease_session_disconnect(

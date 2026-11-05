@@ -243,6 +243,15 @@
             <button id="netease-login-check" class="btn neutral hidden" type="button">重新检查</button>
             <button id="netease-login-disconnect" class="btn neutral hidden" type="button">断开网易云 / 取消扫码</button>
           </div>
+          <details class="fold-panel netease-cookie-import" id="netease-cookie-import-panel">
+            <summary>通过网易云网页登录态连接</summary>
+            <p class="muted">如果扫码提示 8821，需要在网易云完成安全验证。也可以在自己的浏览器中打开 <a href="https://music.163.com/" target="_blank" rel="noopener noreferrer">网易云音乐官网</a> 并正常登录，然后从开发者工具的 Application / Storage → Cookies → music.163.com 中复制 <code>MUSIC_U</code> 的 Value。</p>
+            <p class="muted">仅在这里粘贴，不要发送到聊天、Issue 或其他人。服务器会先验证账号，再保存到私有数据文件，重启仍有效。</p>
+            <form id="netease-cookie-import-form" class="input-row">
+              <input type="password" id="netease-cookie-import-value" autocomplete="off" spellcheck="false" placeholder="仅粘贴 MUSIC_U 的 Value" aria-label="网易云 MUSIC_U 登录凭据" maxlength="4104" required>
+              <button type="submit" id="netease-cookie-import-submit" class="btn primary">验证并连接</button>
+            </form>
+          </details>
         </section>
         <details class="panel full-width fold-panel" id="event-archive-panel">
           <summary><span class="ui-icon" aria-hidden="true">▣</span> 历史歌单</summary>

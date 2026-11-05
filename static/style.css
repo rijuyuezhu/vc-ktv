@@ -386,3 +386,16 @@ button, input, select { min-height: 44px; }
 .netease-login-qr-box { max-width: 340px; margin: 8px 0 14px; text-align: center; }
 .netease-login-qr-box img { display: block; max-width: 100%; width: 260px; aspect-ratio: 1; margin: 0 auto 10px; padding: 12px; border-radius: 10px; background: #fff; }
 .netease-login-qr-box p { font-size: 13px; }
+
+/* Credential import stays inside the global-admin Settings subpage. */
+.netease-cookie-import { margin-top: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.netease-cookie-import > summary { cursor: pointer; font-weight: 650; }
+.netease-cookie-import p { margin-top: 12px; line-height: 1.55; }
+.netease-cookie-import form { margin-top: 12px; }
+.netease-cookie-import input { min-width: 0; flex: 1 1 auto; }
+.netease-cookie-import .btn { flex: 0 0 auto; }
+@media (max-width: 440px) {
+  .netease-cookie-import form { flex-wrap: wrap; }
+  .netease-cookie-import form input { flex-basis: 100%; }
+  .netease-cookie-import form button { width: 100%; }
+}
