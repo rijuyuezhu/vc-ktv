@@ -17,6 +17,7 @@ from vc_ktv.netease_media import (
     download_limited,
     download_netease_video,
     fetch_audio_url,
+    fetch_download_url,
     parse_audio_response,
     validate_media_url,
 )
@@ -83,8 +84,91 @@ def test_audio_url_uses_new_weapi_and_carries_login_cookie():
     assert seen[0].method == "POST"
     assert seen[0].url.host == "music.163.com"
     assert seen[0].url.path == "/weapi/song/enhance/player/url/v1"
-    assert seen[0].headers["cookie"] == "MUSIC_U=valid_test_cookie"
+    assert "MUSIC_U=valid_test_cookie" in seen[0].headers["cookie"]
+    assert "os=pc" in seen[0].headers["cookie"]
+    assert "__remember_me=true" in seen[0].headers["cookie"]
     assert b"encSecKey=" in seen[0].content and b"params=" in seen[0].content
+
+
+def test_official_download_v1_returns_single_track_and_authenticates():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "code": 200,
+                "data": {
+                    "id": 42,
+                    "code": 200,
+                    "url": "http://m804.music.126.net/full-authorized.mp3",
+                    "freeTrialInfo": None,
+                },
+            },
+        )
+
+    url = fetch_download_url(
+        42, cookies={"MUSIC_U": "test_login"}, transport=httpx.MockTransport(handler)
+    )
+    assert url == "http://m804.music.126.net/full-authorized.mp3"
+    assert len(requests) == 1
+    assert requests[0].url.path == "/weapi/song/enhance/download/url/v1"
+    assert "MUSIC_U=test_login" in requests[0].headers["cookie"]
+    assert "os=pc" in requests[0].headers["cookie"]
+    assert "__remember_me=true" in requests[0].headers["cookie"]
+    assert b"encSecKey=" in requests[0].content
+    assert b"params=" in requests[0].content
+    with pytest.raises(MusicUnavailable):
+        parse_audio_response(42, {"data": {"id": 42, "code": 403}})
+    with pytest.raises(MusicUnavailable):
+        parse_audio_response(
+            42,
+            {"data": {"id": 42, "code": 200, "url": url, "freeTrialInfo": {"end": 30}}},
+        )
+
+
+def test_player_webapi_default_matches_go_musicfox_encode_type(monkeypatch):
+    import base64
+    import json
+    from urllib.parse import parse_qs
+
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import unpad
+
+    monkeypatch.setattr("vc_ktv.netease_weapi.secrets.choice", lambda _alphabet: "A")
+    observed = []
+
+    def handler(request):
+        observed.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": 42,
+                        "code": 200,
+                        "url": "https://m804.music.126.net/audio.mp3",
+                    }
+                ]
+            },
+        )
+
+    assert fetch_audio_url(42, transport=httpx.MockTransport(handler))
+    form = parse_qs(observed[0].content.decode())
+    from vc_ktv.netease_weapi import _IV, _PRESET_KEY
+
+    second = unpad(
+        AES.new(b"A" * 16, AES.MODE_CBC, _IV).decrypt(
+            base64.b64decode(form["params"][0])
+        ),
+        16,
+    )
+    decoded = unpad(
+        AES.new(_PRESET_KEY, AES.MODE_CBC, _IV).decrypt(base64.b64decode(second)), 16
+    )
+    payload = json.loads(decoded)
+    assert payload == {"ids": "[42]", "level": "exhigh", "encodeType": "flac"}
 
 
 def test_netease_cdn_download_accepts_http_and_rejects_errors(tmp_path):
@@ -168,6 +252,44 @@ def test_download_tries_next_official_quality_on_cdn_rejection(tmp_path, monkeyp
     )
     assert levels == ["exhigh", "higher"]
     assert result.read_bytes().startswith(b"video")
+
+
+def test_download_falls_back_to_official_download_api(tmp_path, monkeypatch):
+    from vc_ktv import netease_media
+
+    levels = []
+    download_ids = []
+
+    def failed_player(song_id, *, cookies, level):
+        levels.append(level)
+        assert song_id == 42
+        raise MusicUnavailable("网易云媒体下载失败（HTTP 403）")
+
+    def successful_download(song_id, *, cookies):
+        download_ids.append(song_id)
+        assert cookies == {"MUSIC_U": "account"}
+        return "https://m804.music.126.net/official-download.mp3"
+
+    def save(client, url, path, limit):
+        assert url.endswith("official-download.mp3")
+        path.write_bytes(b"audio" * 700)
+
+    def render(audio, cover, output, actual):
+        assert audio.exists() and actual == 90 and cover is None
+        output.write_bytes(b"video" * 700)
+        return output
+
+    monkeypatch.setattr(netease_media, "fetch_audio_url", failed_player)
+    monkeypatch.setattr(netease_media, "fetch_download_url", successful_download)
+    monkeypatch.setattr(netease_media, "download_limited", save)
+    monkeypatch.setattr(netease_media, "_audio_duration", lambda _: 90)
+    monkeypatch.setattr(netease_media, "assemble_album_video", render)
+    output = download_netease_video(
+        42, "", tmp_path, duration=87, cookies={"MUSIC_U": "account"}
+    )
+    assert output.read_bytes().startswith(b"video")
+    assert levels == ["exhigh", "higher", "standard"]
+    assert download_ids == [42]
 
 
 def test_real_ffmpeg_netease_song_to_karaoke_queue_and_tv(tmp_path):
