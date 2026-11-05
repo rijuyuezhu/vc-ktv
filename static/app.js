@@ -689,17 +689,82 @@ $("quick-submit-btn").onclick=()=>guarded(async()=>{
   await refresh();
   await openLyricPicker(result.id,result.title,result.lyric_query);
 },$("quick-submit-btn"));
-$("netease-submit-btn").onclick=()=>guarded(async()=>{
-  const ref=$("netease-song-ref").value.trim();
-  if(!ref)throw new Error("请输入网易云单曲 ID 或分享链接");
-  const result=await api("/api/netease/songs","POST",{ref});
-  $("netease-song-ref").value="";
-  toast("✓ 已加入队列，选择歌词后准备视频");
-  await refresh();
-  await openLyricPicker(result.id,result.title,result.lyric_query);
-},$("netease-submit-btn"));
-$("netease-song-ref").addEventListener("keydown",e=>{
-  if(e.key==="Enter"){e.preventDefault();$("netease-submit-btn").click();}
+// Source selection changes only the input panel; both sources share the same queue.
+function selectSongSource(source){
+  for(const name of ["bilibili","netease"]){
+    const active=name===source;
+    $("source-tab-"+name).setAttribute("aria-selected",String(active));
+    $("source-tab-"+name).tabIndex=active?0:-1;
+    $("source-panel-"+name).hidden=!active;
+  }
+}
+for(const source of ["bilibili","netease"]){
+  $("source-tab-"+source).onclick=()=>selectSongSource(source);
+  $("source-tab-"+source).addEventListener("keydown",(event)=>{
+    if(event.key!=="ArrowLeft"&&event.key!=="ArrowRight")return;
+    event.preventDefault();
+    const next=source==="bilibili"?"netease":"bilibili";
+    selectSongSource(next);
+    $("source-tab-"+next).focus();
+  });
+}
+let neteaseSearchVersion=0;
+async function submitNeteaseSong(ref,button){
+  await guarded(async()=>{
+    const result=await api("/api/netease/songs","POST",{ref});
+    toast("✓ 已加入队列，请选择歌词");
+    await refresh();
+    await openLyricPicker(result.id,result.title,result.lyric_query);
+  },button);
+}
+function renderNeteaseResults(songs){
+  const list=$("netease-search-results");
+  list.replaceChildren();
+  for(const song of songs){
+    const item=appendText(list,"div","","netease-search-result");
+    if(song.cover){
+      const cover=document.createElement("img");
+      cover.src=song.cover;
+      cover.alt="";
+      cover.loading="lazy";
+      cover.referrerPolicy="no-referrer";
+      item.append(cover);
+    }else appendText(item,"span","🎵","netease-fallback-cover");
+    const info=appendText(item,"div","","netease-search-result-info");
+    appendText(info,"strong",song.title);
+    appendText(info,"small",song.uploader+"  "+duration(song.duration));
+    const choose=appendText(item,"button","点这首","btn neutral");
+    choose.type="button";
+    choose.onclick=()=>submitNeteaseSong(song.source_id,choose);
+  }
+}
+async function queryNeteaseSongs(){
+  const query=$("netease-song-query").value.trim();
+  if(!query)throw new Error("请输入歌名、歌手或网易云分享链接");
+  const version=++neteaseSearchVersion;
+  const message=$("netease-search-message");
+  message.textContent="正在查找歌曲……";
+  $("netease-search-results").replaceChildren();
+  try{
+    const looksLikeShare=/^\d+$/.test(query)||/https?:\/\//i.test(query);
+    const data=looksLikeShare?
+      await api("/api/netease/preview?ref="+encodeURIComponent(query)):
+      await api("/api/netease/search?q="+encodeURIComponent(query));
+    if(version!==neteaseSearchVersion)return;
+    const songs=looksLikeShare?[data]:data.songs;
+    renderNeteaseResults(songs);
+    message.textContent=songs.length?
+      (looksLikeShare?"已识别分享歌曲，请确认歌名与歌手。":"找到 "+songs.length+" 首，请选择正确版本。"):
+      "没有找到匹配歌曲，可以换歌名、歌手或粘贴分享链接。";
+  }catch(e){
+    if(version!==neteaseSearchVersion)return;
+    message.textContent=e.message||"搜索失败";
+    error(e);
+  }
+}
+$("netease-search-form").addEventListener("submit",(e)=>{
+  e.preventDefault();
+  guarded(queryNeteaseSongs,$("netease-search-btn"));
 });
 $("preview-btn").onclick=()=>guarded(()=>fetchPreview(),$("preview-btn"));
 $("bvid").addEventListener("keydown",(e)=>{if(e.key==="Enter")$("quick-submit-btn").click();});
@@ -1099,7 +1164,6 @@ function renderEntry(entry){
   $("guest-access").classList.toggle("hidden",entry.authenticated);
   $("guest-profile").classList.toggle("hidden",!entry.authenticated);
   $("request-panel").classList.toggle("hidden",!entry.authenticated);
-  $("netease-order-panel").classList.toggle("hidden",!entry.authenticated);
   $("queue-panel").classList.toggle("hidden",!entry.authenticated);
   $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+"  "+entry.event.name:"";
   showPage();

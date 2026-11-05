@@ -38,7 +38,7 @@ from .lyric_selection import search_lyric_candidates
 from .lyric_sources import vcpedia_lyric_candidates
 from .media_pins import MediaPins
 from .netease_catalog import lookup_netease_song
-from .netease_source import parse_netease_song_id
+from .netease_discovery import resolve_song_reference, search_netease_songs
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
@@ -753,6 +753,8 @@ def create_app(
     app.state.events = events
     app.state.lookup = bilibili_lookup
     app.state.netease_lookup = lookup_netease_song
+    app.state.netease_resolve = resolve_song_reference
+    app.state.netease_search = search_netease_songs
     app.state.lyrics_lookup = vcpedia_find
     app.state.candidate_search = search_lyric_candidates
     lyric_search_times = {}
@@ -1354,6 +1356,21 @@ def create_app(
         require_user(vc_guest)
         return await app.state.lookup(get_bvid(bvid), page)
 
+    @app.get("/api/netease/search")
+    async def netease_search(
+        q: str,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
+            require_user(vc_guest)
+        if not 1 <= len(q.strip()) <= 60:
+            bail(400, "请输入 1–60 字的歌名或歌手")
+        try:
+            return {"songs": await app.state.netease_search(q)}
+        except (httpx.HTTPError, ValueError, TypeError):
+            bail(502, "网易云搜索暂不可用")
+
     @app.get("/api/netease/preview")
     async def netease_preview(
         ref: str,
@@ -1365,9 +1382,11 @@ def create_app(
         if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
             require_user(vc_guest)
         try:
-            song_id = parse_netease_song_id(ref)
+            song_id = await app.state.netease_resolve(ref)
         except ValueError as error:
             bail(400, str(error))
+        except httpx.HTTPError:
+            bail(502, "网易云分享链接暂时无法解析")
         try:
             return await app.state.netease_lookup(song_id)
         except LookupError:
@@ -1446,9 +1465,11 @@ def create_app(
     ):
         user = require_user(vc_guest)
         try:
-            song_id = parse_netease_song_id(body.ref)
+            song_id = await app.state.netease_resolve(body.ref)
         except ValueError as error:
             bail(400, str(error))
+        except httpx.HTTPError:
+            bail(502, "网易云分享链接暂时无法解析")
         event_id = events.active_id
         with store.lock:
             check_new_order(user["id"])
