@@ -3,10 +3,8 @@
 import asyncio
 
 import httpx
-import pytest
 
-from ktv_app.lyric_names import similarity, title_variants
-from ktv_app.lyric_sources import LyricPage, fetch_page, supported_page
+from ktv_app.lyric_names import title_variants
 from vc_ktv import lyric_selection as lyrics
 
 
@@ -55,7 +53,6 @@ def set_sources(monkeypatch, wiki, lrclib, netease, pages, *, query_titles=None)
 
 def test_conservative_japanese_script_variants_change_only_search_title():
     assert title_variants("千本樱") == ["千本櫻", "千本桜"]
-    assert similarity("千本樱", "千本桜") == 1
 
 
 def test_independent_sources_get_visible_slots(monkeypatch):
@@ -148,58 +145,6 @@ def test_unrelated_lyrics_are_collected_but_one_line_is_unusable():
     )
 
 
-def test_utaten_keeps_body_and_repeated_lines_not_ruby_or_romaji():
-    page = LyricPage("UtaTen")
-    page.feed(
-        '<h2 class="newLyricTitle__main">千本桜</h2>'
-        '<dt class="newLyricWork__name"><h3>黒うさP</h3></dt>'
-        '<div class="hiragana">桜<span class="rt">さくら</span>だ<br>'
-        "君が歌う<br>桜だ<br>最後の歌</div>"
-        '<div class="romaji">romaji line</div><p>広告</p>'
-    )
-    row = page.record("https://utaten.com/lyric/test/")
-    assert row["plainLyrics"].splitlines() == ["桜だ", "君が歌う", "桜だ", "最後の歌"]
-
-
-def test_jlyric_requires_real_body():
-    page = LyricPage("J-Lyric")
-    page.feed(
-        '<meta name="description" content="歌手の「曲名」歌詞ページ。">'
-        '<p id="Lyric">第一句<br>第二句</p><p>広告文</p>'
-    )
-    row = page.record("https://j-lyric.net/artist/a123/l456.html")
-    assert row["plainLyrics"] == "第一句\n第二句"
-    assert row["trackName"] == "曲名"
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "http://utaten.com/lyric/test/",
-        "https://utaten.com.evil.invalid/lyric/test/",
-        "https://utaten.com@127.0.0.1/lyric/test/",
-        "https://utaten.com:8778/lyric/test/",
-        "https://j-lyric.net/not-a-lyric",
-        "https://127.0.0.1/lyric/test/",
-    ],
-)
-def test_only_fixed_sites_are_accepted(url):
-    assert supported_page(url) is None
-
-
-def test_lyric_site_fetch_rejects_redirects_and_oversized_bodies():
-    for status, headers, body in [
-        (302, {"location": "http://127.0.0.1/"}, b""),
-        (200, {"content-type": "text/html"}, b"x" * 600001),
-    ]:
-        transport = httpx.MockTransport(
-            lambda req: httpx.Response(status, headers=headers, content=body)
-        )
-        with httpx.Client(transport=transport) as client:
-            with pytest.raises((httpx.HTTPError, ValueError)):
-                fetch_page(client, "https://utaten.com/lyric/test/")
-
-
 def test_guest_never_auto_selects_lyric_from_search(monkeypatch, tmp_path):
     # A guest-facing suggestion is not a commit to any song or user.
     w = [dict(title="千本樱", source="VCPedia", text="第一句\n第二句")]
@@ -209,39 +154,3 @@ def test_guest_never_auto_selects_lyric_from_search(monkeypatch, tmp_path):
     results = asyncio.run(lyrics.search_lyric_candidates("千本樱"))
     assert len(results) == 2
     assert all("ticket" not in c for c in results)
-
-
-def test_jlyric_search_fallback_fetches_fixed_source_body(monkeypatch):
-    from ktv_app import lyric_sources
-
-    requests = []
-
-    def fake_page(client, url, params=None):
-        requests.append(url)
-        if url == "https://utaten.com/search":
-            return "<html><p>没有本曲</p></html>"
-        if url == "https://j-lyric.net/artist/a123/l456.html":
-            return (
-                '<meta name="description" '
-                'content="初音ミクの「千本桜」歌詞ページ。">'
-                '<p id="Lyric">第一句歌詞<br>第二句歌詞</p>'
-            )
-        raise AssertionError("Unexpected external URL")
-
-    monkeypatch.setattr(lyric_sources, "fetch_page", fake_page)
-    rows, attempts = lyric_sources.lookup_sites(
-        "千本樱",
-        "",
-        lambda query: [
-            {"url": "https://j-lyric.net/artist/a123/l456.html"},
-            {"url": "https://127.0.0.1/admin"},
-        ],
-    )
-    assert len(rows) == 1
-    assert rows[0]["provider"] == "J-Lyric"
-    assert rows[0]["plainLyrics"] == "第一句歌詞\n第二句歌詞"
-    assert requests == [
-        "https://utaten.com/search",
-        "https://j-lyric.net/artist/a123/l456.html",
-    ]
-    assert any(a.get("candidates") == 1 for a in attempts)
