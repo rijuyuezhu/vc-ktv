@@ -102,6 +102,9 @@ def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     assert "selected_lines:" in js and "selection_ticket:" in js
     assert ".netease-review-line.kept" in css
     assert "background: #fff0a8" in css
+    assert 'id="netease-alignment-choice" class="alignment-accordion"' in html
+    assert '$("netease-alignment-choice").open=false' in js
+    assert ".alignment-accordion > summary" in css
     assert 'id="netease-review-ai-card"' in html
     assert 'id="netease-review-select-all"' in html
     assert ">使用原时间轴</button>" in html
