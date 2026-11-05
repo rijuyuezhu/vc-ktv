@@ -206,3 +206,11 @@ def test_guest_auth_uses_native_forms_and_password_visibility_controls():
     ):
         assert f'data-password-target="{password}"' in html
     assert "button.dataset.passwordTarget" in js
+
+
+def test_mobile_dialogs_use_tall_scrollable_viewport():
+    css = (Path(__file__).resolve().parents[1] / "static" / "style.css").read_text()
+    assert "dialog, .guest-lyrics-dialog, .netease-review-dialog" in css
+    assert "height: 94dvh" in css
+    assert "max-height: 94dvh" in css
+    assert "overflow-y: auto" in css

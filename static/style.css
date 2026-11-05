@@ -316,6 +316,21 @@ button, input, select { min-height: 44px; }
 .upload-help { margin-top: 8px; font-size: 13px; }
 .upload-help p { margin: 6px 0 0; }
 .guest-lyrics-dialog .section-head { flex-wrap: wrap; }
+/* Give every mobile dialog most of the visible viewport, with its own scroll. */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  dialog, .guest-lyrics-dialog, .netease-review-dialog {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    height: 94vh;
+    height: 94dvh;
+    max-height: 94vh;
+    max-height: 94dvh;
+    padding: 16px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .netease-review-lines { max-height: 42dvh; }
+}
 @media (max-width: 600px) {
   .alignment-cards { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
   .alignment-card { padding: 10px; gap: 6px; }
@@ -326,8 +341,6 @@ button, input, select { min-height: 44px; }
   .alignment-card .choice-action { padding: 9px 6px; font-size: 13px; }
   .offset-details { font-size: 12px; }
   .offset-details label { font-size: 12px; }
-  .netease-review-lines { max-height: 25vh; }
-  .netease-review-dialog { padding: 16px; }
   .lyric-option .btn { width: 100%; }
   .song-item { row-gap: 8px; }
   .song-item .mini { min-height: 40px; }
