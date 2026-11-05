@@ -932,14 +932,55 @@ $("logout-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/logout","POST");admin=false;adminStateKey=null;currentMediaId=null;
   player.pause();player.removeAttribute("src");player.load();await refresh();
 });
+let tvPrimaryState=null;
+async function refreshTVPrimary(){
+  const tv=await api("/api/admin/tv");
+  tvPrimaryState=tv;
+  const controls=$("tv-primary-management");
+  controls.classList.remove("hidden");
+  $("tv-primary-status").textContent=tv.active
+    ?"当前主屏：由"+(tv.owner_role==="global"?"全局管理员":"本场管理员")+"创建"
+    :"当前没有主屏";
+  const showActions=tv.can_manage;
+  for(const id of ["tv-link-btn","tv-copy-btn"]){
+    $(id).classList.toggle("hidden",!showActions);
+  }
+  $("tv-revoke-btn").classList.toggle("hidden",!showActions||!tv.active);
+  $("tv-link-btn").textContent=tv.active?"▣ 更换主屏":"▣ 打开主屏";
+  $("tv-copy-btn").textContent=tv.active?"⧉ 复制接管链接":"⧉ 复制主屏链接";
+}
+async function issueTVLink(){
+  if(!tvPrimaryState?.can_manage)throw new Error("没有管理主屏的权限");
+  const replacing=tvPrimaryState.active;
+  if(replacing&&!confirm("新设备打开后将接管主屏，旧主屏会停止播放。继续？"))return null;
+  return (await api("/api/admin/tv-link?replace="+String(replacing))).url;
+}
 $("tv-link-btn").onclick=()=>{
   const tab=window.open("about:blank","_blank");
   guarded(async()=>{
-    const link=await api("/api/admin/tv-link");
-    if(tab)tab.location.href=link.url;
-    else window.location.href=link.url;
-  });
+    try{
+      const link=await issueTVLink();
+      if(!link){tab?.close();return;}
+      if(tab)tab.location.href=link;
+      else window.location.href=link;
+    }catch(e){tab?.close();throw e;}
+  },$("tv-link-btn"));
 };
+$("tv-copy-btn").onclick=()=>guarded(async()=>{
+  const link=await issueTVLink();
+  if(!link)return;
+  const absolute=new URL(link,window.location.href).href;
+  try{
+    await navigator.clipboard.writeText(absolute);
+    toast("主屏配对链接已复制（10 分钟内使用）");
+  }catch{prompt("复制主屏配对链接",absolute);}
+},$("tv-copy-btn"));
+$("tv-revoke-btn").onclick=()=>guarded(async()=>{
+  if(!confirm("立即撤回当前主屏？当前歌曲会保留，等待新主屏接管。"))return;
+  await api("/api/admin/tv/revoke","POST");
+  await refreshTVPrimary();
+  toast("主屏已撤回");
+},$("tv-revoke-btn"));
 $("start-btn").onclick=()=>guarded(async()=>{await playNext();},$("start-btn"));
 $("finish-btn").onclick=()=>guarded(async()=>{
   const wasManual=manualMode;
@@ -955,7 +996,7 @@ $("skip-btn").onclick=()=>guarded(async()=>{
 function updatePlaybackUI(){
   $("playback-mode").value=manualMode?"manual":"browser";
   $("browser-player").classList.toggle("hidden",manualMode);
-  $("tv-link-btn").classList.toggle("hidden",manualMode);
+  $("tv-primary-management").classList.remove("hidden");
   $("autoplay-label").classList.toggle("hidden",manualMode);
   $("manual-controls").classList.toggle("hidden",!manualMode);
   $("start-btn").textContent=manualMode?"▶ 领取下一首":"▶ 开始播放";
@@ -1393,6 +1434,7 @@ async function refresh(){
         await refreshEvents();
         const activeState=adm.active?{...adm.active,media_url:null}:null;
         manualMode=adm.playback_mode==="manual";
+        await refreshTVPrimary();
         $("playback-mode").disabled=Boolean(adm.active);
         const key=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState,adm.playback_mode]);
         updatePlaybackUI();

@@ -75,6 +75,10 @@ def get_bvid(raw: str) -> str:
     return v
 
 
+class TVPair(BaseModel):
+    pair: str
+
+
 class Preview(BaseModel):
     bvid: str
     page: int = Field(default=1, ge=1)
@@ -2632,32 +2636,162 @@ def create_app(
         require_admin(vc_admin)
         return finish_impl(body)
 
+    def tv_record(name: str) -> dict | None:
+        row = store.db.execute(
+            "SELECT value FROM room_state WHERE name=?", (name,)
+        ).fetchone()
+        return json.loads(row["value"]) if row else None
+
+    def tv_save(name: str, value: dict | None):
+        if value is None:
+            store.db.execute("DELETE FROM room_state WHERE name=?", (name,))
+        else:
+            store.db.execute(
+                "INSERT INTO room_state(name,value) VALUES(?,?) "
+                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                (name, json.dumps(value)),
+            )
+
+    def tv_owner_valid(record: dict) -> bool:
+        if record["role"] == "global":
+            return True
+        row = store.db.execute(
+            "SELECT revision FROM event_admins WHERE id=?", (record["owner_id"],)
+        ).fetchone()
+        return bool(row and row["revision"] == record["owner_revision"])
+
+    def tv_can_manage(principal: dict, record: dict | None) -> bool:
+        return (
+            record is None or principal["role"] == "global" or record["role"] == "event"
+        )
+
     def require_tv(token: str):
-        identity = read_signed(token, "tv")
+        # A TV URL only contains a one-time pairing ticket. Control credentials
+        # are created when the page connects, and are never in shareable links.
+        identity = read_signed(token, "tv-control")
         if not identity or not events.active_id:
-            bail(401, "电视端链接已过期，请管理员重新打开")
-        if identity in (events.active_id, f"{events.active_id}:global"):
-            return  # Existing global-admin TV links remain valid until expiry.
-        parts = identity.split(":")
-        if len(parts) != 4 or parts[:2] != [events.active_id, "event"]:
-            bail(401, "电视端链接已过期，请管理员重新打开")
+            bail(401, "主屏权限已失效，请管理员重新连接")
+        event_id, separator, nonce = identity.partition(":")
+        if not separator or event_id != events.active_id:
+            bail(401, "主屏权限已失效，请管理员重新连接")
         with store.lock:
-            account = store.db.execute(
-                "SELECT revision FROM event_admins WHERE id=?", (parts[2],)
-            ).fetchone()
-        if not account or str(account["revision"]) != parts[3]:
-            bail(401, "电视端链接已过期，请管理员重新打开")
+            active = tv_record("tv_primary")
+            if (
+                not active
+                or not hmac.compare_digest(
+                    active["nonce_hash"], hashlib.sha256(nonce.encode()).hexdigest()
+                )
+                or not tv_owner_valid(active)
+            ):
+                bail(401, "主屏权限已撤回，请管理员重新连接")
+
+    @app.get("/api/admin/tv")
+    def tv_management(vc_admin: str | None = Cookie(default=None)):
+        principal = require_admin(vc_admin)
+        if not events.active_id:
+            return {"active": False, "owner_role": None, "can_manage": False}
+        with store.lock:
+            active = tv_record("tv_primary")
+            return {
+                "active": bool(active),
+                "owner_role": active["role"] if active else None,
+                "can_manage": tv_can_manage(principal, active),
+            }
 
     @app.get("/api/admin/tv-link")
-    def tv_link(vc_admin: str | None = Cookie(default=None)):
+    def tv_link(
+        replace: bool = False,
+        vc_admin: str | None = Cookie(default=None),
+    ):
         principal = require_admin(vc_admin)
         events.active()
-        identity = (
-            f"{events.active_id}:global"
-            if principal["role"] == "global"
-            else f"{events.active_id}:event:{principal['id']}:{principal['revision']}"
-        )
-        return {"url": "/tv.html?token=" + sign("tv", identity, 8 * 3600)}
+        with store.lock:
+            active = tv_record("tv_primary")
+            pending = tv_record("tv_pending")
+            if not tv_can_manage(principal, active):
+                bail(403, "本场管理员不能撤回全局管理员的主屏")
+            if (
+                pending
+                and pending["expires"] > time_now()
+                and not tv_can_manage(principal, pending)
+            ):
+                bail(403, "本场管理员不能覆盖全局管理员的配对链接")
+            if active and not replace:
+                bail(409, "已有主屏，请使用更换主屏")
+            nonce = secrets.token_urlsafe(24)
+            pair = {
+                "nonce_hash": hashlib.sha256(nonce.encode()).hexdigest(),
+                "role": principal["role"],
+                "owner_id": principal.get("id", ""),
+                "owner_revision": principal.get("revision", 0),
+                "replace": replace,
+                "expires": time_now() + 600,
+            }
+            tv_save("tv_pending", pair)
+            store.db.commit()
+            return {
+                "url": "/tv.html?pair="
+                + quote(sign("tv-pair", f"{events.active_id}:{nonce}", 600))
+            }
+
+    @app.post("/api/tv/activate")
+    def tv_activate(body: TVPair):
+        identity = read_signed(body.pair, "tv-pair")
+        if not identity or not events.active_id:
+            bail(401, "主屏配对链接已过期，请管理员重新生成")
+        event_id, sep, nonce = identity.partition(":")
+        if not sep or event_id != events.active_id:
+            bail(401, "主屏配对链接已过期，请管理员重新生成")
+        with store.lock:
+            pending = tv_record("tv_pending")
+            active = tv_record("tv_primary")
+            if (
+                not pending
+                or pending["expires"] < time_now()
+                or not hmac.compare_digest(
+                    pending["nonce_hash"], hashlib.sha256(nonce.encode()).hexdigest()
+                )
+                or not tv_owner_valid(pending)
+            ):
+                bail(409, "主屏配对链接已使用或失效，请管理员重新生成")
+            if active and (
+                not pending["replace"]
+                or (active["role"] == "global" and pending["role"] != "global")
+            ):
+                bail(409, "主屏已被其他管理员占用，请重新连接")
+            control_nonce = secrets.token_urlsafe(32)
+            tv_save(
+                "tv_primary",
+                {
+                    "nonce_hash": hashlib.sha256(control_nonce.encode()).hexdigest(),
+                    "role": pending["role"],
+                    "owner_id": pending["owner_id"],
+                    "owner_revision": pending["owner_revision"],
+                },
+            )
+            tv_save("tv_pending", None)
+            store.db.commit()
+            return {
+                "token": sign(
+                    "tv-control", f"{events.active_id}:{control_nonce}", 8 * 3600
+                )
+            }
+
+    @app.post("/api/admin/tv/revoke")
+    def tv_revoke(vc_admin: str | None = Cookie(default=None)):
+        principal = require_admin(vc_admin)
+        with store.lock:
+            active = tv_record("tv_primary")
+            pending = tv_record("tv_pending")
+            if not tv_can_manage(principal, active):
+                bail(403, "本场管理员不能撤回全局管理员的主屏")
+            if not active and not tv_can_manage(principal, pending):
+                bail(403, "本场管理员不能撤回全局管理员的配对链接")
+            tv_save("tv_primary", None)
+            if tv_can_manage(principal, pending):
+                tv_save("tv_pending", None)
+            store.db.commit()
+        return {"ok": True}
 
     @app.get("/api/tv/state")
     def tv_state(token: str):

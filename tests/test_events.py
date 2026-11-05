@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from vc_ktv.app import Store, create_app
 
 
@@ -64,7 +64,7 @@ def test_session_lifecycle_isolates_cookie_tv_media_and_song_files(tmp_path):
             files={"file": ("video.mp4", b"valid-media", "video/mp4")},
         )
         assert media.status_code == 200, media.text
-        token = admin.get("/api/admin/tv-link").json()["url"].split("token=")[1]
+        token = primary_tv_token(admin)
         active = admin.post("/api/admin/next").json()["active"]
         assert user.get(active["media_url"]).content == b"valid-media"
         assert admin.post("/api/admin/events/close").status_code == 409

@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, primary_tv_token
 from tests.test_fair_capped_two import party, ready
 
 
@@ -30,7 +30,7 @@ def test_active_preview_is_readonly_and_matches_next_claim(
         store.save_settings(policy, False)
         first = admin.post("/api/admin/next").json()["active"]
         assert first["nickname"] == "A"
-        token = admin.get("/api/admin/tv-link").json()["url"].partition("?token=")[2]
+        token = primary_tv_token(admin)
         before = snapshot(store)
         preview = store.fair_queue()
         assert preview
