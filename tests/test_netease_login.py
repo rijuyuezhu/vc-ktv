@@ -2,6 +2,7 @@
 
 import base64
 import stat
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
@@ -18,11 +19,15 @@ COOKIE = "test_MUSIC_U_cookie_private_123456789"
 def fake_transport(steps):
     def handler(request):
         assert request.url.host == "music.163.com"
-        assert request.method == "GET"
-        if request.url.path == "/api/login/qrcode/unikey":
+        assert request.method == "POST"
+        assert request.headers.get("origin") == "https://music.163.com"
+        form = parse_qs(request.content.decode("ascii"))
+        assert len(form["params"][0]) >= 40
+        assert len(form["encSecKey"][0]) == 256
+        assert KEY not in request.content.decode("ascii")
+        if request.url.path == "/weapi/login/qrcode/unikey":
             return httpx.Response(200, json={"code": 200, "unikey": KEY})
-        assert request.url.path == "/api/login/qrcode/client/login"
-        assert request.url.params["key"] == KEY
+        assert request.url.path == "/weapi/login/qrcode/client/login"
         return httpx.Response(200, json=steps.pop(0))
 
     return httpx.MockTransport(handler)
@@ -70,6 +75,29 @@ def test_qr_lifecycle_persists_across_restart(tmp_path):
     assert restored.disconnect()["connected"] is False
     assert not file.exists()
     restored.close()
+
+
+def test_weapi_set_cookie_header_is_persisted(tmp_path):
+    def upstream(request):
+        if request.url.path.endswith("/unikey"):
+            return httpx.Response(200, json={"code": 200, "unikey": KEY})
+        return httpx.Response(
+            200,
+            json={"code": 803},
+            headers={"Set-Cookie": f"MUSIC_U={COOKIE}; Path=/; HttpOnly; Secure"},
+        )
+
+    login = NeteaseLogin(
+        transport=httpx.MockTransport(upstream),
+        storage_path=tmp_path / "private" / "netease-session.json",
+    )
+    login.start_qr()
+    assert login.poll()["phase"] == "connected"
+    assert login.cookies() == {"MUSIC_U": COOKIE}
+    login.close()
+    persisted = NeteaseLogin(storage_path=tmp_path / "private" / "netease-session.json")
+    assert persisted.cookies() == {"MUSIC_U": COOKIE}
+    persisted.close()
 
 
 def test_qr_expiry_and_disconnect():

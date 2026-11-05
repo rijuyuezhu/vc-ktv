@@ -10,15 +10,19 @@ import io
 import json
 import os
 import re
+import secrets
 import tempfile
 import threading
 import time
 from http.cookies import SimpleCookie
 from pathlib import Path
+from urllib.parse import urlencode
 
 import httpx
 import qrcode
 import qrcode.image.svg
+
+from .netease_weapi import encode_weapi_form
 
 QR_TTL_SECONDS = 180
 QR_KEY_PATTERN = re.compile(r"[a-zA-Z0-9_=-]{8,256}\Z")
@@ -127,15 +131,18 @@ class NeteaseLogin:
             if self.music_cookie:
                 return self.status()
             if not self.qr_key:
-                response = self.client.get(
-                    f"{QR_ORIGIN}/api/login/qrcode/unikey", params={"type": 1}
+                response = self.client.post(
+                    f"{QR_ORIGIN}/weapi/login/qrcode/unikey",
+                    data=encode_weapi_form({"type": 1, "noCheckToken": True}),
+                    headers={"Origin": QR_ORIGIN},
                 )
                 response.raise_for_status()
                 data = response.json()
                 key = data.get("unikey") if isinstance(data, dict) else None
                 if not isinstance(key, str) or not QR_KEY_PATTERN.fullmatch(key):
                     raise NeteaseLoginError("网易云未返回有效的登录二维码")
-                scan_url = f"{QR_ORIGIN}/login?codekey={key}"
+                chain_id = f"v1_{secrets.token_hex(26).upper()}_web_login_{int(time.time() * 1000)}"
+                scan_url = f"{QR_ORIGIN}/login?{urlencode({'codekey': key, 'chainId': chain_id})}"
                 qr = qrcode.QRCode(
                     box_size=8,
                     border=3,
@@ -160,9 +167,12 @@ class NeteaseLogin:
                 return {**self.status(), "phase": "connected"}
             if not self.qr_key:
                 return {**self.status(), "phase": "expired"}
-            response = self.client.get(
-                f"{QR_ORIGIN}/api/login/qrcode/client/login",
-                params={"key": self.qr_key, "type": 1},
+            response = self.client.post(
+                f"{QR_ORIGIN}/weapi/login/qrcode/client/login",
+                data=encode_weapi_form(
+                    {"key": self.qr_key, "type": 1, "noCheckToken": True}
+                ),
+                headers={"Origin": QR_ORIGIN},
             )
             response.raise_for_status()
             data = response.json()
