@@ -237,7 +237,7 @@ function losePrimary(message="主屏权限已撤回，请管理员重新连接")
     element.pause();element.removeAttribute("src");element.load();
   }
   cover.classList.remove("hidden");start.disabled=true;start.textContent="主屏不可用";
-  status.textContent="主屏已撤回";error.textContent=message;
+  status.textContent="此页面已失去主屏权限";error.textContent=message;
   updateControls();
 }
 async function connectPrimary(){
@@ -253,6 +253,7 @@ async function connectPrimary(){
     if(!response.ok)throw Error(result.detail||"主屏配对失败");
     token=result.token;
     error.textContent="";start.disabled=false;
+    start.textContent="▶ 开始播放（当前主屏）";
     await syncQueue();
   }catch(e){losePrimary(e.message||String(e));}
 }

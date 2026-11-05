@@ -946,16 +946,33 @@ async function refreshTVPrimary(){
     $(id).classList.toggle("hidden",!showActions);
   }
   $("tv-revoke-btn").classList.toggle("hidden",!showActions||!tv.active);
-  $("tv-link-btn").textContent=tv.active?"▣ 更换主屏":"▣ 打开主屏";
-  $("tv-copy-btn").textContent=tv.active?"⧉ 复制接管链接":"⧉ 复制主屏链接";
+  $("tv-link-btn").textContent=tv.active?"⧉ 更换主屏":"▣ 打开主屏";
+  $("tv-copy-btn").classList.toggle("hidden",tv.active||!showActions);
+  $("tv-copy-btn").textContent="⧉ 复制主屏链接";
 }
 async function issueTVLink(){
   if(!tvPrimaryState?.can_manage)throw new Error("没有管理主屏的权限");
   const replacing=tvPrimaryState.active;
-  if(replacing&&!confirm("新设备打开后将接管主屏，旧主屏会停止播放。继续？"))return null;
+  if(replacing&&!confirm("生成接管链接？旧主屏继续播放，直到新设备打开该链接。"))return null;
   return (await api("/api/admin/tv-link?replace="+String(replacing))).url;
 }
+async function copyTVLink(link){
+  const absolute=new URL(link,window.location.href).href;
+  try{
+    await navigator.clipboard.writeText(absolute);
+    toast("接管链接已复制，请在新电视上打开");
+  }catch{prompt("复制主屏配对链接，在新电视上打开",absolute);}
+}
 $("tv-link-btn").onclick=()=>{
+  if(tvPrimaryState?.active){
+    // Replacement generates a link for the new device; never claim control
+    // in an automatic popup on the administrator's current device.
+    guarded(async()=>{
+      const link=await issueTVLink();
+      if(link)await copyTVLink(link);
+    },$("tv-link-btn"));
+    return;
+  }
   const tab=window.open("about:blank","_blank");
   guarded(async()=>{
     try{
@@ -968,12 +985,7 @@ $("tv-link-btn").onclick=()=>{
 };
 $("tv-copy-btn").onclick=()=>guarded(async()=>{
   const link=await issueTVLink();
-  if(!link)return;
-  const absolute=new URL(link,window.location.href).href;
-  try{
-    await navigator.clipboard.writeText(absolute);
-    toast("主屏配对链接已复制（10 分钟内使用）");
-  }catch{prompt("复制主屏配对链接",absolute);}
+  if(link)await copyTVLink(link);
 },$("tv-copy-btn"));
 $("tv-revoke-btn").onclick=()=>guarded(async()=>{
   if(!confirm("立即撤回当前主屏？当前歌曲会保留，等待新主屏接管。"))return;

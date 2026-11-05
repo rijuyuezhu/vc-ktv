@@ -2676,14 +2676,12 @@ def create_app(
             bail(401, "主屏权限已失效，请管理员重新连接")
         with store.lock:
             active = tv_record("tv_primary")
-            if (
-                not active
-                or not hmac.compare_digest(
-                    active["nonce_hash"], hashlib.sha256(nonce.encode()).hexdigest()
-                )
-                or not tv_owner_valid(active)
-            ):
-                bail(401, "主屏权限已撤回，请管理员重新连接")
+            if not active:
+                bail(401, "主屏已被撤回，请管理员重新连接")
+            if not hmac.compare_digest(
+                active["nonce_hash"], hashlib.sha256(nonce.encode()).hexdigest()
+            ) or not tv_owner_valid(active):
+                bail(401, "此页面不再是主屏，可能已由另一设备接管")
 
     @app.get("/api/admin/tv")
     def tv_management(vc_admin: str | None = Cookie(default=None)):
@@ -2718,6 +2716,17 @@ def create_app(
                 bail(403, "本场管理员不能覆盖全局管理员的配对链接")
             if active and not replace:
                 bail(409, "已有主屏，请使用更换主屏")
+            # Reusing a pending link must not silently invalidate earlier copies.
+            if (
+                pending
+                and pending["expires"] > time_now()
+                and pending["role"] == principal["role"]
+                and pending["owner_id"] == principal.get("id", "")
+                and pending["owner_revision"] == principal.get("revision", 0)
+                and pending["replace"] == replace
+                and pending.get("pair_token")
+            ):
+                return {"url": "/tv.html?pair=" + quote(pending["pair_token"])}
             nonce = secrets.token_urlsafe(24)
             pair = {
                 "nonce_hash": hashlib.sha256(nonce.encode()).hexdigest(),
@@ -2726,13 +2735,11 @@ def create_app(
                 "owner_revision": principal.get("revision", 0),
                 "replace": replace,
                 "expires": time_now() + 600,
+                "pair_token": sign("tv-pair", f"{events.active_id}:{nonce}", 600),
             }
             tv_save("tv_pending", pair)
             store.db.commit()
-            return {
-                "url": "/tv.html?pair="
-                + quote(sign("tv-pair", f"{events.active_id}:{nonce}", 600))
-            }
+            return {"url": "/tv.html?pair=" + quote(pair["pair_token"])}
 
     @app.post("/api/tv/activate")
     def tv_activate(body: TVPair):
