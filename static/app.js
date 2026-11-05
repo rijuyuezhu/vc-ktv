@@ -938,9 +938,11 @@ async function refreshTVPrimary(){
   tvPrimaryState=tv;
   const controls=$("tv-primary-management");
   controls.classList.remove("hidden");
-  $("tv-primary-status").textContent=tv.active
-    ?"当前主屏：由"+(tv.owner_role==="global"?"全局管理员":"本场管理员")+"创建"
-    :"当前没有主屏";
+  const status=$("tv-primary-status");
+  // Buttons already show whether a primary exists. Show ownership only
+  // when it explains why this administrator cannot manage the screen.
+  status.classList.toggle("hidden",!tv.active||tv.can_manage);
+  if(tv.active&&!tv.can_manage)status.textContent="由全局管理员创建";
   const showActions=tv.can_manage;
   for(const id of ["tv-link-btn","tv-copy-btn"]){
     $(id).classList.toggle("hidden",!showActions);
@@ -988,7 +990,7 @@ $("tv-copy-btn").onclick=()=>guarded(async()=>{
   if(link)await copyTVLink(link);
 },$("tv-copy-btn"));
 $("tv-revoke-btn").onclick=()=>guarded(async()=>{
-  if(!confirm("立即撤回当前主屏？当前歌曲会保留，等待新主屏接管。"))return;
+  if(!confirm("撤回主屏？当前歌曲保留，等待重新连接。"))return;
   await api("/api/admin/tv/revoke","POST");
   await refreshTVPrimary();
   toast("主屏已撤回");

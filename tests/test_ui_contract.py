@@ -285,3 +285,15 @@ def test_provider_tag_and_copy_are_source_aware():
     assert ".source-tag" in css
     assert 'song.source_type==="netease"' in tv_js
     assert "/download/retry" in js
+
+
+def test_primary_tv_controls_keep_labels_minimal():
+    root = Path(__file__).resolve().parents[1] / "static"
+    admin = (root / "index.html").read_text()
+    admin_js = (root / "app.js").read_text()
+    tv_js = (root / "tv.js").read_text()
+    assert 'id="tv-primary-status"' in admin
+    assert 'id="tv-primary-status"></p>' in admin
+    assert "当前主屏" not in admin_js
+    assert "▶ 开始播放（当前主屏）" not in tv_js
+    assert 'start.textContent="▶ 开始"' in tv_js
