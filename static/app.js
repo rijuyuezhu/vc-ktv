@@ -167,7 +167,10 @@ function makeSong(song, order, mode="row") {
     const stateLabel=appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
     if(song.prep_error)stateLabel.title=song.prep_error;
     if(song.prep_state==="unavailable"){
-      const a=appendText(outer,"a","↗ B站");a.href="https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;a.target="_blank";a.rel="noopener noreferrer";
+      const netease=song.source_type==="netease";
+      const a=appendText(outer,"a",netease?"↗ 网易云":"↗ B站");
+      a.href=netease?"https://music.163.com/#/song?id="+encodeURIComponent(song.source_id):"https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;
+      a.target="_blank";a.rel="noopener noreferrer";
     }
   }else if(mode==="admin"){
     const stageNames={
@@ -686,6 +689,18 @@ $("quick-submit-btn").onclick=()=>guarded(async()=>{
   await refresh();
   await openLyricPicker(result.id,result.title,result.lyric_query);
 },$("quick-submit-btn"));
+$("netease-submit-btn").onclick=()=>guarded(async()=>{
+  const ref=$("netease-song-ref").value.trim();
+  if(!ref)throw new Error("请输入网易云单曲 ID 或分享链接");
+  const result=await api("/api/netease/songs","POST",{ref});
+  $("netease-song-ref").value="";
+  toast("✓ 已加入队列，选择歌词后准备视频");
+  await refresh();
+  await openLyricPicker(result.id,result.title,result.lyric_query);
+},$("netease-submit-btn"));
+$("netease-song-ref").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){e.preventDefault();$("netease-submit-btn").click();}
+});
 $("preview-btn").onclick=()=>guarded(()=>fetchPreview(),$("preview-btn"));
 $("bvid").addEventListener("keydown",(e)=>{if(e.key==="Enter")$("quick-submit-btn").click();});
 $("page-select").onchange=()=>guarded(()=>fetchPreview(Number($("page-select").value)));
@@ -1084,6 +1099,7 @@ function renderEntry(entry){
   $("guest-access").classList.toggle("hidden",entry.authenticated);
   $("guest-profile").classList.toggle("hidden",!entry.authenticated);
   $("request-panel").classList.toggle("hidden",!entry.authenticated);
+  $("netease-order-panel").classList.toggle("hidden",!entry.authenticated);
   $("queue-panel").classList.toggle("hidden",!entry.authenticated);
   $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+"  "+entry.event.name:"";
   showPage();

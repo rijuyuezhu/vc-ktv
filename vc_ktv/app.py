@@ -83,6 +83,10 @@ class RequestSong(Preview):
     nickname: str = Field(default="", max_length=24)
 
 
+class RequestNetEaseSong(BaseModel):
+    ref: str = Field(min_length=1, max_length=2048)
+
+
 class GuestLyricChoice(BaseModel):
     text: str = Field(min_length=10, max_length=12_000)
     ticket: str = Field(min_length=10, max_length=256)
@@ -322,6 +326,8 @@ class Store:
             ("provider_lrc", "TEXT NOT NULL DEFAULT ''"),
             ("source_lrc_raw", "TEXT NOT NULL DEFAULT ''"),
             ("lyric_offset_ms", "INTEGER NOT NULL DEFAULT 0"),
+            ("source_type", "TEXT NOT NULL DEFAULT 'bilibili'"),
+            ("source_id", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
@@ -341,7 +347,8 @@ class Store:
 
     def songs(self):
         rows = self.rows("""
-            SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.cover,s.duration,
+            SELECT s.id,s.bvid,s.page,s.source_type,s.source_id,
+                   s.title,s.uploader,s.cover,s.duration,
                    s.requested_at,s.status,s.media_file IS NOT NULL AS has_media,s.render_error,
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
                    s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.replay_of,
@@ -1432,6 +1439,57 @@ def create_app(
             "lyric_query": title_key(info["title"]),
         }
 
+    @app.post("/api/netease/songs")
+    async def request_netease_song(
+        body: RequestNetEaseSong,
+        vc_guest: str | None = Cookie(default=None),
+    ):
+        user = require_user(vc_guest)
+        try:
+            song_id = parse_netease_song_id(body.ref)
+        except ValueError as error:
+            bail(400, str(error))
+        event_id = events.active_id
+        with store.lock:
+            check_new_order(user["id"])
+        try:
+            info = await app.state.netease_lookup(song_id)
+        except LookupError:
+            bail(404, "网易云未找到该单曲")
+        except (httpx.HTTPError, ValueError, TypeError):
+            bail(502, "网易云歌曲信息暂不可用")
+        with store.lock:
+            if events.active_id != event_id:
+                bail(409, "场次已变化，请重新点歌")
+            check_new_order(user["id"])
+            try:
+                cur = store.db.execute(
+                    """INSERT INTO songs(
+                         bvid,page,title,uploader,cover,duration,requester,requested_at,
+                         source_type,source_id
+                       ) VALUES('',1,?,?,?,?,?,?,'netease',?)""",
+                    (
+                        info["title"],
+                        info["uploader"],
+                        info["cover"],
+                        info["duration"],
+                        user["id"],
+                        time_now(),
+                        str(song_id),
+                    ),
+                )
+                store.db.commit()
+            except sqlite3.Error:
+                store.db.rollback()
+                raise
+        return {
+            "id": cur.lastrowid,
+            "status": "waiting",
+            "title": info["title"],
+            "lyric_query": title_key(info["title"]),
+            "source": "netease",
+        }
+
     def own_song(song_id: int, guest_token: str | None):
         guest = require_user(guest_token)["id"]
         with store.lock:
@@ -2324,8 +2382,8 @@ def create_app(
                     """INSERT INTO songs(
                         bvid,page,title,uploader,cover,duration,requester,requested_at,
                         status,lyrics,lyric_choice,lyric_source,prep_state,
-                        skip_subtitles,priority_next,replay_of
-                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,1,?)""",
+                        skip_subtitles,priority_next,replay_of,source_type,source_id
+                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,1,?,?,?)""",
                     (
                         row["bvid"],
                         row["page"],
@@ -2345,6 +2403,8 @@ def create_app(
                             )
                         ),
                         song_id,
+                        row["source_type"],
+                        row["source_id"],
                     ),
                 )
                 new_id = cur.lastrowid
