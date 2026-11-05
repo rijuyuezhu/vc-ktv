@@ -1,30 +1,31 @@
 # 开发指南
 
-文档阅读路径见 [文档导航](README.md)；历史性能报告不能替代当前配置与独立验收。
+项目使用 Python 3.12、FastAPI、SQLite 和原生 JavaScript。代码入口及数据流见 [系统架构](ARCHITECTURE.md)。
 
-- 应用使用 Python 3.12、FastAPI、SQLite 与原生 JS，不引入第二套前端框架或后台进程。
-- 使用 `uv.lock` 管理依赖；测试必须使用隔离数据库、合成媒体，不允许操作正在使用的场次或私密配置。
-- 先提交 PR，经测试和审查后合并。合并不等于部署；部署前先确认无正在播放或制作的任务，备份数据并进行服务健康检查。
+## 开发环境
 
-```bash
+```sh
 uv sync --locked --group dev
-uv run pre-commit run --all-files
-uv run pytest -q
+uv run --no-sync pre-commit run --all-files
+uv run --no-sync pytest -q
 bash -n scripts/*.sh
 ```
 
-CI 另检查静态 JS 语法。真实模型和设备测试单独执行，不要求普通单测下载模型权重或访问 B 站。
+前端位于 `static/`，服务端位于 `vc_ktv/`，字幕模型适配位于 `ktv_app/`。自动测试使用隔离数据库和合成媒体；真实 GPU 环境可另外运行：
 
-## 代码位置
+```sh
+uv run --no-sync python -m scripts.gpu_smoke
+```
 
-| 路径 | 作用 |
-| --- | --- |
-| `vc_ktv/app.py` | HTTP、场次数据与队列、权限和媒体接口 |
-| `vc_ktv/autoprep.py` | 下载及制作任务、进度与失败回退 |
-| `vc_ktv/global_alignment.py` | 全曲 TIFA 对齐和发音处理 |
-| `vc_ktv/upstream_pipeline.py` | 本地模型及字幕生成入口 |
-| `ktv_app/` | 复用和修改的上游字幕引擎 |
-| `static/` | 点歌、管理与电视播放网页 |
-| `tests/` | 独立行为测试和上游算法测试 |
+需要浏览器端到端验证时：
 
-用户确认歌词，模型只负责对齐。原片和每次字幕尝试独立保存，**不可为可读性或性能清理而删除失败路径与可靠的回归测试**。更新上游代码需保留来源及许可信息，参见 [UPSTREAM_PIPELINE.md](UPSTREAM_PIPELINE.md)。实际生产模型及资产见 [GPU_PIPELINE.md](GPU_PIPELINE.md)。
+```sh
+uv run --no-sync --with playwright python -m playwright install chromium
+uv run --no-sync --with playwright python scripts/browser_smoke.py
+```
+
+## 提交和部署
+
+在功能分支开发，提交 PR、运行 CI、review 后合并。生产部署与源码合并分开执行，先确认场次没有正在播放或制作的任务。发布操作见 [部署与升级](RELEASE.md)。
+
+模型及字幕引擎基于第三方代码，修改这些模块时保留来源与许可信息，详见 [第三方说明](../third_party/autoassrenderer/README.md)。

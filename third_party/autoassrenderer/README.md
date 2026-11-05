@@ -1,92 +1,13 @@
-# Bundled AutoASSrenderer4karaOK processing engine
+# AutoASSrenderer4karaOK 来源说明
 
-Source: https://github.com/Volta233/AutoASSrenderer4karaOK
-Pinned source commit: 39cedb317c9e11add83e9a72c31368cabd8416d4
-License: Apache License 2.0 (see LICENSE in this directory).
+- 上游项目：[Volta233/AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK)
+- 固定版本：`39cedb317c9e11add83e9a72c31368cabd8416d4`
+- 源码许可：[Apache License 2.0](LICENSE)
+- 来源记录：[UPSTREAM.json](UPSTREAM.json)
+- 模型资源版本：[assets.lock.json](assets.lock.json)
 
-The portable upstream model processing components have been copied to top-level
-`ktv_app/` with their original module names/import structure so fixes can be
-compared against upstream. This is a **library subset**, not the upstream web
-application. The upstream `ktv_app/lyrics.py` is intentionally reduced to its
-original lyric preprocessing functions; we do not import their online lyrics
-retrieval, GUI, DB, installer, or task scheduler.
+VC-KTV 将上游音频分离、对齐和字幕生成模块适配到 `ktv_app/`，由 `vc_ktv/upstream_pipeline.py` 调用。`vc_ktv/` 实现场次、队列、媒体及网页服务。部分模型与字幕模块为适配 Linux/CUDA 和并行处理进行了修改。
 
-Upstream is credited as the author of the processing code. New VC KTV-specific
-glue goes in `vc_ktv/upstream_pipeline.py`; avoid editing original algorithm
-modules without a documented ARM64/integration reason. Model/weight and
-third-party package licensing is **separate** from this source license.
+上游代码、VC-KTV 适配代码以及模型权重分别遵循各自许可。升级上游时，同步审查 `UPSTREAM.json`、本地适配和模型资源锁文件。
 
-For automated upstream checks, the machine-readable source reference is
-[UPSTREAM.json](UPSTREAM.json). Keep its `commit` value synchronized when
-rebasing the vendored files to a new upstream revision. The accompanying
-`assets.lock.json` is a **snapshot** of the upstream pinned model inputs;
-do not equate an upstream source commit update with a model upgrade.
-
-`tifa-requirements-spark-arm64-cu130.txt` is a VC KTV-specific runtime
-dependency snapshot, **not** an upstream TIFA lockfile. It was verified on
-Linux ARM64 / WSL with Python 3.12 and explicitly provided CUDA 13.0
-Torch/Torchaudio. Other architectures and CUDA builds require independent
-dependency review and a real GPU model acceptance run.
-
-## Upstream update notification
-
-[`.github/workflows/upstream-check.yml`](../../.github/workflows/upstream-check.yml)
-checks upstream `main` every Monday at **06:20 UTC** against the exact
-`commit` in `UPSTREAM.json`. When there is a change, it opens one
-`upstream-update` GitHub Issue (or updates the existing open notification)
-with a comparison link. Notifications are deduplicated by upstream SHA,
-including previously closed notifications. It never updates source or models.
-
-The workflow runs with GitHub's built-in `GITHUB_TOKEN`, with only
-`contents: read` and `issues: write`. There is no PAT, external service,
-Dependabot configuration, model download or automatic PR merge.
-
-To test from the GitHub Actions UI use **Vendored upstream update reminder**
-→ **Run workflow** → check `dry_run` and optionally enter a simulated
-40-character upstream SHA. No Issues or labels are modified in dry-run mode.
-Equivalent CLI commands from the default branch:
-
-```sh
-gh workflow run upstream-check.yml -f dry_run=true -f simulated_head=1234567890abcdef1234567890abcdef12345678
-GITHUB_REPOSITORY=rijuyuezhu/vc-ktv python3 scripts/check_upstream.py
-```
-
-After manually reviewing a new upstream revision, update `UPSTREAM.json` to
-the adopted commit *in the same PR that updates the copied code*. Review the
-model asset lock separately if upstream changes its model versions.
-
-## Lyrics-source extension
-
-VC KTV issue #36 originally copied the upstream `lyric_names.py`,
-`lyric_netease.py`, `lyric_sources.py`, and `web_search.py` modules at the
-same pinned source commit. The unused standalone NetEase, web-search, and UtaTen/J-Lyric lookups were
-removed during VC KTV's dead-code review (#146). The active
-ktv_app/lyric_names.py still supplies Chinese/Japanese title variants to
-vc_ktv/lyric_selection.py. Guest-facing retrieval uses
-vc_ktv/lyric_sources.py and the normal authentication flow. Upstream
-provenance and source attribution remain unchanged.
-
-## VC KTV #45 performance changes and later quality-mode restoration
-
-The pinned upstream reference stays unchanged. Historical performance
-adaptations in `ktv_app/aligners/` included:
-- passes a single existing `TIFASession` through original-lyric TIFA blocks
-  and seam retries (model/G2P process reuse, same block order/ownership checks);
-- historically experimented with skipping TIFA timestamps for certain unmatched
-  Chinese ASR chunks (#45); **the default quality mode no longer uses that
-  shortcut** and runs TIFA on every nonempty ASR window (see
-  [AUTOPREP](../../docs/AUTOPREP.md));
-- writes lightweight per-TIFA-task G2P, dataset and inference timing traces.
-
-These are local performance modifications, not changes to upstream model
-weights or authorization to replace source-verified word timestamps. For
-historical performance validation, consult the associated #45 change history;
-that experiment's original standalone report is not part of this checkout.
-
-## VC KTV #32 post-migration dead project-UI cleanup
-
-Relative to the **unchanged** pinned source `39cedb317c9e11add83e9a72c31368cabd8416d4` (checked against GitHub files at that commit), `ktv_app/workflow.py` now retains the `AlignmentOptions` validated CUDA/Kim/TIFA contract but drops its unused former project-step/UI reporting helpers: `steps`, `alignment_identity`, and `timing_evidence`. Those functions were not imported by the `vc_ktv/` adapter, `ktv_app/`, scripts, or tests. The upstream module was already adapted in earlier integration to remove the unused fixed `max_tifa_input_seconds=90` input; that change is **not** introduced here.
-
-`ktv_app/config.py` removes its unused project-storage root (`Settings.projects` / `KTV_PROJECTS`) and old web lyrics API knob (`Settings.lyrics_url` / `KTV_LYRICS_API`), neither read by the VC KTV engine, application, or tests. Existing asset/runtime paths, `Settings.tool()`, FFmpeg, TIFA/Kim/Qwen controls and platform path handling are untouched. The actual guest lyrics search uses `vc_ktv/lyric_selection.py`, not this unused upstream settings field.
-
-This cleanup removes dead UI/project code only; it does **not** consolidate stage-specific process launches or caches. The existing separation/Qwen/TIFA stages have distinct runtime environments, cache identities, failure evidence and latency considerations; combining them without a measured reduction in duplicated work would expand scope and risk regressions. Windows-compatible pinned-source defaults likewise remain, rather than adding a Linux-only fork. Subsequent upstream merges must review these two local reductions and retain the historical performance/alignment deviations documented above. No upstream pointer or model assets were changed.
+仓库的 [upstream-check 工作流](../../.github/workflows/upstream-check.yml) 会检查上游是否更新；它只负责通知，不会自动替换源码或模型。

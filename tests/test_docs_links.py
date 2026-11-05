@@ -11,6 +11,7 @@ def test_relative_documentation_links_exist():
         *sorted((root / "docs").glob("*.md")),
         root / "third_party/autoassrenderer/README.md",
         root / "experiments/bilibili-overlay/README.md",
+        root / "experiments/netease-stage/README.md",
     ]
     missing = []
     for document in documents:

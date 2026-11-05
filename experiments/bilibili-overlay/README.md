@@ -1,5 +1,11 @@
-# CDN + HTML timed lyric isolated browser experiment (#111)
+# HTML 字幕实验
 
-Serve the directory with a local static server (`python3 -m http.server`). Open `index.html`, supply a **currently valid publicly playable** Bilibili 360p HTML5 MP4 URL or a local MP4; optionally select two exported files from a historical alignment attempt, `timeline.json` and `display_plan.json`. The overlay follows `video.currentTime`, with optional -60 to +60 seconds correction and per-unit fractional highlight only when true unit times exist. Pause, seek, audio and buffering are supplied by the native video element. `window.overlaySnapshot()` exposes read-only metrics for Chromium experiments.
+在本目录执行：
 
-This experiment is deliberately **not** imported from `static/` or served by the production app. It does not fetch Bilibili metadata, manipulate Referer/cookies, proxy media, grant TV permissions, or replace the default reliable rendered MP4. Cross-origin CDN links may expire or return 403. Never commit private media, lyrics, signed media URLs or CDN URLs into the repo.
+```sh
+python3 -m http.server 8000
+```
+
+打开 `http://127.0.0.1:8000/`，选择本地视频；可选导入 `timeline.json` 和 `display_plan.json` 查看浏览器字幕叠加效果。
+
+这里是独立前端实验，不参与 VC-KTV 生产播放流程。
