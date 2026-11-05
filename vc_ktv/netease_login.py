@@ -170,7 +170,9 @@ class NeteaseLogin:
             if code == 803:
                 cookie = _read_music_cookie(response, self.client)
                 if not cookie or not 10 <= len(cookie) <= 4096:
-                    raise NeteaseLoginError("网易云已确认扫码，但未返回有效登录凭据")
+                    raise NeteaseLoginError(
+                        "网易云已确认扫码，但没有返回 MUSIC_U 登录凭据，请重新扫码"
+                    )
                 self._save_cookie(cookie)
                 self.music_cookie = cookie
                 self.qr_key = None
@@ -183,7 +185,11 @@ class NeteaseLogin:
                 self.qr_expires = 0
                 return {**self.status(), "phase": "expired"}
             if code not in (801, 802):
-                raise NeteaseLoginError("网易云扫码状态暂不可用")
+                if isinstance(code, int) and not isinstance(code, bool):
+                    raise NeteaseLoginError(
+                        f"网易云拒绝扫码登录（状态码 {code}），可取消后重新扫码"
+                    )
+                raise NeteaseLoginError("网易云返回了未知的扫码状态，请稍后再试")
             return {**self.status(), "phase": "confirm" if code == 802 else "waiting"}
 
     def disconnect(self) -> dict:

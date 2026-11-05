@@ -1186,8 +1186,12 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         try:
             return netease_login.poll()
-        except (httpx.HTTPError, NeteaseLoginError, ValueError):
-            bail(502, "网易云扫码状态暂不可用")
+        except NeteaseLoginError as exc:
+            bail(409, str(exc))
+        except httpx.HTTPStatusError as exc:
+            bail(502, f"网易云扫码接口返回 HTTP {exc.response.status_code}，请稍后再试")
+        except (httpx.HTTPError, ValueError):
+            bail(502, "网易云扫码接口网络异常，请稍后重试")
 
     @app.post("/api/admin/netease/disconnect")
     def netease_session_disconnect(

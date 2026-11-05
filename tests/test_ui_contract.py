@@ -240,3 +240,16 @@ def test_guest_request_tabs_include_netease_search_and_share():
     assert "const looksLikeShare=" in js
     assert ".netease-search-result" in css
     assert 'id="netease-order-panel"' not in html
+
+
+def test_netease_connection_lives_in_global_admin_settings_subpage():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    js = (root / "app.js").read_text()
+    assert '<section class="panel full-width hidden" id="netease-admin-panel">' in html
+    assert '"settings-netease":["网易云音乐连接","netease-admin-panel"]' in js
+    assert '["settings-netease","网易云音乐连接"]' in js
+    assert '["settings-accounts","settings-netease"]' in js
+    assert 'currentRoute()==="settings-netease"&&!neteaseLoginPageActive' in js
+    assert 'id="netease-login-check"' in html
+    assert '$("netease-login-status").textContent=e.message' in js

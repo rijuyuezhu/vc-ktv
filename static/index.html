@@ -230,8 +230,8 @@
           <button id="admin-account-create" class="btn primary" type="button">✚ 创建管理员</button>
           <div id="admin-account-list" class="archive-list"></div>
         </details>
-        <details class="panel full-width fold-panel hidden" id="netease-admin-panel">
-          <summary>🎵 网易云音乐连接</summary>
+        <section class="panel full-width hidden" id="netease-admin-panel">
+          <h2>🎵 网易云音乐连接</h2>
           <p class="muted">仅全局管理员可连接。登录凭据安全地保存在服务器本地，重启后仍可使用；失效时重新扫码。</p>
           <p id="netease-login-status" class="muted" role="status" aria-live="polite">尚未连接网易云</p>
           <div id="netease-login-qr-box" class="netease-login-qr-box hidden">
@@ -240,9 +240,10 @@
           </div>
           <div class="input-row">
             <button id="netease-login-start" class="btn primary" type="button">扫码连接</button>
-            <button id="netease-login-disconnect" class="btn neutral hidden" type="button">断开网易云</button>
+            <button id="netease-login-check" class="btn neutral hidden" type="button">重新检查</button>
+            <button id="netease-login-disconnect" class="btn neutral hidden" type="button">断开网易云 / 取消扫码</button>
           </div>
-        </details>
+        </section>
         <details class="panel full-width fold-panel" id="event-archive-panel">
           <summary><span class="ui-icon" aria-hidden="true">▣</span> 历史歌单</summary>
 
