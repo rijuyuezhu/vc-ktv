@@ -262,8 +262,9 @@
     <p class="muted review-help">点击歌词行，选择要保留的内容。黄色 ✓ 为保留，灰色 ✕ 为删除。</p>
     <div class="review-toolbar"><span id="netease-review-count" aria-live="polite"></span><button id="netease-review-select-all" class="btn subtle" type="button">全部保留</button></div>
     <div id="netease-review-lines" class="netease-review-lines"></div>
-    <h3 class="alignment-title">🎵 选择字幕制作方式</h3>
-    <div class="alignment-cards">
+    <details id="netease-alignment-choice" class="alignment-accordion">
+      <summary>🎵 选择字幕制作方式 <span aria-hidden="true"></span></summary>
+      <div class="alignment-cards">
       <section id="netease-review-provider" class="alignment-card" hidden>
         <div class="alignment-heading"><strong>⚡ 快速使用</strong><span>网易云原时间轴</span></div>
         <p>采用原逐句时间，速度快，适合同一录音版本。</p>
@@ -277,7 +278,8 @@
         <p class="alignment-note">逐字定位更细，但制作较慢，也可能有误。</p>
         <button id="netease-review-align" class="btn primary choice-action" type="button">AI 重新对齐</button>
       </section>
-    </div>
+      </div>
+    </details>
   </dialog>
   <dialog id="lyrics-dialog">
     <form method="dialog"><div class="section-head"><h2>编辑参考歌词</h2><button class="btn subtle">关闭</button></div></form>

@@ -291,7 +291,15 @@ button, input, select { min-height: 44px; }
 .review-check { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; background: var(--line); color: var(--muted); font-size: 13px; font-weight: 800; }
 .netease-review-line.kept .review-check { background: #fff; color: #735900; }
 .review-line-text { flex: 1; }
-.alignment-title { font-size: 16px; margin: 15px 0 10px; color: var(--ink); }
+.alignment-accordion { margin-top: 14px; }
+.alignment-accordion > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--accent-soft); color: var(--accent-ink); font-size: 15px; font-weight: 700; cursor: pointer; list-style: none; }
+.alignment-accordion > summary::-webkit-details-marker { display: none; }
+.alignment-accordion > summary span { color: var(--muted); font-size: 13px; font-weight: 500; white-space: nowrap; }
+.alignment-accordion > summary span::before { content: "展开"; }
+.alignment-accordion[open] > summary span::before { content: "收起"; }
+.alignment-accordion > summary span::after { content: "⌄"; display: inline-block; margin-left: 7px; font-size: 17px; }
+.alignment-accordion[open] > summary span::after { transform: rotate(180deg); }
+.alignment-accordion[open] > summary { margin-bottom: 10px; }
 .alignment-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
 .alignment-cards.single-mode { grid-template-columns: 1fr; }
 .alignment-card { display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 15px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-2); }

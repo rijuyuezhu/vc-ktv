@@ -436,6 +436,7 @@ function openNeteaseReview(candidate, useLyrics){
   update();
   $("netease-review-provider").hidden=!(candidate.timed_lrc&&candidate.timing_ticket);
   $("netease-review-ai-card").hidden=!gpuAlignment;
+  $("netease-alignment-choice").open=false;
   dialog.querySelector(".alignment-cards").classList.toggle("single-mode",!gpuAlignment);
   $("netease-review-offset").value="0";
   document.querySelector(".offset-details").open=false;
