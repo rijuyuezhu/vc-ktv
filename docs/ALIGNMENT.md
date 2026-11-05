@@ -6,7 +6,7 @@
 
 保留 #47 中复用已加载的 TIFA 模型进程的基础设施优化；不使用 Fast Mode 的 Kim 省略、ASR 窗口 TIFA 省略、粗切块等算法捷径。模型对齐失败要留下诊断，保留完整歌词的估计字幕作为最终回退；不能声称粗估时间轴等价于真实对齐。切块时长仅作为优化目标，不能作为硬终止条件。
 
-旧的 `global-kim` 整首 TIFA 模式仍可显式选择用于对比，但不作为默认值。模型、运行时与原始尝试材料参见 [SPARK_WSL_PIPELINE.md](SPARK_WSL_PIPELINE.md)。
+旧的 `global-kim` 整首 TIFA 模式仍可显式选择用于对比，但不作为默认值。模型、运行时与原始尝试材料参见 [GPU_PIPELINE.md](GPU_PIPELINE.md)。
 
 ## 长间奏与缺失声学锚点（#109）
 

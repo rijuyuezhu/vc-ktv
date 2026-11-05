@@ -13,7 +13,7 @@
 
 - [安全与反向代理](SECURITY.md)：身份验证、信任代理、适用网络
 - [升级与回滚](RELEASE.md)：数据备份、隔离验收、生产切换
-- [GPU 模型环境](SPARK_WSL_PIPELINE.md)：Linux CUDA 实测环境及推理验收
+- [GPU 模型环境](GPU_PIPELINE.md)：Linux CUDA 实测环境及推理验收
 - [上游字幕引擎](UPSTREAM_PIPELINE.md)：实现差异与模型来源
 
 ## 开发与测试
