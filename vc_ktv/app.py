@@ -792,7 +792,7 @@ def create_app(
                 if not running or not events.active_id or events.transitioning:
                     continue
                 live = sum(thread.is_alive() for thread in worker.workers)
-                if live >= worker.max_workers:
+                if live >= worker.max_workers + worker.fast_workers:
                     continue
                 try:
                     if live:
