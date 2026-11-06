@@ -47,9 +47,11 @@ def test_manual_render_failure_writeback_recovers_from_transient_sql_fault(
 ):
     app, store, song_id = ready_render(tmp_path)
     threads = []
+    started = threading.Event()
 
     def fail_render(*args):
         threads.append(threading.current_thread())
+        started.set()
         raise RuntimeError("simulated manual render failure")
 
     monkeypatch.setattr("vc_ktv.app.render_video", fail_render)
@@ -63,7 +65,7 @@ def test_manual_render_failure_writeback_recovers_from_transient_sql_fault(
         )
         response = admin.post(f"/api/admin/songs/{song_id}/render", json={"lead": 1.0})
         assert response.status_code == 200, response.text
-        assert threads
+        assert started.wait(timeout=5), "render worker did not start"
         threads[0].join(timeout=5)
         assert not threads[0].is_alive()
     store.db = real_db
