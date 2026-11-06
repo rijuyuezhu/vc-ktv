@@ -3,7 +3,6 @@
 from pathlib import Path
 
 from ktv_app.timeline import Timeline
-
 from vc_ktv.config import pipeline_settings
 from vc_ktv.pipeline import Timeline as PublicTimeline
 from vc_ktv.upstream_pipeline import spark_settings

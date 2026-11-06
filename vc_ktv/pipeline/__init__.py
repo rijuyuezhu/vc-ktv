@@ -4,8 +4,8 @@ Do not import implementation modules from ktv_app elsewhere in VC-KTV.
 The engine itself remains pinned and independently tested under ktv_app/.
 """
 
-from ktv_app.aligners.scat_pronunciation import UNKNOWN_LATIN, pronunciation_lyrics
 from ktv_app import font_support
+from ktv_app.aligners.scat_pronunciation import UNKNOWN_LATIN, pronunciation_lyrics
 from ktv_app.lyric_names import title_variants
 from ktv_app.media import probe, run
 from ktv_app.rendering import RenderOptions, capped_h264_args, render
