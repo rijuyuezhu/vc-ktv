@@ -1421,17 +1421,42 @@ async function refreshEvents(){
   updateAccount(true,data.role==="global"?"管理员":data.username||"管理员",
     data.role==="global"?"全局管理员":"本场管理员");
 
-  const key=JSON.stringify(data.events.map(e=>[e.id,e.name,e.status]));
+  const key=JSON.stringify([data.role,data.events.map(e=>
+    [e.id,e.name,e.status,e.media_released_at])]);
   if(key!==archiveListKey){
     archiveListKey=key;
     const target=$("event-history");target.replaceChildren();
     if(!data.events.length)appendText(target,"p","暂无历史场次","muted");
     data.events.forEach(event=>{
-      const item=document.createElement("div");item.className="archive-item";
-      appendText(item,"span",event.name+"  "+(event.id===data.active?"进行中":"已归档"));
-      const link=appendText(item,"a","↓ 导出 CSV","btn neutral");
-      link.href="/api/admin/events/"+encodeURIComponent(event.id)+"/songs.csv";
-      item.append(link);target.append(item);
+      const item=appendText(target,"div","","archive-item");
+      const info=appendText(item,"div","","archive-info");
+      appendText(info,"strong",event.name);
+      appendText(info,"small",event.id===data.active?"进行中":
+        event.media_released_at?"已释放媒体":"已归档");
+      const actions=appendText(item,"div","","archive-actions");
+      const id=encodeURIComponent(event.id);
+      const link=appendText(actions,"a","↓ CSV","btn neutral");
+      link.href="/api/admin/events/"+id+"/songs.csv";
+      if(data.role==="global"&&event.status==="closed"&&!event.legacy){
+        if(!event.media_released_at){
+          const release=appendText(actions,"button","释放空间","btn neutral");
+          release.type="button";
+          release.onclick=()=>guarded(async()=>{
+            if(!confirm("释放「"+event.name+"」的视频等大文件？保留记录和文本。"))return;
+            const result=await api("/api/admin/events/"+id+"/release-media","POST");
+            toast("已释放 "+(result.freed_bytes/1048576).toFixed(1)+" MiB");
+            archiveListKey=null;await refreshEvents();
+          },release);
+        }
+        const remove=appendText(actions,"button","删除记录","btn subtle archive-delete");
+        remove.type="button";
+        remove.onclick=()=>guarded(async()=>{
+          if(prompt("输入场次名称确认删除全部记录：", "")!==event.name)return;
+          await api("/api/admin/events/"+id,"DELETE");
+          toast("已删除场次");
+          archiveListKey=null;await refreshEvents();
+        },remove);
+      }
     });
   }
   if(!active){settingsEventId=null;return;}
