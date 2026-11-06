@@ -169,6 +169,10 @@ async function cancelGuestSong(songId){
 function songState(song) {
   if(song.status==="playing")return "播放中";
   if(song.status==="played")return "已唱";
+  if(song.status==="skipped")return "已跳过";
+  if(song.status==="cancelled")return "已取消";
+  if(song.status==="closed_unplayed")return "散场未唱";
+  if(song.status==="closed_interrupted")return "散场中断";
   if(song.status==="rendering")return "制作中";
   if(song.prep_state==="unavailable")return "下载失败";
   if(song.prep_state==="original"&&!song.skip_subtitles)return "字幕失败";
@@ -283,14 +287,21 @@ function fillList(id, songs, mode="row") {
   songs.forEach((s,i)=>target.append(compactSong(s,i+1)));
 }
 async function refreshSongHistory(){
-  const data=await api("/api/songs/played");
-  const key=JSON.stringify(data.songs);
+  const data=await api("/api/songs/history");
+  const key=JSON.stringify(data);
   if(playedKey===key)return;
   playedKey=key;
   const target=$("page-played");target.replaceChildren();
-  if(!data.songs.length){appendText(target,"p","还没有已唱歌曲","empty");return;}
+  if(!data.songs.length){appendText(target,"p","暂无歌曲记录","empty");return;}
   const list=appendText(target,"div","","song-list");
-  data.songs.forEach((song,index)=>list.append(compactSong(song,index+1)));
+  data.songs.forEach((song,index)=>{
+    const item=compactSong(song,index+1);
+    if(data.archived){
+      item.disabled=true;item.onclick=null;
+      item.setAttribute("aria-label",song.title+"，"+songState(song));
+    }
+    list.append(item);
+  });
 }
 function songCoverUrl(cover){
   if(!cover)return "";
@@ -884,7 +895,7 @@ function showPage(){
   $("hero-title").textContent=isAdmin?"管理 KTV":"想唱什么？";
   $("hero-desc").textContent=isAdmin?"当前队列":"选择歌曲，加入队列";
   $("hero-title").parentElement.classList.toggle("hidden",!!page);
-  $("subpage-title").textContent=page==="played"?"已唱歌曲":page==="song"?"歌曲详情":
+  $("subpage-title").textContent=page==="played"?"本场记录":page==="song"?"歌曲详情":
     page?adminRoutes[page][0]:"";
   $("subpage-back").href=page==="song"?(window.history.state?.fromPlayed?"#played":"#"):
     (page==="settings"||page==="stats"||page==="played")?"#":"#settings";
@@ -897,7 +908,7 @@ function showPage(){
   for(const routeName of Object.keys(adminRoutes)){
     if(routeName!=="settings")$("page-"+routeName).classList.toggle("hidden",page!==routeName);
   }
-  document.title="VC KTV | "+(page==="played"?"已唱歌曲":page==="song"?"歌曲详情":
+  document.title="VC KTV | "+(page==="played"?"本场记录":page==="song"?"歌曲详情":
     page?adminRoutes[page][0]:isAdmin?"管理":"点歌");
 }
 setupSubpages();
@@ -1437,6 +1448,33 @@ async function refreshEvents(){
       const id=encodeURIComponent(event.id);
       const link=appendText(actions,"a","↓ CSV","btn neutral");
       link.href="/api/admin/events/"+id+"/songs.csv";
+      const view=appendText(actions,"button","查看","btn neutral");
+      view.type="button";
+      const details=appendText(item,"div","","archive-songs hidden");
+      view.onclick=()=>guarded(async()=>{
+        if(!details.classList.contains("hidden")){
+          details.classList.add("hidden");
+          view.textContent="查看";
+          return;
+        }
+        const data=await api("/api/admin/events/"+id+"/songs");
+        details.replaceChildren();
+        if(!data.songs.length)appendText(details,"p","暂无歌曲","muted");
+        data.songs.forEach((song,index)=>{
+          const row=appendText(details,"div","","archive-song");
+          appendText(row,"span",String(index+1),"archive-number");
+          const copy=appendText(row,"span","","archive-song-copy");
+          appendText(copy,"strong",song.title);
+          const metadata=appendText(copy,"span","","song-meta");
+          appendText(metadata,"span",song.requester,"song-requester");
+          appendText(metadata,"span","|","song-meta-separator");
+          appendText(metadata,"span",song.uploader||"未知作者","song-author");
+          addSourceTag(metadata,song);
+          appendText(row,"span",songState(song),"song-state");
+        });
+        details.classList.remove("hidden");
+        view.textContent="收起";
+      },view);
       if(data.role==="global"&&event.status==="closed"&&!event.legacy){
         if(!event.media_released_at){
           const release=appendText(actions,"button","释放空间","btn neutral");
@@ -1520,7 +1558,7 @@ $("event-create-btn").onclick=()=>guarded(async()=>{
   await refresh();
 },$("event-create-btn"));
 $("event-close-btn").onclick=()=>guarded(async()=>{
-  if(!confirm("结束本场 KTV 并保留全部记录？正在播放或制作时不能结束。"))return;
+  if(!confirm("结束本场？正在播放的歌曲将中断，未唱歌曲会保留记录。"))return;
   await api("/api/admin/events/close","POST");
   toast("✓ 已归档");
   await refresh();
@@ -1535,18 +1573,23 @@ function renderEntry(entry){
     $("auth-register").classList.remove("hidden");
   }
   $("guest-entry-description").textContent=!entry.event
-    ?"暂无活动场次"
+    ?entry.archived_event?"已散场："+entry.archived_event.name:"暂无活动场次"
     :entry.joined
       ?entry.event.name
       :entry.event.name+"  输入六位加入码";
   $("entry-code").classList.toggle("hidden",!entry.event||entry.joined);
   $("entry-account").classList.toggle("hidden",!entry.event||!entry.joined||entry.authenticated);
-  guestAuthenticated=Boolean(entry.authenticated);
-  $("guest-access").classList.toggle("hidden",entry.authenticated);
-  if(!isAdminPath())updateAccount(entry.authenticated,entry.username||"","点歌用户");
+  const pastOnly=Boolean(!entry.authenticated&&entry.archived_event);
+  guestAuthenticated=Boolean(entry.authenticated||
+    (pastOnly&&(!entry.event||currentRoute()==="played")));
+  $("guest-access").classList.toggle("hidden",guestAuthenticated);
+  $("guest-past-link").classList.toggle("hidden",!pastOnly||!entry.event);
+  if(!isAdminPath())updateAccount(guestAuthenticated,
+    entry.username||entry.archived_event?.username||"","点歌用户");
   $("request-panel").classList.toggle("hidden",!entry.authenticated);
   $("queue-panel").classList.toggle("hidden",!entry.authenticated);
-
+  if(entry.archived_event&&!entry.event&&currentRoute()!=="played")
+    window.location.hash="played";
   showPage();
 }
 $("entry-code").addEventListener("submit",(e)=>{e.preventDefault();guarded(async()=>{
@@ -1597,6 +1640,7 @@ async function refresh(){
         }
       }else{
         guestStateKey=null;
+        if(entry.archived_event&&currentRoute()==="played")await refreshSongHistory();
       }
     }
     if(isAdminPath()){

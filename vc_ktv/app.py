@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -372,6 +373,8 @@ class Store:
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
+        if "archive_order" not in columns:
+            self.db.execute("ALTER TABLE songs ADD COLUMN archive_order INTEGER")
         self.db.commit()
 
     def rows(self, sql, args=()):
@@ -552,6 +555,36 @@ class Store:
             and song["prep_state"] in ("done", "manual", "original")
             and bool(song.get("has_media") or song.get("media_file"))
         )
+
+    def close_song_order(self):
+        """Freeze actual turns, then the fair preview, then cancellations."""
+        songs = self.rows(
+            "SELECT id,status,played_at,requested_at FROM songs ORDER BY requested_at,id"
+        )
+        finished = sorted(
+            (s for s in songs if s["status"] in ("played", "skipped")),
+            key=lambda s: (s["played_at"] or 0, s["id"]),
+        )
+        active = [s for s in songs if s["status"] == "playing"]
+        # Predict the full unplayed order, including tracks still preparing.
+        # Pretend all pending tracks are playable, without persisting fair credit.
+        unplayed_pool = [
+            {**s, "status": "ready", "has_media": 1, "prep_state": "done"}
+            for s in self.songs()
+            if s["status"] in ("ready", "waiting", "rendering")
+        ]
+        predicted = self.fair_queue(unplayed_pool)
+        cancelled = [s for s in songs if s["status"] == "cancelled"]
+        ordered = [
+            *(s["id"] for s in finished),
+            *(s["id"] for s in active),
+            *(s["id"] for s in predicted),
+            *(s["id"] for s in cancelled),
+        ]
+        # Cover any legacy status with a stable position as well.
+        included = set(ordered)
+        ordered.extend(s["id"] for s in songs if s["id"] not in included)
+        return ordered
 
     def claim_next(self):
         """Claim the first playable turn, leaving an existing player untouched.
@@ -1097,18 +1130,54 @@ def create_app(
         meta = events.metadata()
         return {"event": {"id": meta["id"], "name": meta["name"]} if meta else None}
 
+    def archived_guest_event(token: str | None):
+        identity = read_signed(token, "guest")
+        if not identity or ":" not in identity:
+            return None
+        event_id, user_id = identity.split(":", 1)
+        if event_id == events.active_id:
+            return None
+        with events.lock:
+            event = next(
+                (
+                    e
+                    for e in events.list()
+                    if e["id"] == event_id and e["status"] == "closed"
+                ),
+                None,
+            )
+            if not event:
+                return None
+            try:
+                path = events.database_path(event_id)
+                with sqlite3.connect(
+                    f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
+                ) as db:
+                    row = db.execute(
+                        "SELECT username FROM users WHERE id=?", (user_id,)
+                    ).fetchone()
+            except sqlite3.Error:
+                return None
+            return (
+                {"id": event_id, "name": event["name"], "username": row[0]}
+                if row
+                else None
+            )
+
     @app.get("/api/entry")
     def entry(
         vc_join: str | None = Cookie(default=None),
         vc_guest: str | None = Cookie(default=None),
     ):
         event = events.metadata()
+        archive = archived_guest_event(vc_guest)
         if not event:
             return {
                 "event": None,
                 "joined": False,
                 "authenticated": False,
                 "username": None,
+                "archived_event": archive,
             }
         user = current_user(vc_guest)
         joined = bool(user or read_signed(vc_join, "entry") == events.active_id)
@@ -1117,6 +1186,7 @@ def create_app(
             "joined": joined,
             "authenticated": bool(user),
             "username": user["name"] if user else None,
+            "archived_event": archive if not user else None,
         }
 
     @app.post("/api/join")
@@ -1315,9 +1385,8 @@ def create_app(
             "username": principal.get("username"),
         }
 
-    @app.get("/api/admin/events/{event_id}/songs.csv")
-    def export_event_songs(event_id: str, vc_admin: str | None = Cookie(default=None)):
-        principal = require_admin(vc_admin)
+    def event_song_records(event_id: str, token: str | None):
+        principal = require_admin(token)
         if principal["role"] == "event" and event_id != events.active_id:
             bail(403, "无权查看其他场次历史")
         with events.lock:
@@ -1325,35 +1394,75 @@ def create_app(
             with sqlite3.connect(
                 f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
             ) as db:
-                songs = db.execute(
-                    """SELECT s.bvid,s.page,s.title,g.name,s.requested_at,
-                              s.status,s.played_at,s.source_type,s.source_id
-                       FROM songs s JOIN guests g ON g.id=s.requester
-                       ORDER BY s.requested_at,s.id"""
-                ).fetchall()
+                db.row_factory = sqlite3.Row
+                columns = {
+                    column[1] for column in db.execute("PRAGMA table_info(songs)")
+                }
+                frozen = (
+                    "archive_order" in columns
+                    and db.execute(
+                        "SELECT 1 FROM songs WHERE archive_order IS NOT NULL LIMIT 1"
+                    ).fetchone()
+                )
+                ordering = (
+                    "ORDER BY CASE WHEN s.archive_order IS NULL THEN 1 ELSE 0 END, "
+                    "s.archive_order,s.requested_at,s.id"
+                    if frozen
+                    else """ORDER BY
+                        CASE WHEN s.status IN ('played','skipped') THEN 0
+                             WHEN s.status IN ('playing','closed_interrupted') THEN 1
+                             WHEN s.status='cancelled' THEN 3
+                             ELSE 2 END,
+                        CASE WHEN s.status IN ('played','skipped') THEN s.played_at END,
+                        s.requested_at,s.id"""
+                )
+                songs = [
+                    dict(row)
+                    for row in db.execute(
+                        """SELECT s.id,s.title,g.name AS requester,
+                                  s.status,s.source_type,s.source_id,s.bvid,
+                                  s.page,s.requested_at,s.played_at,s.uploader
+                           FROM songs s JOIN guests g ON g.id=s.requester
+                           """
+                        + ordering
+                    )
+                ]
+            if event_id == events.active_id:
+                rank = {
+                    song_id: i
+                    for i, song_id in enumerate(events.active().close_song_order())
+                }
+                songs.sort(key=lambda row: rank.get(row["id"], len(rank)))
+            return songs
+
+    @app.get("/api/admin/events/{event_id}/songs")
+    def event_song_history(event_id: str, vc_admin: str | None = Cookie(default=None)):
+        return {"songs": event_song_records(event_id, vc_admin)}
+
+    @app.get("/api/admin/events/{event_id}/songs.csv")
+    def export_event_songs(event_id: str, vc_admin: str | None = Cookie(default=None)):
+        songs = event_song_records(event_id, vc_admin)
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(
-            (
-                "order",
-                "bvid",
-                "page",
-                "title",
-                "requester",
-                "requested_at",
-                "status",
-                "played_at",
-                "source_type",
-                "source_id",
-            )
+        fields = (
+            "title",
+            "requester",
+            "status",
+            "source_type",
+            "source_id",
+            "bvid",
+            "page",
+            "requested_at",
+            "played_at",
         )
+        writer.writerow(("order", *fields))
         for index, song in enumerate(songs, 1):
-            # Avoid formula execution for user input and provider identifiers.
-            fields = list(song)
-            for field in (2, 3, 7, 8):
-                if fields[field] and str(fields[field])[0] in "=+-@\t\r":
-                    fields[field] = "'" + fields[field]
-            writer.writerow((index, *fields))
+            values = [song[field] for field in fields]
+            # Prevent spreadsheet formula execution in text and provider fields.
+            for column in (0, 1, 4, 5):
+                if values[column] and str(values[column])[0] in "=+-@\t\r":
+                    values[column] = "'" + str(values[column])
+            writer.writerow((index, *values))
         return Response(
             "\ufeff" + output.getvalue(),
             media_type="text/csv; charset=utf-8",
@@ -1413,20 +1522,64 @@ def create_app(
                 # then inspect playback only after existing readers drain.
                 if not events.idle.wait_for(lambda: events.inflight == 0, timeout=10):
                     bail(409, "仍有请求正在处理，请稍后重试")
-                if store.current():
-                    bail(409, "请先结束正在播放的歌曲")
-                if worker.busy.is_set() or rendering.is_set():
-                    bail(409, "请等待当前媒体制作任务完成")
-                # The worker is pinned to this Store, and its store lock makes
-                # the idle/claim check atomic with the stop request.
-                with events.active().lock:
-                    if worker.busy.is_set():
-                        bail(409, "请等待当前媒体制作任务完成")
-                    worker.stop_signal.set()
+                target = events.active()
+                # Stop claims first, cancel active subprocess trees, then join
+                # workers. Never close a SQLite connection used by a live thread.
+                worker.stop_signal.set()
+                with worker.active_tasks_lock:
+                    active_ids = list(worker.active_tasks)
                 try:
-                    if not worker.stop():
-                        bail(409, "后台任务尚未退出，请稍后再试")
-                    return events.close()
+                    for song_id in active_ids:
+                        worker.cancel_song(song_id)
+                    stop_manual_renders()
+                    if not worker.stop() or rendering.is_set():
+                        bail(409, "后台任务尚未退出，请稍后重试")
+                    # TemporaryDirectory normally handles this; remove leftovers
+                    # from interrupted work only after all workers have exited.
+                    for temporary in target.root.glob("vc-ktv-[0-9]*-*"):
+                        if temporary.is_dir() and not temporary.is_symlink():
+                            shutil.rmtree(temporary, ignore_errors=True)
+                    with target.lock:
+                        before = target.rows(
+                            "SELECT id,status,played_at,archive_order FROM songs"
+                        )
+                        order = target.close_song_order()
+                        try:
+                            target.db.executemany(
+                                "UPDATE songs SET archive_order=? WHERE id=?",
+                                [(i, sid) for i, sid in enumerate(order, 1)],
+                            )
+                            target.db.execute(
+                                "UPDATE songs SET status='closed_interrupted' "
+                                "WHERE status='playing'"
+                            )
+                            target.db.execute(
+                                "UPDATE songs SET status='closed_unplayed' "
+                                "WHERE status IN ('waiting','ready','rendering')"
+                            )
+                            target.db.commit()
+                        except BaseException:
+                            target.db.rollback()
+                            raise
+                    try:
+                        return events.close()
+                    except BaseException:
+                        if events.active_id and events.current_store is target:
+                            with target.lock:
+                                target.db.executemany(
+                                    "UPDATE songs SET status=?,played_at=?,archive_order=? WHERE id=?",
+                                    [
+                                        (
+                                            row["status"],
+                                            row["played_at"],
+                                            row["archive_order"],
+                                            row["id"],
+                                        )
+                                        for row in before
+                                    ],
+                                )
+                                target.db.commit()
+                        raise
                 except BaseException:
                     if running and auto_prepare and events.active_id:
                         if any(thread.is_alive() for thread in worker.workers):
@@ -3025,6 +3178,69 @@ def create_app(
             if store.playback_mode() != "tv":
                 bail(409, "当前不是电视播放模式")
             return finish_impl(body)
+
+    @app.get("/api/songs/history")
+    def guest_song_history(vc_guest: str | None = Cookie(default=None)):
+        user = current_user(vc_guest)
+        archive = archived_guest_event(vc_guest) if not user else None
+        if not user and not archive:
+            require_user(vc_guest)
+        if archive:
+            with events.lock:
+                path = events.database_path(archive["id"])
+                with sqlite3.connect(
+                    f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
+                ) as db:
+                    db.row_factory = sqlite3.Row
+                    columns = {
+                        column[1] for column in db.execute("PRAGMA table_info(songs)")
+                    }
+                    frozen = (
+                        "archive_order" in columns
+                        and db.execute(
+                            "SELECT 1 FROM songs WHERE archive_order IS NOT NULL LIMIT 1"
+                        ).fetchone()
+                    )
+                    order = (
+                        "s.archive_order,s.id"
+                        if frozen
+                        else """CASE
+                           WHEN s.status IN ('played','skipped') THEN 0
+                           WHEN s.status IN ('playing','closed_interrupted') THEN 1
+                           WHEN s.status='cancelled' THEN 3 ELSE 2 END,
+                           s.played_at,s.requested_at,s.id"""
+                    )
+                    songs = [
+                        dict(row)
+                        for row in db.execute(
+                            """SELECT s.id,s.bvid,s.page,s.title,s.uploader,
+                                      s.status,s.source_type,s.source_id,
+                                      s.prep_state,s.skip_subtitles,
+                                      g.name AS nickname
+                               FROM songs s JOIN guests g ON g.id=s.requester
+                               ORDER BY """
+                            + order
+                        )
+                    ]
+            return {"songs": songs, "archived": True}
+        with store.lock:
+            order = store.close_song_order()
+            records = store.rows(
+                """SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.status,
+                          s.source_type,s.source_id,s.prep_state,
+                          s.skip_subtitles,s.media_file,
+                          g.name AS nickname
+                   FROM songs s JOIN guests g ON g.id=s.requester"""
+            )
+            rank = {song_id: i for i, song_id in enumerate(order)}
+            records.sort(key=lambda song: rank.get(song["id"], len(rank)))
+            for song in records:
+                song["downloadable"] = (
+                    Store.downloadable(song)
+                    and (store.media / Path(song["media_file"] or "").name).is_file()
+                )
+                song.pop("media_file", None)
+            return {"songs": records, "archived": False}
 
     @app.get("/api/songs/played")
     def guest_played_songs(

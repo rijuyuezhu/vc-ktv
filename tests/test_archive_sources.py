@@ -61,15 +61,15 @@ def test_export_mixed_source_ids_in_active_and_closed_event(tmp_path):
             rows = list(csv.DictReader(io.StringIO(response.text.lstrip("\ufeff"))))
             assert list(rows[0]) == [
                 "order",
-                "bvid",
-                "page",
                 "title",
                 "requester",
-                "requested_at",
                 "status",
-                "played_at",
                 "source_type",
                 "source_id",
+                "bvid",
+                "page",
+                "requested_at",
+                "played_at",
             ]
             assert rows[0]["bvid"] == "BV0000000001"
             assert rows[0]["page"] == "2"

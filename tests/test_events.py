@@ -1,3 +1,4 @@
+import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -68,12 +69,11 @@ def test_session_lifecycle_isolates_cookie_tv_media_and_song_files(tmp_path):
         token = primary_tv_token(admin)
         active = admin.post("/api/admin/next").json()["active"]
         assert user.get(active["media_url"]).content == b"valid-media"
-        assert admin.post("/api/admin/events/close").status_code == 409
-        assert (
-            admin.post("/api/admin/finish", json={"song_id": song_id}).status_code
-            == 200
-        )
         assert admin.post("/api/admin/events/close").status_code == 200
+        with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
+            assert db.execute(
+                "SELECT status,archive_order FROM songs WHERE id=?", (song_id,)
+            ).fetchone() == ("closed_interrupted", 1)
 
         assert user.get(active["media_url"]).status_code == 403
         assert user.get("/api/tv/state", params={"token": token}).status_code == 401

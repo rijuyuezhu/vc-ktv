@@ -658,3 +658,19 @@ button, input, select { min-height: 44px; }
 }
 /* The settings subpage already has a title; do not repeat it inside the card. */
 #page-settings-history #event-archive-panel > summary { display: none; }
+
+.archive-item { flex-wrap: wrap; }
+.archive-songs { flex: 1 0 100%; display: grid; gap: 4px; min-width: 0; }
+.archive-song {
+  display: grid; grid-template-columns: 26px minmax(0,1fr) auto;
+  align-items: center; gap: 8px; padding: 10px;
+  background: var(--surface-2); border-radius: 8px;
+}
+.archive-number { font-size: 12px; color: var(--muted); }
+.archive-song-copy { display: grid; gap: 3px; min-width: 0; }
+.archive-song-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.archive-song .song-meta { font-size: 12px; }
+
+/* An archived song is a read-only record, not a dead-looking control. */
+.song-row:disabled { opacity: 1; cursor: default; }
+.song-row:disabled:hover { background: var(--surface); border-color: var(--line); }
