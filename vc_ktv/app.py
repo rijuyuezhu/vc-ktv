@@ -673,7 +673,11 @@ async def bilibili_lookup(bvid: str, page: int) -> dict:
             for i, q in enumerate(pages)
         ],
         "uploader": d.get("owner", {}).get("name", "未知 UP 主")[:100],
-        "cover": d.get("pic", ""),
+        "cover": re.sub(
+            r"^http://([a-zA-Z0-9.-]+\.hdslb\.com)/",
+            r"https://\1/",
+            d.get("pic", ""),
+        ),
         "duration": duration,
         "official_url": f"https://www.bilibili.com/video/{quote(bvid)}/?p={page}",
         "embed_url": f"https://player.bilibili.com/player.html?bvid={quote(bvid)}&page={page}&high_quality=1",
