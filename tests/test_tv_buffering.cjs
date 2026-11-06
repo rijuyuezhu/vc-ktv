@@ -222,35 +222,42 @@ test("TV source icon distinguishes NetEase from Bilibili without exposing IDs",a
   assert.equal(h.el("next-up").textContent.includes("9876543210"),false);
 });
 
-test("delayed earlier TV state response cannot overwrite a newer next-song view",async()=>{
+test("slow TV polling serializes requests and never discards a valid result",async()=>{
   const h=tvHarness();
   await h.ready();
   await h.evaluate("syncQueue()");
   const pending=[];
   h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));
-  const stale=h.evaluate("syncQueue()");
-  const latest=h.evaluate("syncQueue()");
+  const first=h.evaluate("syncQueue()");
+  const overlap=h.evaluate("syncQueue()");
+  assert.equal(pending.length,1);
+  await overlap;
+  pending[0].resolve({ok:true,async json(){return {queue:[{id:2,title:"Old",nickname:"A"}],current:null,playback_mode:"tv"};}});
+  await first;
+  assert.equal(h.el("next-up").textContent,"Old  A");
+  const second=h.evaluate("syncQueue()");
   assert.equal(pending.length,2);
   pending[1].resolve({ok:true,async json(){return {queue:[{id:3,title:"New",nickname:"B"}],current:null,playback_mode:"tv"};}});
-  await latest;
-  assert.equal(h.el("next-up").textContent,"New  B");
-  pending[0].resolve({ok:true,async json(){return {queue:[{id:2,title:"Old",nickname:"A"}],current:null,playback_mode:"tv"};}});
-  await stale;
+  await second;
   assert.equal(h.el("next-up").textContent,"New  B");
 });
 
-test("stale TV polling error must not replace a newer healthy queue view",async()=>{
+test("failed TV poll releases slot and next poll can recover",async()=>{
   const h=tvHarness();
   await h.ready();
   await h.evaluate("syncQueue()");
   const pending=[];
   h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));
-  const stale=h.evaluate("syncQueue()");
-  const latest=h.evaluate("syncQueue()");
+  const first=h.evaluate("syncQueue()");
+  const overlap=h.evaluate("syncQueue()");
+  assert.equal(pending.length,1);
+  pending[0].reject(new Error("request timed out"));
+  await first;
+  await overlap;
+  assert.equal(h.el("control-error").textContent,"request timed out");
+  const second=h.evaluate("syncQueue()");
+  assert.equal(pending.length,2);
   pending[1].resolve({ok:true,async json(){return {queue:[{id:4,title:"Fresh",nickname:"C"}],current:null,playback_mode:"tv"};}});
-  await latest;
-  pending[0].reject(new Error("old request timed out"));
-  await stale;
+  await second;
   assert.equal(h.el("next-up").textContent,"Fresh  C");
-  assert.equal(h.el("control-error").textContent,"");
 });
