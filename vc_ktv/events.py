@@ -23,6 +23,7 @@ class Events:
         root.mkdir(parents=True, mode=0o700, exist_ok=True)
         self.base.mkdir(mode=0o700, exist_ok=True)
         self.lock = threading.RLock()
+        self._archive_busy: set[str] = set()
         self.idle = threading.Condition(self.lock)
         self.inflight = 0
         self.transitioning = False
@@ -96,7 +97,11 @@ class Events:
                 and (f / "info.json").is_file()
                 and EVENT_ID.fullmatch(f.name)
             ):
-                items.append(json.loads((f / "info.json").read_text()))
+                try:
+                    items.append(json.loads((f / "info.json").read_text()))
+                except FileNotFoundError:
+                    # A closed room may be deleted between is_file and read.
+                    continue
         return items
 
     def database_path(self, event_id: str) -> Path:
@@ -139,10 +144,22 @@ class Events:
             raise HTTPException(409, "只能操作已结束的场次")
         return folder, entry
 
-    def release_media(self, event_id: str, csv_text: str):
-        """Retain the event DB, CSV and small text; remove bulky media."""
+    @contextmanager
+    def archive_operation(self, event_id: str):
         with self.lock:
             folder, entry = self.closed_folder(event_id)
+            if event_id in self._archive_busy:
+                raise HTTPException(409, "该场次正在清理中")
+            self._archive_busy.add(event_id)
+        try:
+            yield folder, entry
+        finally:
+            with self.lock:
+                self._archive_busy.remove(event_id)
+
+    def release_media(self, event_id: str, csv_text: str):
+        """Retain the event DB, CSV and small text; remove bulky media."""
+        with self.archive_operation(event_id) as (folder, entry):
             self._write_atomic(folder / "songs.csv", csv_text)
             media = folder / "media"
             freed = 0
@@ -189,8 +206,7 @@ class Events:
             }
 
     def delete_closed(self, event_id: str):
-        with self.lock:
-            folder, _ = self.closed_folder(event_id)
+        with self.archive_operation(event_id) as (folder, _):
             shutil.rmtree(folder)
             return {"ok": True}
 
