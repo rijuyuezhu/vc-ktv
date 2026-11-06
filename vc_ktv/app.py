@@ -1137,27 +1137,32 @@ def create_app(
         event_id, user_id = identity.split(":", 1)
         if event_id == events.active_id:
             return None
-        event = next(
-            (
-                e
-                for e in events.list()
-                if e["id"] == event_id and e["status"] == "closed"
-            ),
-            None,
-        )
-        if not event:
-            return None
-        try:
-            path = events.database_path(event_id)
-            with sqlite3.connect(
-                f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
-            ) as db:
-                row = db.execute(
-                    "SELECT username FROM users WHERE id=?", (user_id,)
-                ).fetchone()
-        except sqlite3.Error:
-            return None
-        return {**event, "username": row[0]} if row else None
+        with events.lock:
+            event = next(
+                (
+                    e
+                    for e in events.list()
+                    if e["id"] == event_id and e["status"] == "closed"
+                ),
+                None,
+            )
+            if not event:
+                return None
+            try:
+                path = events.database_path(event_id)
+                with sqlite3.connect(
+                    f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
+                ) as db:
+                    row = db.execute(
+                        "SELECT username FROM users WHERE id=?", (user_id,)
+                    ).fetchone()
+            except sqlite3.Error:
+                return None
+            return (
+                {"id": event_id, "name": event["name"], "username": row[0]}
+                if row
+                else None
+            )
 
     @app.get("/api/entry")
     def entry(
