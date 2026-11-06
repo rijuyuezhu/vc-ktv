@@ -72,7 +72,8 @@ uv run --no-sync python -m vc_ktv
 | `VC_KTV_DATA` | `~/.local/share/vc-ktv` | 场次数据与媒体 |
 | `VC_KTV_AUTOPREPARE` | `1` | 自动下载与制作 |
 | `VC_KTV_GPU_ALIGNMENT` | `1` | GPU 字幕对齐 |
-| `VC_KTV_PREP_WORKERS` | `1` | 同时制作歌曲数（1–4） |
+| `VC_KTV_PREP_WORKERS` | `1` | 普通 Worker 数量（1–4，可处理 GPU 对齐） |
+| `VC_KTV_FAST_WORKERS` | `0` | 额外 CPU Fast Worker 数量（0–2，只处理来源时间轴任务；生产推荐 2） |
 | `VC_KTV_PIPELINE_ROOT` | `~/.local/share/vc-ktv/pipeline` | 模型路径 |
 
 常驻部署和升级操作见 [部署与升级](RELEASE.md)。

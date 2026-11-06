@@ -321,6 +321,7 @@ class AutoPrep:
         enhance=render_upstream_video,
         max_workers: int | None = None,
         gpu_alignment: bool = True,
+        fast_workers: int | None = None,
     ):
         # Explicit opt-in. Keep production serial until a concurrent
         # quality-pipeline benchmark demonstrates a throughput improvement.
@@ -332,6 +333,14 @@ class AutoPrep:
         if max_workers not in (1, 2, 3, 4):
             raise ValueError("VC_KTV_PREP_WORKERS must be 1, 2, 3 or 4")
         self.max_workers = max_workers
+        fast_workers = (
+            int(os.getenv("VC_KTV_FAST_WORKERS", "0"))
+            if fast_workers is None
+            else fast_workers
+        )
+        if fast_workers not in (0, 1, 2):
+            raise ValueError("VC_KTV_FAST_WORKERS must be 0, 1 or 2")
+        self.fast_workers = fast_workers
         self.gpu_alignment = gpu_alignment
         self.store = store
         self.probe = probe
@@ -437,6 +446,19 @@ class AutoPrep:
             # Keep a worker even if Thread.start() raised after it started.
             if thread is not None and thread.is_alive():
                 self.workers.append(thread)
+        for index in range(1, self.fast_workers + 1):
+            name = f"vc-ktv-auto-prep-fast-{index}"
+            if name in names:
+                continue
+            try:
+                thread = threading.Thread(
+                    target=self.loop, args=("fast",), name=name, daemon=True
+                )
+                thread.start()
+                if thread.is_alive():
+                    self.workers.append(thread)
+            except Exception:
+                log.exception("Failed to resume Fast worker %s", name)
         self.worker = self.workers[0] if self.workers else None
         if self.budget_watcher is None or not self.budget_watcher.is_alive():
             self.budget_watcher = threading.Thread(
@@ -444,58 +466,68 @@ class AutoPrep:
             )
             self.budget_watcher.start()
 
-    def claim(self):
+    def claim(self, lane="general"):
         with self.store.lock:
-            # Closing an idle event can race the next loop iteration.
             if self.stop_signal.is_set():
                 return None
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
             try:
+                # Provider subtitles are cheap CPU work: never let downloads or
+                # GPU alignment prevent an already-downloaded song from finishing.
                 row = self.store.db.execute(
-                    """SELECT * FROM songs WHERE status='waiting' AND
-                       (prep_state='pending' OR
-                        (prep_state='unavailable' AND prep_attempts < 3 AND prep_retry_at <= ?))
-                       ORDER BY CASE WHEN prep_state='pending' THEN 0 ELSE 1 END,
-                                requested_at,id LIMIT 1""",
-                    (int(time.time()),),
+                    """SELECT * FROM songs WHERE status='ready'
+                       AND prep_state='downloaded' AND lyric_choice != ''
+                       AND skip_subtitles=0 AND lyric_timing_mode='provider'
+                       ORDER BY requested_at,id LIMIT 1"""
                 ).fetchone()
-                if row:
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
-                        "prep_error='',prep_stage='download',prep_stage_at=?,"
-                        "prep_timing='{}' WHERE id=?",
-                        (int(time.time()), row["id"]),
+                if not row:
+                    download_filter = (
+                        " AND lyric_timing_mode='provider'" if lane == "fast" else ""
                     )
-                else:
+                    row = self.store.db.execute(
+                        """SELECT * FROM songs WHERE status='waiting' AND
+                           (prep_state='pending' OR
+                            (prep_state='unavailable' AND prep_attempts < 3
+                             AND prep_retry_at <= ?))"""
+                        + download_filter
+                        + """ ORDER BY CASE WHEN prep_state='pending' THEN 0 ELSE 1 END,
+                                     requested_at,id LIMIT 1""",
+                        (int(time.time()),),
+                    ).fetchone()
+                if not row and lane == "general":
                     row = self.store.db.execute(
                         """SELECT * FROM songs WHERE status='ready'
                            AND prep_state='downloaded' AND lyric_choice != ''
                            AND skip_subtitles=0
                            ORDER BY requested_at,id LIMIT 1"""
                     ).fetchone()
-                    if row:
-                        if (
-                            not self.gpu_alignment
-                            and row["lyric_timing_mode"] != "provider"
-                        ):
-                            # A room restored from GPU mode must not wait
-                            # indefinitely on an unavailable model. Keep its
-                            # original video and allow choosing timed lyrics.
-                            self.store.db.execute(
-                                "UPDATE songs SET prep_state='original',"
-                                "prep_error='GPU 对齐未启用，请选择来源时间轴或使用原片' "
-                                "WHERE id=?",
-                                (row["id"],),
-                            )
-                            self.store.db.commit()
-                            return None
+                if row and row["status"] == "waiting":
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
+                        "prep_error='',prep_stage='download',prep_stage_at=?,"
+                        "prep_timing='{}' WHERE id=?",
+                        (int(time.time()), row["id"]),
+                    )
+                elif row:
+                    if (
+                        not self.gpu_alignment
+                        and row["lyric_timing_mode"] != "provider"
+                    ):
                         self.store.db.execute(
-                            "UPDATE songs SET prep_state='aligning',"
-                            "prep_stage='queued',prep_stage_at=? WHERE id=?",
-                            (int(time.time()), row["id"]),
+                            "UPDATE songs SET prep_state='original',"
+                            "prep_error='GPU 对齐未启用，请选择来源时间轴或使用原片' "
+                            "WHERE id=?",
+                            (row["id"],),
                         )
+                        self.store.db.commit()
+                        return None
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state='aligning',"
+                        "prep_stage='queued',prep_stage_at=? WHERE id=?",
+                        (int(time.time()), row["id"]),
+                    )
                 if not row:
                     return None  # Idle polling has no write to commit.
                 claimed = dict(row)
@@ -606,10 +638,10 @@ class AutoPrep:
                     ) from failure
                 raise
 
-    def loop(self):
+    def loop(self, lane="general"):
         while not self.stop_signal.is_set():
             try:
-                row = self.claim()
+                row = self.claim(lane)
             except sqlite3.Error:
                 log.exception("Failed to claim AutoPrep task; retrying")
                 self.stop_signal.wait(1)
