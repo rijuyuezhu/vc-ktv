@@ -49,7 +49,7 @@ from .timed_lyrics import offset_timeline, project_provider_timeline, provider_t
 
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
 MAX_ACTIVE_SONGS = 1000
-MAX_USER_SONGS = 10
+MAX_USER_SONGS = 20
 LRC_LINE = re.compile(
     r"^(?:\[(?:(?:\d{1,2}:)?\d{1,3}:\d{2}(?:[.:]\d{1,3})?)\])+\s*(.*)$"
 )
@@ -873,7 +873,9 @@ def create_app(
 
     def check_room_capacity():
         count = store.db.execute(
-            "SELECT COUNT(*) FROM songs WHERE status IN ('waiting','rendering','ready','playing')"
+            "SELECT COUNT(*) FROM songs WHERE status IN ('rendering','ready','playing')"
+            " OR (status='waiting' AND NOT "
+            "(prep_state='unavailable' AND prep_attempts>=3))"
         ).fetchone()[0]
         if count >= MAX_ACTIVE_SONGS:
             bail(409, "本场待处理歌曲已满，请稍后再点歌")
@@ -882,17 +884,22 @@ def create_app(
         except DiskBudgetExceeded as error:
             bail(507, str(error))
 
+    def check_guest_capacity(guest_id: str):
+        count = store.db.execute(
+            "SELECT COUNT(*) FROM songs WHERE requester=? AND "
+            "(status IN ('rendering','ready','playing') OR "
+            "(status='waiting' AND NOT "
+            "(prep_state='unavailable' AND prep_attempts>=3)))",
+            (guest_id,),
+        ).fetchone()[0]
+        if count >= MAX_USER_SONGS:
+            bail(409, "每人最多保留二十首待唱歌曲")
+
     def check_new_order(guest_id: str):
         if store.settings()["orders_paused"]:
             bail(409, "本场已暂停点歌")
         check_room_capacity()
-        count = store.db.execute(
-            "SELECT COUNT(*) FROM songs WHERE requester=? "
-            "AND status IN ('waiting','rendering','ready','playing')",
-            (guest_id,),
-        ).fetchone()[0]
-        if count >= MAX_USER_SONGS:
-            bail(409, "每人最多保留十首待唱歌曲")
+        check_guest_capacity(guest_id)
 
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
@@ -2252,12 +2259,19 @@ def create_app(
         require_admin(vc_admin)
         with store.lock:
             row = store.db.execute(
-                "SELECT status,prep_state FROM songs WHERE id=?", (song_id,)
+                "SELECT status,prep_state,prep_attempts,requester "
+                "FROM songs WHERE id=?",
+                (song_id,),
             ).fetchone()
             if row is None:
                 bail(404, "歌曲不存在")
             if row["status"] != "waiting" or row["prep_state"] != "unavailable":
                 bail(409, "只有准备失败的待处理歌曲可以重试下载")
+            # A terminal failure frees its capacity; manually restarting it
+            # must claim capacity again, without being subject to order pause.
+            if row["prep_attempts"] >= 3:
+                check_room_capacity()
+                check_guest_capacity(row["requester"])
             try:
                 store.db.execute(
                     "UPDATE songs SET prep_state='pending',prep_attempts=0,"
