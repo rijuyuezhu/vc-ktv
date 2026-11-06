@@ -55,7 +55,7 @@ input:not([type=checkbox]), select, textarea { width: 100%; min-width: 0; paddin
 input:focus, select:focus, textarea:focus { border-color: #969fe8; box-shadow: 0 0 0 3px #4f5bd51a; }
 input::placeholder { color: var(--muted-2); }
 textarea { resize: vertical; }
-.btn { padding: 10px 15px; border: 1px solid var(--line-strong); border-radius: 7px; font-weight: 680; white-space: nowrap; transition: background .12s, border-color .12s; }
+.btn { padding: 10px 15px; border: 1px solid var(--line-strong); border-radius: 7px; font-weight: 680; white-space: nowrap; text-align: center; transition: background .12s, border-color .12s; }
 .btn:disabled { opacity: .48; cursor: wait; }
 .primary { border-color: var(--accent); background: var(--accent); color: #fff; }
 .primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
