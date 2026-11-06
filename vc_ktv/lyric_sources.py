@@ -55,10 +55,11 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
                 lines = []
                 for line in cloned.get_text().splitlines():
                     line = re.sub(r"[\t\u200b\u3000 ]+", " ", line).strip()
-                    if line and (not lines or line != lines[-1]):
+                    # Consecutive identical lines can be intentional repeats.
+                    if line:
                         lines.append(line)
                 value = "\n".join(lines)
-                if len(value) >= 30 and value not in [x["text"] for x in variants]:
+                if len(lines) >= 2 and value not in [x["text"] for x in variants]:
                     variants.append(
                         {
                             "title": title,

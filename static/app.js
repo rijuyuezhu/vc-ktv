@@ -527,7 +527,9 @@ function addLyricCandidates(candidates, songId, sequence){
   const panel=$("guest-lyrics-results");
   candidates.forEach(candidate=>{
       if(!gpuAlignment && !(candidate.timed_lrc && candidate.timing_ticket))return;
-    const key=candidate.title+"\u0000"+candidate.text;
+    // The same lyrics from different recordings/sources may have different
+    // timing. Deduplicating only by title/text can hide a usable fast route.
+    const key=[candidate.source,candidate.url,candidate.text].join("\u0000");
     if(lyricKeys.has(key))return;
     lyricKeys.add(key);
     if(lyricHits===0)panel.replaceChildren();

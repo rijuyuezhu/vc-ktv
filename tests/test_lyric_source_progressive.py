@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv import lyric_selection
+from vc_ktv import lyric_selection, lyric_sources
 from vc_ktv.app import create_app
 from vc_ktv.autoprep import title_key
 
@@ -198,3 +198,96 @@ def test_slow_wiki_article_does_not_discard_a_ready_article(monkeypatch):
 def test_single_character_book_title_is_extracted():
     assert title_key("【乐正绫原创曲】《花》【PV付】") == "花"
     assert title_key("【乐正绫原创曲】花") == "花"
+    assert title_key("【洛天依乐正绫原创】双城记【PV付】【南北寻光收录曲】") == "双城记"
+    assert title_key("【张居正诞辰500周年纪念】为岳【言和原创】“天将倾”") == "为岳"
+
+
+def test_combined_search_keeps_identical_text_from_different_recordings(monkeypatch):
+    async def source(label, url):
+        return [
+            {
+                "title": "双城记",
+                "source": label,
+                "text": "第一句\n第二句",
+                "url": url,
+                "timed_lrc": "[00:01.00]第一句\n[00:05.00]第二句"
+                if label == "网易云音乐"
+                else None,
+            }
+        ]
+
+    monkeypatch.setattr(
+        lyric_selection,
+        "vcpedia_lyric_candidates",
+        lambda _: source("VCPedia", "https://vcpedia.cn/song"),
+    )
+    monkeypatch.setattr(
+        lyric_selection,
+        "_wiki_search",
+        lambda _: source("VCPedia", "https://vcpedia.cn/song"),
+    )
+    monkeypatch.setattr(
+        lyric_selection,
+        "_lrclib",
+        lambda _: source("LRCLIB", "https://lrclib.net/api/get/1"),
+    )
+    monkeypatch.setattr(
+        lyric_selection,
+        "_netease",
+        lambda _: source("网易云音乐", "https://music.163.com/song?id=477933268"),
+    )
+    rows = asyncio.run(lyric_selection.search_lyric_candidates("双城记"))
+    assert [item["source"] for item in rows] == ["VCPedia", "LRCLIB", "网易云音乐"]
+    assert rows[-1]["timed_lrc"]
+
+
+def test_netease_search_considers_results_after_sixth(monkeypatch):
+    def respond(request):
+        if request.url.path.endswith("search/get"):
+            assert request.url.params["limit"] == "15"
+            tracks = [{"id": index, "name": "示例曲目"} for index in range(1, 9)]
+            return httpx.Response(200, json={"code": 200, "result": {"songs": tracks}})
+        return httpx.Response(
+            200,
+            json={
+                "code": 200,
+                "nolyric": True,
+                "lrc": {"lyric": "[00:01.00]第一句\n[00:05.00]第二句"},
+            },
+        )
+
+    original = lyric_selection.httpx.AsyncClient
+    monkeypatch.setattr(
+        lyric_selection.httpx,
+        "AsyncClient",
+        lambda **kw: original(transport=httpx.MockTransport(respond), **kw),
+    )
+    rows = asyncio.run(lyric_selection.search_lyric_candidates("示例", "netease"))
+    assert len(rows) == 8
+    assert rows[-1]["url"].endswith("id=8")
+
+
+def test_short_vcpedia_verses_keep_intentional_repeated_lines(monkeypatch):
+    def respond(_):
+        return httpx.Response(
+            200,
+            json={
+                "parse": {
+                    "text": {
+                        "*": (
+                            '<h2><span class="mw-headline">歌词</span></h2>'
+                            '<div class="poem">你好<br/>你好<br/>再见</div>'
+                        )
+                    }
+                }
+            },
+        )
+
+    original = lyric_sources.httpx.AsyncClient
+    monkeypatch.setattr(
+        lyric_sources.httpx,
+        "AsyncClient",
+        lambda **kw: original(transport=httpx.MockTransport(respond), **kw),
+    )
+    rows = asyncio.run(lyric_sources.vcpedia_lyric_candidates("一首短歌"))
+    assert [row["text"] for row in rows] == ["你好\n你好\n再见"]

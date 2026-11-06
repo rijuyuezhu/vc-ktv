@@ -103,7 +103,11 @@ async def search_netease_songs(
     if not isinstance(payload, dict) or payload.get("code") != 200:
         raise ValueError("网易云搜索响应异常")
     result = payload.get("result")
-    if not isinstance(result, dict) or not isinstance(result.get("songs"), list):
+    if not isinstance(result, dict):
+        raise ValueError("网易云搜索响应异常")
+    if result.get("songCount") == 0 and not result.get("songs"):
+        return []
+    if not isinstance(result.get("songs"), list):
         raise ValueError("网易云搜索响应异常")
     songs = []
     for track in result["songs"]:

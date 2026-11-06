@@ -43,8 +43,8 @@ def test_clean_credits_and_keep_signed_source_and_offset():
         "[00:01.00]一句歌词\n没有时间戳的第二句\n[00:05.00]第三句歌词",
         "[00:10.00]一句歌词\n[00:05.00]第二句歌词",
         "[00:01.00]一句歌词\n[00:01.00]第二句歌词",
-        "[offset:1500]\n[00:01.00]一句歌词\n[00:05.00]第二句歌词",
-        "[00:01.00]<00:01.00>一句歌词\n[00:05.00]第二句歌词",
+        "[offset:1000]\n[offset:2000]\n[00:01.00]一句歌词\n[00:05.00]第二句歌词",
+        "[00:01.00]<00:01.00>一句歌词\n[00:05.00]<00:05.00><00:05.00>第二句歌词",
     ],
 )
 def test_reject_untrustworthy_provider_timing(raw):
@@ -59,11 +59,75 @@ def test_reject_clipped_version_or_time_warp():
         offset_timeline(timed, -6000, 60)
     with pytest.raises(ValueError, match="超出视频"):
         offset_timeline(timed, 55_000, 60)
-    with pytest.raises(ValueError, match="偏移"):
+    with pytest.raises(ValueError, match="超出视频"):
         offset_timeline(timed, 70_000, 60)
-    with pytest.raises(ValueError, match="密集"):
-        offset_timeline("[00:01.00]第一次演唱的歌词\n[00:01.02]第二次演唱的歌词", 0, 60)
+    assert offset_timeline(
+        "[00:01.00]第一次演唱的歌词\n[00:01.02]第二次演唱的歌词", 0, 60
+    ).endswith("[00:01.02]第二次演唱的歌词")
+    with pytest.raises(ValueError, match="重复"):
+        offset_timeline("[00:01.00]第一句\n[00:01.00]第二句", 0, 60)
     assert provider_timeline(RAW, TEXT + "\n错版新增的歌词") is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_lines"),
+    [
+        # Exact NetEase versions observed in production: 35807133, 2158558246,
+        # and 477933268 each contain standalone timestamps between sung lines.
+        (
+            (
+                "[00:00.00]作词：A\n[00:16.18]古旧染了锈迹的钟\n"
+                "[00:59.48]\n[01:02.13]无感情拍打着回声\n[04:13.08]"
+            ),
+            ["[00:16.18]古旧染了锈迹的钟", "[01:02.13]无感情拍打着回声"],
+        ),
+        (
+            "[00:00.00]作词：A\n[00:13.63]\n[00:14.02]梨花香\n[00:18.62]凛冬将至",
+            ["[00:14.02]梨花香", "[00:18.62]凛冬将至"],
+        ),
+        (
+            (
+                "[00:18.550]街角的人群聚散着离去\n[01:48.710]\n"
+                "[01:51.120]路边的橱窗静默的呼吸"
+            ),
+            [
+                "[00:18.55]街角的人群聚散着离去",
+                "[01:51.12]路边的橱窗静默的呼吸",
+            ],
+        ),
+    ],
+)
+def test_standalone_instrumental_stamps_do_not_hide_valid_timing(raw, expected_lines):
+    from ktv_app.text_normalization import clean_lyric_text
+
+    assert provider_timeline(raw, clean_lyric_text(raw)) == "\n".join(expected_lines)
+
+
+def test_global_offset_and_enhanced_lrc_keep_line_timing():
+    from ktv_app.text_normalization import clean_lyric_text
+    from vc_ktv.timed_lyrics import project_provider_timeline
+
+    raw = (
+        "[offset:+1500]\n[00:01.00]<00:01.00>第一句歌词\n"
+        "[00:02.00]\n[00:05.00]<00:05.00>第二句歌词"
+    )
+    text = clean_lyric_text(raw)
+    assert provider_timeline(raw, text) == (
+        "[00:02.50]第一句歌词\n[00:06.50]第二句歌词"
+    )
+    assert project_provider_timeline(raw, text, [0, 1]) == provider_timeline(raw, text)
+    assert offset_timeline(provider_timeline(raw, text), 75_000, 100) == (
+        "[01:17.50]第一句歌词\n[01:21.50]第二句歌词"
+    )
+
+
+def test_duplicate_credit_stamps_do_not_hide_sung_line_timing():
+    from ktv_app.text_normalization import clean_lyric_text
+
+    raw = "[00:00.00]作词：甲\n[00:00.00]作曲：乙\n[00:01.00]第一句\n[00:02.00]第二句"
+    assert provider_timeline(raw, clean_lyric_text(raw)) == (
+        "[00:01.00]第一句\n[00:02.00]第二句"
+    )
 
 
 def make_app(tmp_path, duration=60):

@@ -117,11 +117,7 @@ async def netease_song_lyrics(
         )
         resp.raise_for_status()
         payload = resp.json()
-    if (
-        not isinstance(payload, dict)
-        or payload.get("code") != 200
-        or payload.get("nolyric")
-    ):
+    if not isinstance(payload, dict) or payload.get("code") != 200:
         return []
     raw = (payload.get("lrc") or {}).get("lyric")
     if not isinstance(raw, str):
@@ -147,7 +143,7 @@ async def _netease(query: str) -> list[dict]:
     ) as client:
         response = await client.get(
             "https://music.163.com/api/search/get",
-            params={"s": query, "type": 1, "limit": 6},
+            params={"s": query, "type": 1, "limit": 15},
         )
         response.raise_for_status()
         data = response.json()
@@ -168,7 +164,7 @@ async def _netease(query: str) -> list[dict]:
                 )
                 response.raise_for_status()
                 payload = response.json()
-                if payload.get("code") != 200 or payload.get("nolyric"):
+                if payload.get("code") != 200:
                     return None
                 raw = (payload.get("lrc") or {}).get("lyric")
                 name = track.get("name")
@@ -245,7 +241,9 @@ async def search_lyric_candidates(query: str, phase: str = "all") -> list[dict]:
         seen, results = set(), []
         for batch in batches:
             for item in batch:
-                key = (item["title"], item["text"])
+                # Identically worded lyrics can belong to different recordings,
+                # with different (or missing) timing. Keep those choices distinct.
+                key = (item["source"], item.get("url"), item["text"])
                 if key not in seen:
                     seen.add(key)
                     results.append(item)
