@@ -311,3 +311,10 @@ def test_tv_replacement_has_separate_open_and_copy_actions():
     assert '$("tv-copy-btn").classList.toggle("hidden",tv.active' not in js
     assert 'const tab=window.open("about:blank","_blank");' in js
     assert "if(link)await copyTVLink(link);" in js
+
+
+def test_button_like_links_and_buttons_share_center_alignment():
+    css = (Path(__file__).resolve().parents[1] / "static" / "style.css").read_text()
+    shared_button_rule = re.search(r"\.btn\s*\{([^}]+)\}", css)
+    assert shared_button_rule is not None
+    assert re.search(r"text-align:\s*center\s*;", shared_button_rule.group(1))
