@@ -292,6 +292,15 @@ async function refreshSongHistory(){
   const list=appendText(target,"div","","song-list");
   data.songs.forEach((song,index)=>list.append(compactSong(song,index+1)));
 }
+function songCoverUrl(cover){
+  if(!cover)return "";
+  try{
+    const url=new URL(cover);
+    if(url.protocol==="http:"&&(url.hostname==="hdslb.com"||url.hostname.endsWith(".hdslb.com")))
+      url.protocol="https:";
+    return url.href;
+  }catch{return "";}
+}
 async function refreshSongDetail(){
   const id=Number(currentRoute().slice(5));
   if(!Number.isInteger(id)||id<=0)return;
@@ -309,9 +318,14 @@ async function refreshSongDetail(){
   target.replaceChildren();
   const panel=appendText(target,"section","","panel song-detail-panel");
   const header=appendText(panel,"div","","detail-header");
-  if(song.cover){
+  const coverUrl=songCoverUrl(song.cover);
+  if(coverUrl){
     const cover=appendText(header,"img","","detail-cover");
-    cover.src=song.cover;cover.alt="";cover.loading="lazy";
+    cover.alt="";cover.loading="lazy";
+    cover.onerror=()=>{
+      cover.replaceWith(appendText(header,"div","♫","detail-cover detail-placeholder"));
+    };
+    cover.src=coverUrl;
   }else appendText(header,"div","♫","detail-cover detail-placeholder");
   const info=appendText(header,"div","","detail-info");
   appendText(info,"h2",song.title);
