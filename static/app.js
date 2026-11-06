@@ -961,13 +961,35 @@ $("account-logout").onclick=()=>guarded(async()=>{
   await refresh();
 },$("account-logout"));
 let tvPrimaryState=null;
+let remoteStatusInFlight=null;
+async function loadTVRemoteStatus(){
+  if(remoteStatusInFlight)return remoteStatusInFlight;
+  remoteStatusInFlight=api("/api/admin/tv/remote");
+  try{return await remoteStatusInFlight;}
+  finally{remoteStatusInFlight=null;}
+}
+async function pollTVRemoteStatus(){
+  if(!isAdminPath()||!admin||playbackMode!=="tv"||!tvPrimaryState?.active||
+     document.visibilityState!=="visible"||
+     !document.querySelector(".playback-remote")?.getClientRects().length)return;
+  try{
+    const status=await loadTVRemoteStatus();
+    if(playbackMode==="tv"&&tvPrimaryState?.active){
+      tvRemoteState=status;
+      updateRemoteControls();
+    }
+  }catch(e){
+    // Ordinary admin refresh already handles connection errors; polling must
+    // never create a toast or disrupt user input.
+  }
+}
 async function refreshTVPrimary(){
   const tv=await api("/api/admin/tv");
   tvPrimaryState=tv;
   const controls=$("tv-primary-management");
   controls.classList.toggle("hidden",playbackMode!=="tv");
   tvRemoteState=playbackMode==="tv"&&tv.active?
-    await api("/api/admin/tv/remote"):null;
+    await loadTVRemoteStatus():null;
   const status=$("tv-primary-status");
   // Buttons already show whether a primary exists. Show ownership only
   // when it explains why this administrator cannot manage the screen.
@@ -1708,6 +1730,7 @@ showPage();
 updatePlaybackUI();
 refresh();
 setInterval(()=>{if(document.visibilityState==="visible")refresh();},3500);
+setInterval(pollTVRemoteStatus,1000);
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="visible")refresh();
 });

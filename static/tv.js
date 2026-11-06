@@ -196,13 +196,12 @@ function updateControls(){
   document.getElementById("pause-icon").src="/icons/"+(video.paused?"play":"pause")+".svg";
   progress.textContent=clock(video.currentTime)+" / "+clock(video.duration);
 }
-let queueRequestId=0;
+let queueInFlight=false;
 async function syncQueue(){
-  if(!token)return;
-  const requestId=++queueRequestId;
+  if(!token||queueInFlight)return;
+  queueInFlight=true;
   try{
     const state=await api("/api/tv/state");
-    if(requestId!==queueRequestId)return; // Ignore a slower, superseded poll.
     playbackMode=state.playback_mode||"tv";
     const queue=(state.queue||[]).slice(0,3);
     updateNextSong(queue[0]);
@@ -229,10 +228,10 @@ async function syncQueue(){
     if(playbackMode==="tv"&&state.remote_command)await handleRemote(state.remote_command);
     await reportRemote();
   }catch(e){
-    if(requestId===queueRequestId){
-      if(e.status===401||e.status===403)losePrimary(e.message);
-      else controlError.textContent=e.message||String(e);
-    }
+    if(e.status===401||e.status===403)losePrimary(e.message);
+    else controlError.textContent=e.message||String(e);
+  }finally{
+    queueInFlight=false;
   }
 }
 function remoteReport(error=""){
@@ -491,7 +490,7 @@ replayNext.onclick=async()=>{
   showPanel();
 };
 volume.oninput=()=>{video.volume=standby.volume=Number(volume.value)/100;showPanel();};
-setInterval(syncQueue,3500);
+setInterval(syncQueue,1000);
 if(pair)connectPrimary();
 else losePrimary("请从管理员页面重新打开主屏链接");
 updateControls();
