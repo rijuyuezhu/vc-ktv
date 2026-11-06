@@ -117,6 +117,89 @@ def test_tight_single_missing_word_does_not_erase_entire_tifa_line():
     assert out.lines[0].units[1].start == 11 and out.lines[0].units[1].end == 11.01
 
 
+def test_long_sustained_final_line_keeps_native_timing_only_at_audio_end():
+    # Recorded "为岳" last line: the native TIFA word "过" lasts until 4:14.53.
+    # Quarantining its complete 25-second phrase made the estimated fallback
+    # incorrectly stop the lyrics at 3:50.44.
+    text = "荆水畔 孤身回看 不曾悔过"
+    spans = [
+        (228.82, 229.01),
+        (229.01, 229.28),
+        (229.28, 232.92),
+        (234.16, 234.57),
+        (234.57, 234.82),
+        (234.82, 238.43),
+        (238.43, 241.62),
+        (241.62, 242.05),
+        (244.28, 244.92),
+        (247.30, 249.53),
+        (249.53, 254.53),
+    ]
+    positions = [i for i, c in enumerate(text) if c != " "]
+    ending = Line(
+        id="ending",
+        text=text,
+        units=[
+            unit(text[pos], pos, start, end, id=f"end-{i}")
+            for i, (pos, (start, end)) in enumerate(zip(positions, spans))
+        ],
+    )
+    previous = Line(
+        id="previous",
+        text="前一句",
+        units=[unit("前一句", 0, 217.15, 224.77, id="prev-u")],
+    )
+    source = timeline([previous, ending], duration=263)
+    assert clean_tifa(source).lines[-1].start is None
+    cleaned = clean_tifa(source, terminal_audio=True)
+    assert cleaned.lines[-1].start == 228.82
+    assert cleaned.lines[-1].end == 254.53
+    assert all(u.timing_source == "model" for u in cleaned.lines[-1].units)
+    assert not cleaned.diagnostics["quarantined_native"]
+    # The exemption is only for the last line of the full audio, not a
+    # suspicious long line elsewhere in a block.
+    earlier = timeline([ending, previous], duration=263)
+    assert clean_tifa(earlier, terminal_audio=True).lines[0].start is None
+
+
+def test_anchor_pipeline_recognizes_full_audio_terminal_sustain(tmp_path, monkeypatch):
+    import numpy as np
+    import soundfile as sf
+
+    import ktv_app.aligners.anchor_policy as policy
+
+    last = Line(
+        id="last",
+        text="甲乙丙丁戊己庚辛壬癸",
+        units=[
+            unit(c, i, 5 + i * 2, 7 + i * 2, id=f"last-{i}")
+            for i, c in enumerate("甲乙丙丁戊己庚辛壬癸")
+        ],
+    )
+    before = Line(id="before", text="前句", units=[unit("前句", 0, 1, 3)])
+    source = timeline([before, last], duration=30)
+
+    class FakeAdapter:
+        def __init__(self, settings):
+            pass
+
+        def align(self, *args):
+            return source.model_copy(deep=True)
+
+        def align_many(self, *args):
+            return {}
+
+    audio = tmp_path / "song.wav"
+    sf.write(audio, np.zeros(30 * 8000), 8000)
+    monkeypatch.setattr(policy, "TIFAAdapter", FakeAdapter)
+    output = policy.run_anchor_alignment(
+        audio, source.lines, 30, 0, tmp_path / "work", object(), lambda _: None
+    )
+    assert output.lines[-1].start == 5
+    assert output.lines[-1].end == 25
+    assert all(u.timing_source == "model" for u in output.lines[-1].units)
+
+
 def test_captured_collapsed_lala_is_quarantined_before_cutting_or_completion():
     a = Line(id="a", text="前句", units=[unit("前句", 0, 280, 282, id="a0")])
     b = Line(

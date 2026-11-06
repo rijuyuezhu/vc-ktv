@@ -95,13 +95,13 @@ def _spurious_intro_word(line, native, matches, previous):
     )
 
 
-def clean_tifa(timeline, asr_matches=None):
-    """Quarantine impossible spans without altering surviving native boundaries."""
+def clean_tifa(timeline, asr_matches=None, *, terminal_audio=False):
+    """Quarantine impossible spans while preserving valid terminal sustains."""
     result = timeline.model_copy(deep=True)
     rate = lyric_rate(result)
     rejected = []
     previous = None
-    for line in result.lines:
+    for i, line in enumerate(result.lines):
         scaffold(line)
         native = [u for u in line.units if u.start is not None]
         evidence = (asr_matches or {}).get(line.id)
@@ -122,7 +122,14 @@ def clean_tifa(timeline, asr_matches=None):
         if a is not None and b is not None:
             if b - a < max(0.3 if chars >= 3 else 0.16, chars * max(0.06, rate * 0.25)):
                 reason = "collapsed_sentence"
-            elif b - a > max(12, chars * 1.1 + 3):
+            elif b - a > max(12, chars * 1.1 + 3) and not (
+                terminal_audio
+                and i == len(result.lines) - 1
+                and len(native) == len(line.units)
+            ):
+                # A fully timed final refrain may sustain its last words for
+                # much longer than conversational speech. Per-word gap and
+                # duration checks below still quarantine impossible timings.
                 reason = "stretched_sentence"
         if any(u.end - u.start > 8 for u in native):
             reason = "stretched_word"
@@ -330,7 +337,8 @@ def run_anchor_alignment(
     (work / "global_tifa.json").write_text(
         raw.model_dump_json(indent=2), encoding="utf-8"
     )
-    output = clean_tifa(raw, asr_matches)
+    terminal_audio = limit >= duration - 0.05
+    output = clean_tifa(raw, asr_matches, terminal_audio=terminal_audio)
     output.diagnostics.update(
         boundary_policy=POLICY,
         pipeline="tifa_endpoint_parts_only",
@@ -393,7 +401,11 @@ def run_anchor_alignment(
         candidate = recovered.get(job["id"])
         if candidate is None:
             continue
-        candidate = clean_tifa(candidate, asr_matches)
+        candidate = clean_tifa(
+            candidate,
+            asr_matches,
+            terminal_audio=terminal_audio and job["indices"][-1] == len(lines) - 1,
+        )
         sub = Timeline(
             duration=duration,
             origin=origin,
