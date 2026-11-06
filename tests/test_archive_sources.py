@@ -1,4 +1,5 @@
 """CSV history preserves provider identities for Bilibili and NetEase."""
+
 import csv
 import io
 
@@ -23,12 +24,30 @@ def test_export_mixed_source_ids_in_active_and_closed_event(tmp_path):
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 [
                     (
-                        "BV0000000001", 2, "B站标题", "UP", "", 110, requester,
-                        1, "played", "bilibili", "",
+                        "BV0000000001",
+                        2,
+                        "B站标题",
+                        "UP",
+                        "",
+                        110,
+                        requester,
+                        1,
+                        "played",
+                        "bilibili",
+                        "",
                     ),
                     (
-                        "", 1, "=假公式", "Singer", "", 190, requester,
-                        2, "played", "netease", "2613869782",
+                        "",
+                        1,
+                        "=假公式",
+                        "Singer",
+                        "",
+                        190,
+                        requester,
+                        2,
+                        "played",
+                        "netease",
+                        "2613869782",
                     ),
                 ],
             )
@@ -41,8 +60,16 @@ def test_export_mixed_source_ids_in_active_and_closed_event(tmp_path):
             assert response.content.startswith(b"\xef\xbb\xbf")
             rows = list(csv.DictReader(io.StringIO(response.text.lstrip("\ufeff"))))
             assert list(rows[0]) == [
-                "order", "bvid", "page", "title", "requester",
-                "requested_at", "status", "played_at", "source_type", "source_id",
+                "order",
+                "bvid",
+                "page",
+                "title",
+                "requester",
+                "requested_at",
+                "status",
+                "played_at",
+                "source_type",
+                "source_id",
             ]
             assert rows[0]["bvid"] == "BV0000000001"
             assert rows[0]["page"] == "2"
