@@ -215,7 +215,7 @@ function detailActions(song,isAdmin){
         ()=>openLyricPicker(song.id,song.title,song.lyric_query));
     if(song.mine&&["waiting","ready","rendering"].includes(song.status))
       songAction(actions,"取消点歌",()=>cancelGuestSong(song.id),"subtle");
-    if(song.status==="played"&&song.downloadable)
+    if(["played","skipped"].includes(song.status)&&song.downloadable)
       songAction(actions,"↻ 再来一首",async()=>{
         const next=await api("/api/songs/"+song.id+"/replay","POST");
         toast("已加入队列");window.location.hash="song-"+next.id;await refresh();
