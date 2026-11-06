@@ -98,6 +98,33 @@ def test_guest_replay_does_not_steal_admin_priority_and_keeps_owner(tmp_path):
         assert (
             bob.get("/api/songs/" + str(item["id"]) + "/detail").json()["mine"] is True
         )
+        # Skipped turns are still reusable finished recordings, even when
+        # requested by a different user and sourced from NetEase.
+        with store.lock:
+            store.db.execute(
+                "UPDATE songs SET status='skipped',source_type='netease',"
+                "source_id='2613869782',bvid='' WHERE id=1"
+            )
+            store.db.commit()
+        skipped_detail = bob.get("/api/songs/1/detail").json()
+        assert skipped_detail["status"] == "skipped"
+        assert skipped_detail["downloadable"] is True
+        skipped_replay = bob.post("/api/songs/1/replay")
+        assert skipped_replay.status_code == 200, skipped_replay.text
+        with store.lock:
+            replay_source = store.db.execute(
+                "SELECT requester,status,priority_next,source_type,source_id,"
+                "replay_of FROM songs WHERE id=?",
+                (skipped_replay.json()["id"],),
+            ).fetchone()
+            assert tuple(replay_source) == (
+                owners["乙"],
+                "ready",
+                0,
+                "netease",
+                "2613869782",
+                1,
+            )
         store.save_settings("fair", False, orders_paused=True)
         assert bob.post("/api/songs/1/replay").status_code == 409
         app.state.events.close()

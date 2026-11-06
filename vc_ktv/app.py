@@ -551,7 +551,7 @@ class Store:
     @staticmethod
     def downloadable(song):
         return (
-            song["status"] in ("ready", "playing", "played")
+            song["status"] in ("ready", "playing", "played", "skipped")
             and song["prep_state"] in ("done", "manual", "original")
             and bool(song.get("has_media") or song.get("media_file"))
         )
@@ -2724,7 +2724,14 @@ def create_app(
             if not row:
                 bail(404, "歌曲不存在")
             if (
-                row["status"] != ("playing" if current_only else "played")
+                row["status"]
+                not in (
+                    ("playing",)
+                    if current_only
+                    else ("played", "skipped")
+                    if guest_id is not None
+                    else ("played",)
+                )
                 or row["prep_state"] not in ("done", "manual", "original")
                 or not row["media_file"]
             ):
@@ -3280,7 +3287,7 @@ def create_app(
                 """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
                           s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
-                          s.played_at,s.media_file IS NOT NULL AS has_media,
+                          s.played_at,s.media_file,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
                           s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,
                           g.id AS requester_id,g.name AS nickname
@@ -3296,14 +3303,18 @@ def create_app(
             except (ValueError, TypeError):
                 song["stage_seconds"] = {}
             song["mine"] = bool(guest and guest["id"] == song["requester_id"])
-            song["downloadable"] = Store.downloadable(song)
+            song["downloadable"] = (
+                Store.downloadable(song)
+                and (store.media / Path(song["media_file"] or "").name).is_file()
+            )
             source = store.media / Path(song["source_file"] or "").name
             song["source_downloadable"] = bool(
                 song["source_file"]
                 and source.is_file()
-                and song["status"] in ("ready", "playing", "played")
+                and song["status"] in ("ready", "playing", "played", "skipped")
             )
             song.pop("source_file", None)
+            song.pop("media_file", None)
             song["playable"] = Store.playable(song, store.settings())
             song["lyric_query"] = title_key(song["title"])
             return song
@@ -3402,7 +3413,7 @@ def create_app(
             if not row:
                 bail(404, "歌曲不存在")
             if (
-                row["status"] not in ("ready", "playing", "played")
+                row["status"] not in ("ready", "playing", "played", "skipped")
                 or not row["source_file"]
             ):
                 bail(409, "原片尚未准备好")
