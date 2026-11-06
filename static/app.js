@@ -4,6 +4,10 @@ let preview = null;
 let admin = false;
 let currentMediaId = null;
 let manualMode = false;
+let playbackMode = "browser";
+let tvRemoteState = null;
+let currentAdminSong = null;
+let nextAdminSong = null;
 let popupSongId = null;
 let toastTimer = null;
 let refreshing = false;
@@ -916,6 +920,10 @@ function updateAccount(signedIn,name,role){
 }
 $("account-logout").onclick=()=>guarded(async()=>{
   if(isAdminPath()){
+    if(playbackMode==="browser"&&currentAdminSong){
+      if(!confirm("当前歌曲正在播放，退出将跳过它。确定退出？"))return;
+      await finishActive("skip",false);
+    }
     await api("/api/admin/logout","POST");
     admin=false;adminStateKey=null;currentMediaId=null;
     player.pause();player.removeAttribute("src");player.load();
@@ -929,7 +937,9 @@ async function refreshTVPrimary(){
   const tv=await api("/api/admin/tv");
   tvPrimaryState=tv;
   const controls=$("tv-primary-management");
-  controls.classList.remove("hidden");
+  controls.classList.toggle("hidden",playbackMode!=="tv");
+  tvRemoteState=playbackMode==="tv"&&tv.active?
+    await api("/api/admin/tv/remote"):null;
   const status=$("tv-primary-status");
   // Buttons already show whether a primary exists. Show ownership only
   // when it explains why this administrator cannot manage the screen.
@@ -987,21 +997,143 @@ $("skip-btn").onclick=()=>guarded(async()=>{
   if(wasManual&&finished)await playNext();
 },$("skip-btn"));
 
-function updatePlaybackUI(){
-  $("playback-mode").value=manualMode?"manual":"browser";
-  $("browser-player").classList.toggle("hidden",manualMode);
-  $("tv-primary-management").classList.remove("hidden");
-  $("autoplay-label").classList.toggle("hidden",manualMode);
-  $("manual-controls").classList.toggle("hidden",!manualMode);
-  $("start-btn").textContent=manualMode?"▶ 领取下一首":"▶ 开始播放";
-  $("finish-btn").textContent=manualMode?"✓ 唱完并切下一首":"✓ 唱完";
-  $("skip-btn").textContent=manualMode?"跳过并切下一首":"跳过";
+function clock(seconds){
+  return Number.isFinite(seconds)?Math.floor(seconds/60)+":"+
+    String(Math.floor(seconds%60)).padStart(2,"0"):"0:00";
 }
+function updateRemoteControls(){
+  const isTV=playbackMode==="tv";
+  const isBrowser=playbackMode==="browser";
+  const status=tvRemoteState?.report||{};
+  const online=Boolean(isTV&&tvRemoteState?.online);
+  const canTV=Boolean(online&&tvRemoteState?.can_manage&&!tvRemoteState?.pending);
+  const songId=currentAdminSong?.id||null;
+  const tvPlaying=online&&status.active_id===songId&&Boolean(songId);
+  const playable=Boolean(songId&&(isBrowser?currentMediaId===songId:isTV?tvPlaying: false));
+  const remoteReady=isTV?canTV&&playable:playable;
+  for(const name of ["remote-pause","remote-restart","remote-skip","remote-replay"]){
+    const button=$(name);
+    button.disabled=isTV?!remoteReady:(!isBrowser||!playable);
+  }
+  if(playbackMode==="manual"&&songId)$("remote-replay").disabled=false;
+  const paused=isTV?Boolean(status.paused):player.paused;
+  const pause=$("remote-pause");
+  pause.title=paused?"继续":"暂停";
+  pause.setAttribute("aria-label",pause.title);
+  pause.querySelector("img").src="/icons/"+(paused?"play":"pause")+".svg";
+  $("remote-progress").textContent=isTV?
+    clock(status.position)+ " / "+clock(status.duration):
+    clock(player.currentTime)+" / "+clock(player.duration);
+  $("remote-progress").classList.toggle("hidden",playbackMode==="manual");
+  const volume=$("remote-volume");
+  const hasVolume=isTV?canTV:isBrowser;
+  volume.disabled=!hasVolume;
+  volume.closest(".remote-range").classList.toggle("hidden",playbackMode==="manual");
+  if(document.activeElement!==volume)volume.value=String(isTV?(status.volume??100):Math.round(player.volume*100));
+  $("tv-remote-extra").classList.toggle("hidden",!isTV);
+  for(const button of document.querySelectorAll("[data-admin-offset]"))
+    button.disabled=!canTV||!tvPlaying||!status.overlay;
+  const offs=Number(status.offset||0);
+  $("remote-offset-value").textContent=(offs>=0?"+":"")+(offs/10).toFixed(1)+"s";
+  const opacity=$("remote-opacity");
+  opacity.disabled=!canTV;
+  if(document.activeElement!==opacity)opacity.value=String(status.opacity??15);
+  const smooth=$("remote-smooth");
+  smooth.disabled=!canTV;smooth.checked=Boolean(status.smooth);
+  const indicator=$("tv-online");
+  indicator.textContent=online?"主屏在线":tvPrimaryState?.active?"主屏离线":"主屏未连接";
+  indicator.classList.toggle("online",online);
+  const displayTitle=$("tv-playing");
+  displayTitle.textContent=currentAdminSong?.title||"等待播放";
+  displayTitle.href=currentAdminSong?"#song-"+currentAdminSong.id:"#";
+  displayTitle.tabIndex=currentAdminSong?0:-1;
+  $("tv-coming").textContent=nextAdminSong?"下一首："+nextAdminSong.title:"";
+  if(status.error&&isTV)$("remote-error").textContent=status.error;
+  else $("remote-error").textContent="";
+}
+function updatePlaybackUI(){
+  const isBrowser=playbackMode==="browser";
+  const isTV=playbackMode==="tv";
+  manualMode=playbackMode==="manual";
+  $("playback-mode").value=playbackMode;
+  $("active-playback-mode").textContent=
+    isTV?"电视大屏":manualMode?"相册播放":"浏览器播放";
+  $("browser-player").classList.toggle("hidden",!isBrowser);
+  $("tv-display").classList.toggle("hidden",!isTV);
+  $("playing-title").classList.toggle("hidden",isTV);
+  $("tv-primary-management").classList.toggle("hidden",!isTV);
+  $("manual-controls").classList.toggle("hidden",!manualMode);
+  $("legacy-admin-controls").classList.toggle("hidden",isTV);
+  document.querySelector(".playback-remote").classList.toggle("manual",manualMode);
+  $("autoplay-label").classList.toggle("hidden",!isBrowser);
+  $("skip-btn").classList.toggle("hidden",isBrowser);
+  $("start-btn").textContent=manualMode?"领取下一首":"开始播放";
+  $("finish-btn").textContent=manualMode?"唱完并切下一首":"唱完";
+  $("start-btn").disabled=Boolean(currentAdminSong);
+  $("finish-btn").disabled=!currentAdminSong;
+  updateRemoteControls();
+}
+async function sendRemote(action,value=null){
+  if(playbackMode!=="tv")throw Error("当前不是电视模式");
+  const hasSong=["pause","resume","restart","skip","replay_next"].includes(action);
+  await api("/api/admin/tv/remote","POST",{
+    action,song_id:hasSong?currentAdminSong?.id:null,value
+  });
+  if(tvRemoteState)tvRemoteState.pending=true;
+  updateRemoteControls();
+}
+async function remoteAction(button,action){
+  button.disabled=true;
+  try{await action();}catch(e){error(e);}
+  finally{updateRemoteControls();}
+}
+$("remote-pause").onclick=()=>remoteAction($("remote-pause"),async()=>{
+  if(playbackMode==="tv")await sendRemote(tvRemoteState?.report?.paused?"resume":"pause");
+  else if(playbackMode==="browser"){
+    if(player.paused)await player.play();else player.pause();
+  }
+});
+$("remote-restart").onclick=()=>remoteAction($("remote-restart"),async()=>{
+  if(playbackMode==="tv")await sendRemote("restart");
+  else if(playbackMode==="browser"){player.currentTime=0;await player.play();}
+});
+$("remote-skip").onclick=()=>remoteAction($("remote-skip"),async()=>{
+  if(playbackMode==="tv")await sendRemote("skip");
+  else if(playbackMode==="browser")await finishActive("skip",true);
+});
+$("remote-replay").onclick=()=>remoteAction($("remote-replay"),async()=>{
+  if(playbackMode==="tv")await sendRemote("replay_next");
+  else if(currentAdminSong){
+    await api("/api/admin/songs/"+currentAdminSong.id+"/replay-next","POST");
+    toast("已安排下一首重唱");await refresh();
+  }
+});
+$("remote-volume").oninput=()=>{
+  if(playbackMode==="browser")player.volume=Number($("remote-volume").value)/100;
+};
+$("remote-volume").onchange=()=>remoteAction($("remote-volume"),async()=>{
+  if(playbackMode==="tv")await sendRemote("volume",Number($("remote-volume").value));
+});
+for(const button of document.querySelectorAll("[data-admin-offset]")){
+  button.onclick=()=>remoteAction(button,async()=>{
+    const current=Number(tvRemoteState?.report?.offset||0);
+    await sendRemote("offset",Math.max(-600,Math.min(600,current+Number(button.dataset.adminOffset))));
+  });
+}
+$("remote-opacity").onchange=()=>remoteAction($("remote-opacity"),
+  ()=>sendRemote("opacity",Number($("remote-opacity").value)));
+$("remote-smooth").onchange=()=>remoteAction($("remote-smooth"),
+  ()=>sendRemote("smooth",$("remote-smooth").checked));
+player.addEventListener("timeupdate",()=>{if(playbackMode==="browser")updateRemoteControls();});
+player.addEventListener("play",updateRemoteControls);
+player.addEventListener("pause",updateRemoteControls);
 $("playback-mode").onchange=()=>guarded(async()=>{
   const mode=$("playback-mode").value;
   try{
     await api("/api/admin/playback-mode","PUT",{mode});
+    playbackMode=mode;
     manualMode=mode==="manual";
+    currentAdminSong=null;
     currentMediaId=null;
     player.pause();player.removeAttribute("src");player.load();
     adminStateKey=null;updatePlaybackUI();await refresh();
@@ -1011,6 +1143,7 @@ $("playback-mode").onchange=()=>guarded(async()=>{
 },$("playback-mode"));
 
 async function playNext(){
+  if(playbackMode==="tv")throw Error("主屏负责自动播放");
   const data=await api("/api/admin/next","POST");
   if(!data.active){ toast("当前没有已准备好的歌曲");await refresh();return; }
   await assignPlayer(data.active,true);
@@ -1035,7 +1168,7 @@ function setPlayingTitle(prefix,song){
 }
 async function assignPlayer(active, start){
   if(!active || !active.media_url)return;
-  if(manualMode){
+  if(playbackMode!=="browser"){
     currentMediaId=active.id;
     setPlayingTitle("当前歌曲：",active);
     updatePlaybackUI();
@@ -1053,6 +1186,7 @@ async function assignPlayer(active, start){
   }
 }
 async function finishActive(reason, auto){
+  if(playbackMode==="tv")throw Error("主屏负责切歌");
   const songId=currentMediaId;
   if(!songId) {toast("没有正在播放的歌曲");return false;}
   if(reason!=="completed")player.pause();
@@ -1066,7 +1200,7 @@ async function finishActive(reason, auto){
   else await refresh();
   return true;
 }
-player.addEventListener("ended",()=>{if(!manualMode)guarded(()=>finishActive("completed",true));});
+player.addEventListener("ended",()=>{if(playbackMode==="browser")guarded(()=>finishActive("completed",true));});
 player.addEventListener("error",()=>{if(player.currentSrc)toast("媒体播放失败，请检查编码或网络连接",true);});
 async function editLyrics(songId, songTitle){
   popupSongId=songId;
@@ -1407,6 +1541,7 @@ async function refresh(){
       if(entry.authenticated){
         const state=await api("/api/state");
         const stateKey=JSON.stringify([entry.event?.id,state.current,state.queue,state.waiting]);
+        updateRemoteControls();
         if(currentRoute()==="played")await refreshSongHistory();
         if(/^song-[0-9]+$/.test(currentRoute()))await refreshSongDetail();
         if(guestStateKey!==stateKey){
@@ -1433,7 +1568,10 @@ async function refresh(){
       if(admin){
         await refreshEvents();
         const activeState=adm.active?{...adm.active,media_url:null}:null;
-        manualMode=adm.playback_mode==="manual";
+        playbackMode=adm.playback_mode||"browser";
+        manualMode=playbackMode==="manual";
+        currentAdminSong=adm.active||null;
+        nextAdminSong=adm.queue?.[0]||null;
         await refreshTVPrimary();
         $("playback-mode").disabled=Boolean(adm.active);
         const key=JSON.stringify([adm.waiting,adm.queue,adm.guests,activeState,adm.playback_mode]);
@@ -1459,7 +1597,7 @@ async function refresh(){
             $("current-song-copy-source").onclick=()=>guarded(
               ()=>copySongSource(adm.active),$("current-song-copy-source"));
             if(currentMediaId!==adm.active.id)await assignPlayer(adm.active,false);
-            setPlayingTitle(manualMode?"当前歌曲：":"正在播放：",adm.active);
+            setPlayingTitle(playbackMode==="browser"?"正在播放：":"当前歌曲：",adm.active);
           }else if(currentMediaId!==null){
             currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
             $("player-empty").classList.remove("hidden");
@@ -1467,6 +1605,7 @@ async function refresh(){
             updatePlaybackUI();
           }
         }
+        updateRemoteControls();
         if(currentRoute()==="played")await refreshSongHistory();
         if(/^song-[0-9]+$/.test(currentRoute()))await refreshSongDetail();
       }else {adminStateKey=null;$("subpage").classList.add("hidden");}

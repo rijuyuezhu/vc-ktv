@@ -554,3 +554,83 @@ button, input, select { min-height: 44px; }
 @media (max-width: 600px) {
   .account-entry-actions .btn { flex: 1 1 100px; }
 }
+
+/* Playback controls: wide media stage, compact remote, stacked on phones. */
+.playback-grid { display: grid; grid-template-columns: minmax(0,1fr) 286px; gap: 21px; align-items: start; }
+.playback-main { min-width: 0; }
+.playback-main .playing-title { margin: 11px 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.playback-main .current-media-actions { margin-top: 13px; }
+.playback-main .current-media-actions .btn { flex: 1; font-size: 13px; }
+.playback-main #tv-primary-management { margin-top: 15px; }
+.playback-main #tv-primary-management .control-row { margin: 0; }
+.playback-main #tv-primary-management .control-row .btn { flex: 1 1 130px; font-size: 12px; }
+.tv-display {
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  gap: 13px; aspect-ratio: 16/9; min-height: 210px; padding: 20px;
+  background: #172337; color: #eaf0fb; border-radius: 10px; text-align: center;
+}
+.tv-song-link { color: inherit; font-weight: 700; font-size: clamp(17px,2vw,24px); line-height: 1.5; overflow-wrap: anywhere; text-decoration: none; }
+.tv-song-link:hover, .tv-song-link:focus-visible { color: #a9c5ff; text-decoration: underline; text-underline-offset: 5px; }
+.tv-connection { font-size: 12px; color: #adbfd7; }
+.tv-connection.online { color: #88d0b6; }
+.tv-coming { color: #adbfd7; font-size: 12px; }
+.manual-display {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; min-height: 194px; padding: 20px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2);
+  color: var(--ink); text-align: center;
+}
+.manual-display strong { font-size: 20px; }
+.manual-display p { margin: 0; font-size: 13px; color: var(--muted); }
+.playback-remote {
+  display: flex; flex-direction: column; gap: 14px;
+  min-width: 0; padding: 15px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface-2);
+}
+.remote-buttons { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; }
+.remote-buttons button, .remote-offsets button {
+  display: grid; place-items: center; padding: 8px 4px; min-height: 48px;
+  border: 1px solid var(--line-strong); border-radius: 9px;
+  background: var(--surface); color: var(--ink); cursor: pointer;
+}
+.remote-buttons button:hover, .remote-offsets button:hover {
+  border-color: var(--accent); background: var(--accent-soft);
+}
+.remote-buttons button:disabled, .remote-offsets button:disabled { opacity: .35; cursor: default; }
+.remote-buttons img { width: 21px; height: 21px; }
+.remote-progress { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; }
+.remote-range { display: flex !important; align-items: center; gap: 11px; margin: 0 !important; }
+.remote-range img { width: 18px; height: 18px; }
+.remote-range input[type=range] { flex: 1; min-height: 28px; width: auto; padding: 0; accent-color: var(--accent); }
+.remote-extra { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 13px; }
+.remote-label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+.remote-offsets { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
+.remote-offsets button { min-height: 42px; font-size: 12px; border-radius: 7px; }
+.remote-opacity { flex-direction: column; align-items: stretch !important; gap: 7px; font-size: 12px !important; color: var(--muted); }
+.remote-toggle { display: inline-flex !important; align-items: center; gap: 8px; margin: 0 !important; font-size: 12px !important; font-weight: 500 !important; }
+.remote-toggle input { min-height: auto; }
+#legacy-admin-controls { border-top: 1px solid var(--line); padding-top: 13px; }
+#legacy-admin-controls .control-row { margin: 0 0 11px; }
+#legacy-admin-controls .btn { font-size: 13px; padding: 9px 11px; }
+#legacy-admin-controls .toggle { font-size: 12px; }
+.remote-error { font-size: 12px; color: var(--danger); }
+.remote-error:empty { display: none; }
+@media (max-width: 760px) {
+  .playback-grid { grid-template-columns: minmax(0,1fr); gap: 14px; }
+  .playback-remote { padding: 13px; }
+  .remote-offsets { grid-template-columns: repeat(6,minmax(0,1fr)); }
+  .remote-offsets button { font-size: 11px; padding-inline: 0; min-width: 0; }
+  .tv-display { min-height: 170px; }
+}
+@media (max-width: 380px) {
+  .remote-offsets { grid-template-columns: repeat(3,minmax(0,1fr)); }
+}
+
+/* A phone album has no remote transport: only keep its replay shortcut. */
+.playback-remote.manual .remote-buttons { grid-template-columns: minmax(0,1fr); }
+.playback-remote.manual .remote-buttons button:not(#remote-replay) { display:none; }
+.playback-remote.manual .remote-range { display:none !important; }
+
+.manual-replay-label { display:none; }
+.playback-remote.manual #remote-replay { display:flex; align-items:center; justify-content:center; gap:7px; }
+.playback-remote.manual .manual-replay-label { display:inline; font-size:13px; }

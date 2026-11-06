@@ -140,32 +140,76 @@
           </div>
           <button id="event-close-btn" class="btn neutral hidden" type="button">▣ 结束并归档</button>
         </section>
-        <section class="panel">
-          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">▶</span> 播放控制</h2></div>
-          <div class="current-media-actions">
-            <a id="current-song-download" class="btn primary hidden" href="#">↓ 下载当前视频</a>
-            <button id="current-song-copy-source" class="btn neutral hidden" type="button">⧉ 复制来源</button>
-          </div>
-          <div class="player-shell" id="browser-player">
-            <video id="player" playsinline controls preload="metadata"></video>
-            <div id="player-empty">等待下一首</div>
-          </div>
-          <p id="playing-title" class="muted">当前没有正在播放的歌曲。</p>
-          <div id="manual-controls" class="hidden">
-            <p id="manual-instruction" class="muted">下载视频后投屏，唱完点完成。</p>
-          </div>
-          <div id="tv-primary-management" class="wide hidden">
-            <p class="muted hidden" id="tv-primary-status"></p>
-            <div class="control-row">
-              <button id="tv-link-btn" class="btn neutral" type="button">▣ 打开主屏</button>
-              <button id="tv-copy-btn" class="btn neutral" type="button">⧉ 复制主屏链接</button>
-              <button id="tv-revoke-btn" class="btn subtle hidden" type="button">撤回主屏</button>
+        <section class="panel" id="admin-playback-panel">
+          <div class="section-head"><h2>播放控制</h2><span id="active-playback-mode" class="small-tag"></span></div>
+          <div class="playback-grid">
+            <div class="playback-main">
+              <div class="player-shell" id="browser-player">
+                <video id="player" playsinline controls preload="metadata"></video>
+                <div id="player-empty">等待下一首</div>
+              </div>
+              <div id="tv-display" class="tv-display hidden">
+                <span id="tv-online" class="tv-connection">主屏未连接</span>
+                <a id="tv-playing" class="tv-song-link" href="#" aria-label="查看正在播放的歌曲">等待主屏</a>
+                <span id="tv-coming" class="tv-coming"></span>
+              </div>
+              <div id="manual-controls" class="manual-display hidden">
+                <strong>相册播放</strong>
+                <p id="manual-instruction">下载视频后手动投屏</p>
+              </div>
+              <p id="playing-title" class="playing-title">当前没有正在播放的歌曲。</p>
+              <div class="current-media-actions">
+                <a id="current-song-download" class="btn neutral hidden" href="#">↓ 下载视频</a>
+                <button id="current-song-copy-source" class="btn neutral hidden" type="button">⧉ 复制来源</button>
+              </div>
+              <div id="tv-primary-management" class="hidden">
+                <p class="muted hidden" id="tv-primary-status"></p>
+                <div class="control-row">
+                  <button id="tv-link-btn" class="btn neutral" type="button">打开主屏</button>
+                  <button id="tv-copy-btn" class="btn neutral" type="button">复制主屏链接</button>
+                  <button id="tv-revoke-btn" class="btn subtle hidden" type="button">撤回主屏</button>
+                </div>
+              </div>
             </div>
+            <aside class="playback-remote" aria-label="播放遥控器">
+              <div class="remote-buttons">
+                <button id="remote-pause" type="button" aria-label="暂停或继续" title="暂停或继续"><img src="/icons/pause.svg" alt=""></button>
+                <button id="remote-restart" type="button" aria-label="从头重播" title="从头重播"><img src="/icons/rotate-ccw.svg" alt=""></button>
+                <button id="remote-skip" type="button" aria-label="跳过" title="跳过"><img src="/icons/skip-forward.svg" alt=""></button>
+                <button id="remote-replay" type="button" aria-label="下一首重唱" title="下一首重唱"><img src="/icons/repeat-2.svg" alt=""><span class="manual-replay-label">重唱</span></button>
+              </div>
+              <span id="remote-progress" class="remote-progress">0:00 / 0:00</span>
+              <label class="remote-range" for="remote-volume">
+                <img src="/icons/volume-2.svg" alt="" aria-hidden="true">
+                <input id="remote-volume" type="range" min="0" max="100" value="100" aria-label="音量">
+              </label>
+              <div id="tv-remote-extra" class="remote-extra hidden">
+                <div class="remote-label">字幕偏移 <span id="remote-offset-value">+0.0s</span></div>
+                <div class="remote-offsets">
+                  <button type="button" data-admin-offset="-50">−5s</button>
+                  <button type="button" data-admin-offset="-10">−1s</button>
+                  <button type="button" data-admin-offset="-1">−0.1s</button>
+                  <button type="button" data-admin-offset="1">+0.1s</button>
+                  <button type="button" data-admin-offset="10">+1s</button>
+                  <button type="button" data-admin-offset="50">+5s</button>
+                </div>
+                <label class="remote-range remote-opacity" for="remote-opacity">
+                  <span>信息框透明度</span>
+                  <input id="remote-opacity" type="range" min="0" max="100" step="5" value="15">
+                </label>
+                <label class="remote-toggle"><input id="remote-smooth" type="checkbox">稳播模式</label>
+              </div>
+              <div id="legacy-admin-controls">
+                <div class="control-row">
+                  <button id="start-btn" class="btn primary">开始播放</button>
+                  <button id="finish-btn" class="btn neutral">唱完</button>
+                  <button id="skip-btn" class="btn neutral">跳过</button>
+                </div>
+                <label class="toggle" id="autoplay-label"><input id="autoplay" type="checkbox" checked> 自动播放下一首</label>
+              </div>
+              <span id="remote-error" class="remote-error" role="alert"></span>
+            </aside>
           </div>
-
-          <div class="control-row"><button id="start-btn" class="btn primary">▶ 开始播放</button><button id="finish-btn" class="btn neutral">✓ 唱完</button><button id="skip-btn" class="btn neutral">跳过</button></div>
-          <label class="toggle" id="autoplay-label"><input id="autoplay" type="checkbox" checked> 播放完毕自动切到下一首</label>
-
         </section>
         <section class="panel">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">☷</span> 队列管理</h2></div>
@@ -178,6 +222,7 @@
               <label for="playback-mode">播放方式</label>
               <select id="playback-mode">
                 <option value="browser">浏览器播放</option>
+                <option value="tv">电视大屏播放</option>
                 <option value="manual">相册播放</option>
               </select>
             </div>

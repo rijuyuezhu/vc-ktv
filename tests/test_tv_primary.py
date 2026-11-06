@@ -56,6 +56,10 @@ def test_replace_keeps_old_primary_until_new_device_connects(tmp_path):
     app.state.events.create("Test", "123456")
     with TestClient(app) as admin, TestClient(app) as old, TestClient(app) as new:
         admin_login(admin)
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
+        )
         first = activate(old, pair_link(admin)).json()["token"]
         assert old.get("/api/tv/state", params={"token": first}).status_code == 200
         next_pair = pair_link(admin, replace=True)

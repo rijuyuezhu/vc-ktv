@@ -76,6 +76,7 @@ let panelTimer=null;
 let nextKey=null;
 let highlightTimer=null;
 let playbackMode="browser";
+let lastRemoteSeq=0;
 const START_BUFFER_SECONDS=12;
 const START_BUFFER_WAIT_MS=12000;
 let warmup=null;
@@ -179,7 +180,7 @@ function clock(seconds){
   return Math.floor(seconds/60)+":"+String(Math.floor(seconds%60)).padStart(2,"0");
 }
 function updateControls(){
-  const available=activeId!==null&&playbackMode==="browser"&&!finishing;
+  const available=activeId!==null&&playbackMode==="tv"&&!finishing;
   for(const button of [pauseResume,restart,skip,replayNext])button.disabled=!available;
   replayNext.disabled=!available||replayInFlight;
   pauseResume.textContent=video.paused?"▶ 继续":"⏸ 暂停";
@@ -206,16 +207,68 @@ async function syncQueue(){
     }
     nowPlaying.textContent=state.current?songLabel(state.current):"暂无正在播放的歌曲";
     if(!started)status.textContent=state.current?nowPlaying.textContent:"等待播放";
-    if(playbackMode==="manual")controlError.textContent="当前为手动投屏模式，请到管理后台控制";
-    else if(controlError.textContent.includes("手动投屏"))controlError.textContent="";
+    if(playbackMode!=="tv")controlError.textContent="当前未选择电视播放";
+    else if(controlError.textContent==="当前未选择电视播放")controlError.textContent="";
     if(preloaded&&(!queue.length||preloaded.id!==queue[0].id))clearPreload();
     updateControls();
+    if(playbackMode==="tv"&&state.remote_command)await handleRemote(state.remote_command);
+    await reportRemote();
   }catch(e){
     if(requestId===queueRequestId){
       if(e.status===401||e.status===403)losePrimary(e.message);
       else controlError.textContent=e.message||String(e);
     }
   }
+}
+function remoteReport(error=""){
+  return {
+    ack_seq:lastRemoteSeq,active_id:activeId,paused:video.paused,
+    position:Number.isFinite(video.currentTime)?video.currentTime:0,
+    duration:Number.isFinite(video.duration)?video.duration:null,
+    volume:Math.round(video.volume*100),offset:offsetTenths,
+    opacity:Number(bannerTransparency.value),
+    smooth:smoothPlayback,started,overlay:activeOverlay,error:String(error||"").slice(0,150)
+  };
+}
+async function reportRemote(message=""){
+  if(!token)return;
+  await api("/api/tv/report","POST",remoteReport(message));
+}
+async function handleRemote(command){
+  if(command.seq<=lastRemoteSeq)return;
+  lastRemoteSeq=command.seq;
+  let failure="";
+  try{
+    if(command.song_id!==null && command.song_id!==activeId)
+      throw Error("歌曲已切换");
+    switch(command.action){
+      case "pause":video.pause();break;
+      case "resume":
+        cancelWarmup();await video.play();break;
+      case "restart":
+        cancelWarmup();video.currentTime=0;await video.play();break;
+      case "skip":await complete("skip");break;
+      case "replay_next":
+        await api("/api/tv/replay-next","POST",{song_id:command.song_id});
+        break;
+      case "volume":
+        volume.value=String(command.value);
+        video.volume=standby.volume=Number(command.value)/100;break;
+      case "offset":
+        if(!activeOverlay)throw Error("当前没有实时字幕");
+        offsetTenths=Math.round(Number(command.value));
+        TVOverlay.setOffset(offsetTenths);
+        offsetValue.textContent=(offsetTenths>=0?"+":"")+(offsetTenths/10).toFixed(1)+" 秒";
+        break;
+      case "opacity":setBannerTransparency(command.value);break;
+      case "smooth":
+        smoothBuffer.checked=Boolean(command.value);
+        smoothBuffer.onchange();break;
+      default:throw Error("未知遥控命令");
+    }
+    updateControls();
+  }catch(e){failure=e.message||String(e);}
+  await reportRemote(failure);
 }
 async function api(path,method="GET",body=null){
   const options={method,cache:"no-store"};
@@ -252,9 +305,10 @@ async function connectPrimary(){
     const result=await response.json();
     if(!response.ok)throw Error(result.detail||"主屏配对失败");
     token=result.token;
-    error.textContent="";start.disabled=false;
+    error.textContent="";
     start.textContent="▶ 开始";
     await syncQueue();
+    if(token)start.disabled=false;
   }catch(e){losePrimary(e.message||String(e));}
 }
 function fail(e){
@@ -306,7 +360,7 @@ async function checkPreload(){
   }finally{preloadInFlight=false;}
 }
 async function next(){
-  if(!token||inFlight||finishing||!started||activeId!==null)return;
+  if(!token||playbackMode!=="tv"||inFlight||finishing||!started||activeId!==null)return;
   inFlight=true;
   try{
     const answer=await api("/api/tv/next","POST");
@@ -389,29 +443,29 @@ start.onclick=async()=>{
   await next();
 };
 setInterval(async()=>{
-  if(!started||inFlight||activeId!==null)return;
+  if(!started||playbackMode!=="tv"||inFlight||activeId!==null)return;
   await next();
 },2000);
 setInterval(checkPreload,8000);
 
 pauseResume.onclick=async()=>{
-  if(activeId===null||playbackMode!=="browser")return;
+  if(activeId===null||playbackMode!=="tv")return;
   if(video.paused){cancelWarmup();try{await video.play();}catch(e){controlError.textContent=e.message;}}
   else video.pause();
   showPanel();updateControls();
 };
 restart.onclick=async()=>{
-  if(activeId===null||finishing||playbackMode!=="browser")return;
+  if(activeId===null||finishing||playbackMode!=="tv")return;
   cancelWarmup();video.currentTime=0;
   try{await video.play();}catch(e){controlError.textContent=e.message;}
   showPanel();updateControls();
 };
 skip.onclick=()=>{
-  if(activeId===null||finishing||playbackMode!=="browser")return;
+  if(activeId===null||finishing||playbackMode!=="tv")return;
   complete("skip");showPanel();
 };
 replayNext.onclick=async()=>{
-  if(activeId===null||finishing||replayInFlight||playbackMode!=="browser")return;
+  if(activeId===null||finishing||replayInFlight||playbackMode!=="tv")return;
   replayInFlight=true;updateControls();
   try{
     await api("/api/tv/replay-next","POST",{song_id:activeId});

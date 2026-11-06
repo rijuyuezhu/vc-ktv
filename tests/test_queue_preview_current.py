@@ -28,9 +28,15 @@ def test_active_preview_is_readonly_and_matches_next_claim(
         for name in names:
             ready(store, name, 2)
         store.save_settings(policy, False)
-        first = admin.post("/api/admin/next").json()["active"]
-        assert first["nickname"] == "A"
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
+        )
         token = primary_tv_token(admin)
+        first = (
+            guests["A"].post("/api/tv/next", params={"token": token}).json()["active"]
+        )
+        assert first["nickname"] == "A"
         before = snapshot(store)
         preview = store.fair_queue()
         assert preview
@@ -50,12 +56,18 @@ def test_active_preview_is_readonly_and_matches_next_claim(
             admin.get("/api/tv/preload", params={"token": token})
         assert snapshot(store) == before
         assert (
-            admin.post(
-                "/api/admin/finish", json={"song_id": first["id"], "reason": reason}
-            ).status_code
+            guests["A"]
+            .post(
+                "/api/tv/finish",
+                params={"token": token},
+                json={"song_id": first["id"], "reason": reason},
+            )
+            .status_code
             == 200
         )
-        second = admin.post("/api/admin/next").json()["active"]
+        second = (
+            guests["A"].post("/api/tv/next", params={"token": token}).json()["active"]
+        )
         assert second["id"] == expected
         if policy == "fair":
             assert second["nickname"] == "B"
