@@ -162,7 +162,38 @@ class Finish(BaseModel):
 
 
 class PlaybackMode(BaseModel):
-    mode: Literal["browser", "manual"]
+    mode: Literal["browser", "tv", "manual"]
+
+
+class TVRemoteCommand(BaseModel):
+    action: Literal[
+        "pause",
+        "resume",
+        "restart",
+        "skip",
+        "replay_next",
+        "volume",
+        "offset",
+        "opacity",
+        "smooth",
+    ]
+    song_id: int | None = Field(default=None, ge=1)
+    value: float | bool | None = None
+
+
+class TVRemoteReport(BaseModel):
+    ack_seq: int = Field(ge=0)
+    active_id: int | None = None
+    paused: bool = True
+    position: float = Field(default=0, ge=0)
+    duration: float | None = Field(default=None, ge=0)
+    volume: int = Field(default=100, ge=0, le=100)
+    offset: int = Field(default=0, ge=-600, le=600)
+    opacity: int = Field(default=15, ge=0, le=100)
+    smooth: bool = False
+    started: bool = False
+    overlay: bool = False
+    error: str = Field(default="", max_length=150)
 
 
 class Lyrics(BaseModel):
@@ -393,7 +424,7 @@ class Store:
         row = self.db.execute(
             "SELECT value FROM room_state WHERE name='playback_mode'"
         ).fetchone()
-        return row[0] if row and row[0] == "manual" else "browser"
+        return row[0] if row and row[0] in ("tv", "manual") else "browser"
 
     def save_settings(
         self,
@@ -2638,15 +2669,29 @@ def create_app(
         require_admin(vc_admin)
         return schedule_replay(song_id)
 
+    @app.post("/api/admin/songs/{song_id}/replay-next")
+    def replay_current(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            if store.playback_mode() == "tv":
+                bail(409, "电视模式请使用主屏遥控器")
+            return schedule_replay(song_id, current_only=True)
+
     @app.post("/api/admin/next")
     def next_song(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
-        return next_impl()
+        with store.lock:
+            if store.playback_mode() == "tv":
+                bail(409, "当前由电视主屏播放")
+            return next_impl()
 
     @app.post("/api/admin/finish")
     def finish_song(body: Finish, vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
-        return finish_impl(body)
+        with store.lock:
+            if store.playback_mode() == "tv":
+                bail(409, "当前由电视主屏播放")
+            return finish_impl(body)
 
     def tv_record(name: str) -> dict | None:
         row = store.db.execute(
@@ -2663,6 +2708,16 @@ def create_app(
                 "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                 (name, json.dumps(value)),
             )
+
+    def tv_remote_record() -> dict:
+        return tv_record("tv_remote") or {
+            "seq": 0,
+            "ack": 0,
+            "command": None,
+            "issued": 0,
+            "seen": 0,
+            "report": {},
+        }
 
     def tv_owner_valid(record: dict) -> bool:
         if record["role"] == "global":
@@ -2707,6 +2762,83 @@ def create_app(
                 "owner_role": active["role"] if active else None,
                 "can_manage": tv_can_manage(principal, active),
             }
+
+    @app.get("/api/admin/tv/remote")
+    def tv_remote_state(vc_admin: str | None = Cookie(default=None)):
+        principal = require_admin(vc_admin)
+        with store.lock:
+            primary = tv_record("tv_primary")
+            remote = tv_remote_record()
+            return {
+                "online": bool(primary and remote["seen"] > time_now() - 15),
+                "can_manage": tv_can_manage(principal, primary),
+                "report": remote["report"],
+                "pending": bool(
+                    remote["seq"] > remote["ack"] and remote["issued"] > time_now() - 20
+                ),
+            }
+
+    @app.post("/api/admin/tv/remote")
+    def tv_remote_send(
+        body: TVRemoteCommand, vc_admin: str | None = Cookie(default=None)
+    ):
+        principal = require_admin(vc_admin)
+        with store.lock:
+            if store.playback_mode() != "tv":
+                bail(409, "当前不是电视播放模式")
+            primary = tv_record("tv_primary")
+            if not primary or not tv_owner_valid(primary):
+                bail(409, "主屏未连接")
+            if not tv_can_manage(principal, primary):
+                bail(403, "无权遥控全局管理员的主屏")
+            remote = tv_remote_record()
+            if remote["seen"] < time_now() - 15:
+                bail(409, "主屏离线")
+            if remote["seq"] > remote["ack"] and remote["issued"] > time_now() - 20:
+                bail(409, "上一条遥控命令尚未完成")
+            song_actions = ("pause", "resume", "restart", "skip", "replay_next")
+            if body.action in song_actions:
+                current = store.current()
+                if not current or body.song_id != current["id"]:
+                    bail(409, "歌曲已切换，请刷新")
+            else:
+                limit = {"volume": (0, 100), "offset": (-600, 600), "opacity": (0, 100)}
+                if body.action == "smooth":
+                    if not isinstance(body.value, bool):
+                        bail(400, "无效的稳播设置")
+                elif (
+                    not isinstance(body.value, (int, float))
+                    or isinstance(body.value, bool)
+                    or not limit[body.action][0] <= body.value <= limit[body.action][1]
+                ):
+                    bail(400, "遥控参数超出范围")
+            seq = remote["seq"] + 1
+            remote.update(
+                seq=seq,
+                issued=time_now(),
+                command={
+                    "seq": seq,
+                    "action": body.action,
+                    "song_id": body.song_id,
+                    "value": body.value,
+                },
+            )
+            tv_save("tv_remote", remote)
+            store.db.commit()
+            return {"seq": seq}
+
+    @app.post("/api/tv/report")
+    def tv_report(body: TVRemoteReport, token: str):
+        require_tv(token)
+        with store.lock:
+            remote = tv_remote_record()
+            if remote["ack"] <= body.ack_seq <= remote["seq"]:
+                remote["ack"] = body.ack_seq
+            remote["seen"] = time_now()
+            remote["report"] = body.model_dump()
+            tv_save("tv_remote", remote)
+            store.db.commit()
+            return {"ok": True}
 
     @app.get("/api/admin/tv-link")
     def tv_link(
@@ -2789,6 +2921,7 @@ def create_app(
                 },
             )
             tv_save("tv_pending", None)
+            tv_save("tv_remote", None)
             store.db.commit()
             return {
                 "token": sign(
@@ -2807,6 +2940,7 @@ def create_app(
             if not active and not tv_can_manage(principal, pending):
                 bail(403, "本场管理员不能撤回全局管理员的配对链接")
             tv_save("tv_primary", None)
+            tv_save("tv_remote", None)
             if tv_can_manage(principal, pending):
                 tv_save("tv_pending", None)
             store.db.commit()
@@ -2815,21 +2949,29 @@ def create_app(
     @app.get("/api/tv/state")
     def tv_state(token: str):
         require_tv(token)
-        return state_with_active()
+        with store.lock:
+            snapshot = state_with_active()
+            remote = tv_remote_record()
+            snapshot["remote_command"] = (
+                remote["command"]
+                if store.playback_mode() == "tv" and remote["seq"] > remote["ack"]
+                else None
+            )
+            return snapshot
 
     @app.post("/api/tv/replay-next")
     def tv_replay_next(body: Finish, token: str):
         require_tv(token)
         with store.lock:
-            if store.playback_mode() != "browser":
-                bail(409, "当前使用手动投屏，请在管理后台操作")
+            if store.playback_mode() != "tv":
+                bail(409, "当前不是电视播放模式")
             return schedule_replay(body.song_id, current_only=True)
 
     @app.get("/api/tv/preload")
     def tv_preload(token: str):
         require_tv(token)
         with store.lock:
-            if store.playback_mode() != "browser" or not store.current():
+            if store.playback_mode() != "tv" or not store.current():
                 return {"candidate": None}
             # A preview, never a claim: do not advance fair counts or song state.
             queue = store.fair_queue()
@@ -2853,16 +2995,16 @@ def create_app(
     def tv_next(token: str):
         require_tv(token)
         with store.lock:
-            if store.playback_mode() == "manual":
-                bail(409, "当前使用手动投屏，请在管理后台操作")
+            if store.playback_mode() != "tv":
+                bail(409, "当前不是电视播放模式")
             return next_impl()
 
     @app.post("/api/tv/finish")
     def tv_finish(body: Finish, token: str):
         require_tv(token)
         with store.lock:
-            if store.playback_mode() == "manual":
-                bail(409, "当前使用手动投屏，请在管理后台操作")
+            if store.playback_mode() != "tv":
+                bail(409, "当前不是电视播放模式")
             return finish_impl(body)
 
     @app.get("/api/songs/played")

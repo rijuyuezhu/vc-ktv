@@ -127,6 +127,10 @@ def test_signed_original_and_timeline_preserve_baked_download(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
+        )
         token = primary_tv_token(admin)
         # Explicitly switching off still works; switching back on enables
         # the original video and HTML subtitles for the same song.
@@ -165,6 +169,10 @@ def test_large_original_requires_matching_bitrate_cache(tmp_path):
     with TestClient(app) as admin, TestClient(app) as guest:
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
         )
         token = primary_tv_token(admin)
         enable(admin)

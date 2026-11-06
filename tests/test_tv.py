@@ -33,6 +33,10 @@ def test_tv_token_can_only_be_issued_by_admin(tmp_path):
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
         )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
+        )
         token = primary_tv_token(admin)
         assert token
         assert guest.get("/api/tv/state", params={"token": token}).status_code == 200
@@ -97,6 +101,10 @@ def test_tv_preload_is_read_only_and_tracks_queue_changes(tmp_path):
         join_and_register(guest, "访客")
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
         )
         token = primary_tv_token(admin)
         url = "/api/tv/preload"
@@ -194,6 +202,10 @@ def test_tv_replay_next_is_scoped_idempotent_and_preserves_fairness(tmp_path):
         join_and_register(b, "B")
         assert (
             admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
         )
         token = primary_tv_token(admin)
         store = app.state.store

@@ -50,8 +50,15 @@ def test_repeated_tv_replay_pin_failure_preserves_previous_next_song(tmp_path, f
             admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
             == 200
         )
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "tv"}).status_code
+            == 200
+        )
         token = primary_tv_token(admin)
-        assert admin.post("/api/admin/next").json()["active"]["id"] == first
+        assert (
+            admin.post("/api/tv/next", params={"token": token}).json()["active"]["id"]
+            == first
+        )
         path = "/api/tv/replay-next"
         body = {"song_id": first}
         first_replay = admin.post(path, params={"token": token}, json=body)

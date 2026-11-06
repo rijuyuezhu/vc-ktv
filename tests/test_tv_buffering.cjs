@@ -44,7 +44,7 @@ function tvHarness(){
       if(url.includes("/api/tv/activate"))return {token:"test"};
       if(url.includes("/api/tv/next"))return {active:++calls.nexts===1?{id:1,title:"A",nickname:"guest",media_url:"/media/1",media_file:"1.mp4"}:null};
       if(url.includes("/api/tv/preload")){calls.preloads++;return {candidate:{id:2,media_url:"/media/2",media_file:"2.mp4"}};}
-      if(url.includes("/api/tv/state"))return {queue:calls.queue,playback_mode:"browser",current:calls.current};
+      if(url.includes("/api/tv/state"))return {queue:calls.queue,playback_mode:"tv",current:calls.current};
       return {ok:true};
     }}),
   };
@@ -68,7 +68,10 @@ function tvHarness(){
     }
     throw Error("TV pairing did not finish");
   }
-  return {el,calls,storage,evaluate,advance,ready,setFetch:(fn)=>{context.fetch=fn;}};
+  return {el,calls,storage,evaluate,advance,ready,setFetch:(fn)=>{
+    context.fetch=(url,...args)=>url.includes("/api/tv/report")?
+      Promise.resolve({ok:true,async json(){return {ok:true};}}):fn(url,...args);
+  }};
 }
 
 test("new song waits for native 12-second buffer instead of starting at one frame",async()=>{
@@ -225,10 +228,10 @@ test("delayed earlier TV state response cannot overwrite a newer next-song view"
   const stale=h.evaluate("syncQueue()");
   const latest=h.evaluate("syncQueue()");
   assert.equal(pending.length,2);
-  pending[1].resolve({ok:true,async json(){return {queue:[{id:3,title:"New",nickname:"B"}],current:null,playback_mode:"browser"};}});
+  pending[1].resolve({ok:true,async json(){return {queue:[{id:3,title:"New",nickname:"B"}],current:null,playback_mode:"tv"};}});
   await latest;
   assert.equal(h.el("next-up").textContent,"📺 New  B");
-  pending[0].resolve({ok:true,async json(){return {queue:[{id:2,title:"Old",nickname:"A"}],current:null,playback_mode:"browser"};}});
+  pending[0].resolve({ok:true,async json(){return {queue:[{id:2,title:"Old",nickname:"A"}],current:null,playback_mode:"tv"};}});
   await stale;
   assert.equal(h.el("next-up").textContent,"📺 New  B");
 });
@@ -241,7 +244,7 @@ test("stale TV polling error must not replace a newer healthy queue view",async(
   h.setFetch(()=>new Promise((resolve,reject)=>pending.push({resolve,reject})));
   const stale=h.evaluate("syncQueue()");
   const latest=h.evaluate("syncQueue()");
-  pending[1].resolve({ok:true,async json(){return {queue:[{id:4,title:"Fresh",nickname:"C"}],current:null,playback_mode:"browser"};}});
+  pending[1].resolve({ok:true,async json(){return {queue:[{id:4,title:"Fresh",nickname:"C"}],current:null,playback_mode:"tv"};}});
   await latest;
   pending[0].reject(new Error("old request timed out"));
   await stale;
