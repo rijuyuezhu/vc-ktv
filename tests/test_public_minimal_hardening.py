@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.app import MAX_ACTIVE_SONGS, create_app
+from vc_ktv.app import MAX_ACTIVE_SONGS, MAX_USER_SONGS, create_app
 
 BVID = "BV0000000001"
 
@@ -156,11 +156,12 @@ def test_parallel_orders_and_pause_during_lookup_rechecked(tmp_path):
                 "duration": 50,
             },
         )
-        with ThreadPoolExecutor(max_workers=14) as pool:
-            results = list(pool.map(lambda _: order(guest).status_code, range(14)))
-        assert results.count(200) == 10
+        with ThreadPoolExecutor(max_workers=24) as pool:
+            results = list(pool.map(lambda _: order(guest).status_code, range(24)))
+        assert MAX_USER_SONGS == 20
+        assert results.count(200) == 20
         assert results.count(409) == 4
-        assert len(app.state.store.rows("SELECT id FROM songs")) == 10
+        assert len(app.state.store.rows("SELECT id FROM songs")) == 20
         # A cancelled song releases one slot; completed songs also stop counting.
         with app.state.store.lock:
             app.state.store.db.execute("UPDATE songs SET status='cancelled' WHERE id=1")
@@ -253,3 +254,79 @@ def test_malicious_song_text_and_archive_path_are_data_not_code(tmp_path):
         assert "'=1+1" in exported  # Spreadsheet formula stays inert.
         assert guest.post("/api/admin/events/close").status_code == 401
         assert guest.get("/media/1?token=../../etc/passwd").status_code == 403
+
+
+def test_terminal_failure_releases_per_user_slot_and_retry_reclaims_it(tmp_path):
+    app, calls = make_app(tmp_path)
+    with TestClient(app) as admin, TestClient(app) as guest:
+        join_and_register(guest, "Guest")
+        assert (
+            admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
+            == 200
+        )
+        for _ in range(MAX_USER_SONGS):
+            assert order(guest).status_code == 200
+        assert order(guest).status_code == 409
+        store = app.state.store
+        with store.lock:
+            first = store.db.execute(
+                "SELECT id FROM songs ORDER BY id LIMIT 1"
+            ).fetchone()[0]
+            store.db.execute(
+                """UPDATE songs SET prep_state='unavailable',prep_attempts=2
+                   WHERE id=?""",
+                (first,),
+            )
+            store.db.commit()
+        # Transient errors still occupy capacity.
+        assert order(guest).status_code == 409
+        with store.lock:
+            store.db.execute("UPDATE songs SET prep_attempts=3 WHERE id=?", (first,))
+            store.db.commit()
+        assert order(guest).status_code == 200
+        assert order(guest).status_code == 409
+        # Manual retry is not a fresh order but must reclaim both capacity caps.
+        assert admin.post(f"/api/admin/songs/{first}/download/retry").status_code == 409
+        with store.lock:
+            newest = store.db.execute("SELECT max(id) FROM songs").fetchone()[0]
+            store.db.execute(
+                "UPDATE songs SET status='cancelled' WHERE id=?", (newest,)
+            )
+            store.db.commit()
+        assert admin.post(f"/api/admin/songs/{first}/download/retry").status_code == 200
+        with store.lock:
+            assert store.db.execute(
+                "SELECT prep_state,prep_attempts FROM songs WHERE id=?", (first,)
+            ).fetchone()[:] == ("pending", 0)
+        assert order(guest).status_code == 409
+
+
+def test_terminal_failed_downloads_release_room_limit_and_retry_checks_room(tmp_path):
+    app, _ = make_app(tmp_path)
+    with TestClient(app) as admin, TestClient(app) as guest:
+        join_and_register(guest, "Guest")
+        admin.post("/api/admin/login", json={"password": "test-admin"})
+        fill_songs(app.state.store, MAX_ACTIVE_SONGS)
+        store = app.state.store
+        with store.lock:
+            row = store.db.execute("SELECT id FROM songs LIMIT 1").fetchone()[0]
+        assert order(guest).status_code == 409
+        with store.lock:
+            requester = store.db.execute(
+                "SELECT id FROM guests WHERE name='Guest'"
+            ).fetchone()[0]
+            store.db.execute(
+                "UPDATE songs SET requester=?,prep_state='unavailable',prep_attempts=3 "
+                "WHERE id=?",
+                (requester, row),
+            )
+            store.db.commit()
+        assert order(guest).status_code == 200
+        assert admin.post(f"/api/admin/songs/{row}/download/retry").status_code == 409
+        with store.lock:
+            latest = store.db.execute("SELECT max(id) FROM songs").fetchone()[0]
+            store.db.execute(
+                "UPDATE songs SET status='cancelled' WHERE id=?", (latest,)
+            )
+            store.db.commit()
+        assert admin.post(f"/api/admin/songs/{row}/download/retry").status_code == 200
