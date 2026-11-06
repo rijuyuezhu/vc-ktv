@@ -63,8 +63,8 @@ def test_tv_banner_transparency_control_exists():
     js = (root / "tv.js").read_text()
     assert 'id="banner-transparency"' in html
     assert 'id="banner-transparency-value"' in html
-    assert "background:#151b2780" in html
-    assert "background:#111b29eb" in html  # Expanded panel unchanged.
+    assert "background:#151b27c9" in html
+    assert "background:#172131f3" in html
     assert "var(--banner-opacity,.85)" in html
     assert "vcktv-banner-transparency" in js
 
@@ -326,3 +326,14 @@ def test_account_dropdown_shows_name_above_logout():
     assert dropdown.index('id="account-name"') < dropdown.index('id="account-logout"')
     summary = html.split('id="account-menu"', 1)[1].split("</summary>", 1)[0]
     assert 'id="account-name"' not in summary
+
+
+def test_tv_internal_controls_use_external_remote_icons():
+    html = (Path(__file__).resolve().parents[1] / "static" / "tv.html").read_text()
+    for icon in ("pause", "rotate-ccw", "skip-forward", "repeat-2", "volume-2"):
+        assert f"/icons/{icon}.svg" in html
+    for provider in ("bilibili", "neteasecloudmusic"):
+        assert f"/icons/{provider}.svg" in html
+    for control in ("pause-resume", "restart", "skip", "replay-next", "next-list"):
+        assert f'id="{control}"' in html
+    assert "grid-template-columns:repeat(4,minmax(0,1fr))" in html

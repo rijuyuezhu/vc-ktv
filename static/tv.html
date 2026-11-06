@@ -27,21 +27,43 @@
     #next-up-row{transition:background .25s,color .25s}
     #next-up-row.highlight{background:#395f92;color:#fff}
     #error{color:#ffb1ac;max-width:780px}
-    #panel-toggle{position:fixed;right:16px;top:16px;z-index:7;padding:10px 14px;font-size:17px;background:#151b2780}
-    #controls{position:fixed;right:16px;top:68px;z-index:7;width:min(380px,calc(100vw - 32px));max-height:calc(100vh - 84px);overflow:auto;padding:18px;border-radius:18px;background:#111b29eb;box-shadow:0 8px 28px #000a}
+    #panel-toggle{position:fixed;right:16px;top:16px;z-index:7;padding:10px 14px;font-size:16px;background:#151b27c9}
+    #controls{position:fixed;right:16px;top:68px;z-index:7;width:min(336px,calc(100vw - 32px));max-height:calc(100vh - 84px);overflow:auto;padding:15px;border:1px solid #ffffff25;border-radius:13px;background:#172131f3;box-shadow:0 8px 28px #000a}
     #controls[hidden]{display:none}
-    #controls h2{font-size:18px;margin:0 0 8px}
-    #controls p{font-size:14px;margin:0 0 12px;text-align:left;color:#d2dfed}
-    #controls .actions{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0}
-    #controls button{padding:10px 12px;font-size:14px;border-radius:9px}
-    #controls button:disabled{opacity:.45;cursor:not-allowed}
-    #controls label{display:flex;gap:10px;align-items:center;font-size:14px}
-    #controls input{flex:1;min-width:0}
+    #controls h2{font-size:16px;margin:0 0 6px}
+    #controls p{font-size:13px;margin:0;color:#b4c4d8}
+    #now-playing{margin:0 0 2px!important;color:#d2dfed!important;overflow-wrap:anywhere}
+    #controls button:disabled{opacity:.35;cursor:default}
+    #controls input{min-width:0;accent-color:#7e92ed}
+    .remote-buttons{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+    .remote-buttons button,.remote-offsets button{display:grid;place-items:center;min-height:48px;padding:8px 4px;border:1px solid #ffffff31;border-radius:9px;background:#253146;color:#e8f1ff;cursor:pointer}
+    .remote-buttons button:hover,.remote-offsets button:hover{background:#354463;border-color:#7d91e8}
+    .remote-buttons button img{width:21px;height:21px;filter:brightness(0) invert(1)}
+    .remote-progress{text-align:center!important;font-size:12px!important;font-variant-numeric:tabular-nums;margin:9px 0!important}
+    .remote-range{display:flex;align-items:center;gap:11px;margin:12px 0 0}
+    .remote-range img{width:18px;height:18px;filter:brightness(0) invert(1)}
+    .remote-range input{flex:1}
+    .remote-extra{display:flex;flex-direction:column;gap:12px;border-top:1px solid #ffffff22;margin-top:13px;padding-top:13px}
+    .remote-extra[hidden],.remote-offset-section[hidden]{display:none}
+    .remote-offset-section{display:flex;flex-direction:column;gap:10px}
+    .remote-label{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#b4c4d8;font-size:12px}
+    .remote-opacity{flex-direction:column;align-items:stretch;gap:7px;font-size:12px;color:#b4c4d8}
+    .remote-offsets{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+    .remote-offsets button{min-height:42px;font-size:12px;padding-inline:2px}
+    #controls label.remote-toggle{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:#b4c4d8}
+    .remote-toggle input{flex:none;min-height:auto}
     #banner-transparency{width:100%}
+    #banner-transparency-value[hidden]{display:none}
     #progress{font-variant-numeric:tabular-nums}
-    #next-list{list-style:none;padding:0;margin:6px 0;font-size:14px}
-    #next-list li{padding:6px 0;border-bottom:1px solid #ffffff17;overflow-wrap:anywhere}
-    @media(max-width:560px){#controls{top:62px;max-height:calc(100vh - 74px)}}
+    .upcoming h2{margin:0!important}
+    #next-list{list-style:none;padding:0;margin:0;font-size:13px}
+    #next-list li{padding:8px 0;border-bottom:1px solid #ffffff17;overflow-wrap:anywhere}
+    #control-error{color:#ffb1ac!important}
+    [data-provider="bilibili"]{--provider-image:url('/icons/bilibili.svg')}
+    [data-provider="netease"]{--provider-image:url('/icons/neteasecloudmusic.svg')}
+    #status[data-provider],#next-up[data-provider],#now-playing[data-provider]{background:var(--provider-image) no-repeat left center;background-size:17px 17px;padding-left:24px}
+    #next-list li[data-provider]{background:var(--provider-image) no-repeat 22px center;background-size:17px 17px;padding-left:46px}
+    @media(max-width:560px){#controls{top:62px;max-height:calc(100vh - 74px)}.remote-offsets{grid-template-columns:repeat(3,minmax(0,1fr))}}
   </style>
 </head>
 <body>
@@ -60,32 +82,38 @@
   </div>
   <button id="panel-toggle" type="button" aria-expanded="false" aria-controls="controls">☰ 控制</button>
   <aside id="controls" aria-label="电视播放控制" hidden>
-    <h2>播放控制</h2>
     <p id="now-playing">暂无正在播放的歌曲</p>
-    <p id="progress">0:00 / 0:00</p>
-    <div class="actions">
-      <button id="pause-resume" type="button">⏸ 暂停</button>
-      <button id="restart" type="button" title="当前歌曲从零开始，不增加演唱次数">↺ 从头重播</button>
-      <button id="skip" type="button">⏭ 跳过切歌</button>
+    <div class="remote-buttons" aria-label="播放控制">
+      <button id="pause-resume" type="button" aria-label="暂停或继续" title="暂停或继续"><img id="pause-icon" src="/icons/pause.svg" alt=""></button>
+      <button id="restart" type="button" aria-label="从头重播" title="从头重播"><img src="/icons/rotate-ccw.svg" alt=""></button>
+      <button id="skip" type="button" aria-label="跳过" title="跳过"><img src="/icons/skip-forward.svg" alt=""></button>
+      <button id="replay-next" type="button" aria-label="下一首重唱" title="下一首重唱"><img src="/icons/repeat-2.svg" alt=""></button>
     </div>
-    <div class="actions"><button id="replay-next" type="button" title="唱完当前歌曲后安排下一首重唱，视为管理员轮次">↻ 下一首重唱</button></div>
-    <div id="offset-controls" hidden>
-      <p>实时字幕偏移 <output id="offset-value">+0.0 秒</output></p>
-      <div class="actions">
-        <button type="button" data-offset="-50">-5s</button>
-        <button type="button" data-offset="-10">-1s</button>
-        <button type="button" data-offset="-1">-0.1s</button>
-        <button type="button" data-offset="1">+0.1s</button>
-        <button type="button" data-offset="10">+1s</button>
-        <button type="button" data-offset="50">+5s</button>
+    <p id="progress" class="remote-progress">0:00 / 0:00</p>
+    <label class="remote-range"><img src="/icons/volume-2.svg" alt="" aria-hidden="true"><input id="volume" type="range" min="0" max="100" value="100" aria-label="音量"></label>
+    <div class="remote-extra">
+      <div id="offset-controls" class="remote-offset-section" hidden>
+        <div class="remote-label">字幕偏移 <output id="offset-value">+0.0s</output></div>
+        <div class="remote-offsets">
+          <button type="button" data-offset="-50">−5s</button>
+          <button type="button" data-offset="-10">−1s</button>
+          <button type="button" data-offset="-1">−0.1s</button>
+          <button type="button" data-offset="1">+0.1s</button>
+          <button type="button" data-offset="10">+1s</button>
+          <button type="button" data-offset="50">+5s</button>
+        </div>
       </div>
+      <label class="remote-range remote-opacity" for="banner-transparency">
+        <span>信息框透明度</span>
+        <input id="banner-transparency" type="range" min="0" max="100" step="5" value="15" aria-label="信息框透明度">
+      </label>
+      <output id="banner-transparency-value" hidden>15%</output>
+      <label class="remote-toggle"><input id="smooth-buffer" type="checkbox">稳播模式</label>
     </div>
-    <label>音量 <input id="volume" type="range" min="0" max="100" value="100" aria-label="音量"></label>
-    <label for="banner-transparency">底部信息框透明度 <output id="banner-transparency-value" for="banner-transparency">15%</output></label>
-    <input id="banner-transparency" type="range" min="0" max="100" step="5" value="15" aria-label="底部信息框透明度">
-    <label><input id="smooth-buffer" type="checkbox" style="flex:none"> 稳播模式（起播前缓冲，最长等 12 秒）</label>
-    <h2 style="margin-top:16px">接下来</h2>
-    <ul id="next-list"><li>正在获取队列……</li></ul>
+    <div class="remote-extra upcoming">
+      <h2>接下来</h2>
+      <ul id="next-list"><li>正在获取队列……</li></ul>
+    </div>
     <p id="control-error" role="alert"></p>
   </aside>
   <script src="/tv-overlay.js" defer></script>
