@@ -806,6 +806,7 @@ function currentRoute(){return window.location.hash.replace(/^#\/?/, "");}
 const adminRoutes={
   settings:["设置",null],
   "settings-playback":["播放与视频","event-settings-panel"],
+  "settings-queue":["点歌与队列","event-queue-settings-panel"],
   "settings-event":["场次管理","event-management"],
   "settings-accounts":["管理员账号","admin-accounts-panel"],
   "settings-netease":["网易云音乐连接","netease-admin-panel"],
@@ -815,13 +816,20 @@ const adminRoutes={
 function setupSubpages(){
   const root=$("subpage-content");
   const menu=document.createElement("nav");menu.className="panel page-links";
-  for(const [route,label] of [
-    ["settings-playback","播放与视频"],["settings-event","场次管理"],
-    ["settings-accounts","管理员账号"],["settings-netease","网易云音乐连接"],
-    ["settings-history","历史歌单"]
+  for(const [route,label,description] of [
+    ["settings-playback","播放与视频","设备、字幕、画质"],
+    ["settings-queue","点歌与队列","顺序、点歌权限"],
+    ["settings-event","场次管理","加入码与场次"],
+    ["settings-accounts","管理员账号","账号与权限"],
+    ["settings-netease","网易云音乐","音乐源连接"],
+    ["settings-history","历史歌单","记录与导出"]
   ]){
-    const link=appendText(menu,"a",label);
+    const link=appendText(menu,"a","","settings-nav-item");
     link.href="#"+route;
+    const copy=appendText(link,"span","","settings-nav-copy");
+    appendText(copy,"strong",label);
+    appendText(copy,"small",description);
+    appendText(link,"span","›","settings-nav-chevron").setAttribute("aria-hidden","true");
   }
   const settings=document.createElement("div");settings.id="page-settings";
   settings.append(menu);root.append(settings);
@@ -899,10 +907,23 @@ $("login-box").addEventListener("submit",(e)=>{e.preventDefault();guarded(async(
   });
   $("password").value="";admin=true;adminStateKey=null;toast("管理员登录成功");await refresh();
 },$("login-btn"));});
-$("logout-btn").onclick=()=>guarded(async()=>{
-  await api("/api/admin/logout","POST");admin=false;adminStateKey=null;currentMediaId=null;
-  player.pause();player.removeAttribute("src");player.load();await refresh();
-});
+function updateAccount(signedIn,name,role){
+  const menu=$("account-menu");
+  menu.classList.toggle("hidden",!signedIn);
+  if(!signedIn){menu.open=false;return;}
+  $("account-name").textContent=name;
+  $("account-role").textContent=role;
+}
+$("account-logout").onclick=()=>guarded(async()=>{
+  if(isAdminPath()){
+    await api("/api/admin/logout","POST");
+    admin=false;adminStateKey=null;currentMediaId=null;
+    player.pause();player.removeAttribute("src");player.load();
+  }else await api("/api/users/logout","POST");
+  $("account-menu").open=false;
+  updateAccount(false,"","");
+  await refresh();
+},$("account-logout"));
 let tvPrimaryState=null;
 async function refreshTVPrimary(){
   const tv=await api("/api/admin/tv");
@@ -1175,28 +1196,28 @@ async function refreshAdminAccounts(){
   target.replaceChildren();
   if(!data.accounts.length){appendText(target,"p","本场尚未创建管理员","muted");return;}
   data.accounts.forEach(account=>{
-    const item=document.createElement("div");item.className="archive-item";
-    appendText(item,"strong",account.username);
+    const item=appendText(target,"details","","account-entry");
+    appendText(item,"summary",account.username);
+    const actions=appendText(item,"div","","account-entry-actions");
     const password=document.createElement("input");
     password.type="password";password.autocomplete="new-password";
-    password.minLength=6;password.maxLength=72;password.placeholder="新密码（至少 6 个字符）";
+    password.minLength=6;password.maxLength=72;password.placeholder="新密码";
     password.setAttribute("aria-label","重置 "+account.username+" 的密码");
-    item.append(password);
-    const reset=appendText(item,"button","重置密码","btn neutral");
+    actions.append(password);
+    const reset=appendText(actions,"button","重置密码","btn neutral");
     reset.type="button";
     reset.onclick=()=>guarded(async()=>{
       if(password.value.length<6)throw new Error("密码至少 6 个字符");
       await api("/api/admin/accounts/"+account.id+"/password","PUT",{password:password.value});
-      password.value="";toast("密码已重置，旧登录及电视链接已失效");
+      password.value="";toast("密码已重置");
     },reset);
-    const revoke=appendText(item,"button","撤销","btn subtle");
+    const revoke=appendText(actions,"button","撤销账号","btn subtle");
     revoke.type="button";
     revoke.onclick=()=>guarded(async()=>{
-      if(!confirm("撤销本场管理员「"+account.username+"」？当前登录及电视链接会立即失效。"))return;
+      if(!confirm("撤销管理员「"+account.username+"」？"))return;
       await api("/api/admin/accounts/"+account.id,"DELETE");
-      toast("本场管理员已撤销");await refreshAdminAccounts();
+      toast("账号已撤销");await refreshAdminAccounts();
     },revoke);
-    target.append(item);
   });
 }
 $("admin-accounts-panel").addEventListener("toggle",()=>{
@@ -1224,6 +1245,7 @@ async function refreshEvents(){
   $("event-create-fields").classList.toggle("hidden",!!active||data.role!=="global");
   $("event-close-btn").classList.toggle("hidden",!active);
   $("event-settings-panel").classList.toggle("hidden",!active);
+  $("event-queue-settings-panel").classList.toggle("hidden",!active);
   const canManageAccounts=Boolean(active&&data.role==="global");
   for(const route of ["settings-accounts","settings-netease"]){
     document.querySelector('a[href="#'+route+'"]')?.classList.toggle("hidden",data.role!=="global");
@@ -1245,6 +1267,8 @@ async function refreshEvents(){
   }
   $("admin-role").textContent=data.role==="global"?"全局管理员":
     "本场管理员："+(data.username||"");
+  updateAccount(true,data.role==="global"?"管理员":data.username||"管理员",
+    data.role==="global"?"全局管理员":"本场管理员");
 
   const key=JSON.stringify(data.events.map(e=>[e.id,e.name,e.status]));
   if(key!==archiveListKey){
@@ -1294,19 +1318,22 @@ function updateStylePreview(){
 $("subtitle-style").onchange=updateStylePreview;
 $("settings-save-btn").onclick=()=>guarded(async()=>{
   await api("/api/admin/settings","PUT",{
-    queue_policy:$("queue-policy").value,
-    allow_unsubtitled:$("allow-unsubtitled").checked,
     subtitle_style:$("subtitle-style").value,
     video_quality:Number($("video-quality").value),
     max_bandwidth_mbps:Number($("max-bandwidth-mbps").value),
-    orders_paused:$("pause-orders").checked,
     tv_html_overlay:$("tv-html-overlay").checked
   });
-  adminStateKey=null;
-  listKeys.clear();
-  toast("✓ 已保存");
-  await refresh();
+  toast("已保存");await refresh();
 },$("settings-save-btn"));
+$("queue-settings-save").onclick=()=>guarded(async()=>{
+  await api("/api/admin/settings","PUT",{
+    queue_policy:$("queue-policy").value,
+    allow_unsubtitled:$("allow-unsubtitled").checked,
+    orders_paused:$("pause-orders").checked
+  });
+  adminStateKey=null;listKeys.clear();
+  toast("已保存");await refresh();
+},$("queue-settings-save"));
 $("event-create-btn").onclick=()=>guarded(async()=>{
   const name=$("event-name").value.trim();
   const code=$("event-code").value.trim();
@@ -1340,10 +1367,10 @@ function renderEntry(entry){
   $("entry-account").classList.toggle("hidden",!entry.event||!entry.joined||entry.authenticated);
   guestAuthenticated=Boolean(entry.authenticated);
   $("guest-access").classList.toggle("hidden",entry.authenticated);
-  $("guest-profile").classList.toggle("hidden",!entry.authenticated);
+  if(!isAdminPath())updateAccount(entry.authenticated,entry.username||"","点歌用户");
   $("request-panel").classList.toggle("hidden",!entry.authenticated);
   $("queue-panel").classList.toggle("hidden",!entry.authenticated);
-  $("guest-greeting").textContent=entry.authenticated?"当前用户："+entry.username+"  "+entry.event.name:"";
+
   showPage();
 }
 $("entry-code").addEventListener("submit",(e)=>{e.preventDefault();guarded(async()=>{
@@ -1369,11 +1396,6 @@ $("user-login-form").addEventListener("submit",(e)=>{e.preventDefault();guarded(
   $("user-login-password").value="";
   toast("登录成功");await refresh();
 },$("user-login-btn"));});
-$("user-logout-btn").onclick=()=>guarded(async()=>{
-  await api("/api/users/logout","POST");
-  await refresh();
-},$("user-logout-btn"));
-
 async function refresh(){
   if(refreshing){refreshQueued=true;return;}
   refreshing=true;
@@ -1405,6 +1427,7 @@ async function refresh(){
       try{adm=await api("/api/admin/state");admin=true;}
       catch(e){if(e.message.includes("管理员"))admin=false;else throw e;}
       $("login-box").classList.toggle("hidden",admin);
+      if(!admin)updateAccount(false,"","");
       $("admin-panel").classList.toggle("hidden",!admin||Boolean(adminRoutes[currentRoute()]||currentRoute()==="played"||/^song-[0-9]+$/.test(currentRoute())));
       $("subpage").classList.toggle("hidden",!admin||!(adminRoutes[currentRoute()]||currentRoute()==="played"||/^song-[0-9]+$/.test(currentRoute())));
       if(admin){

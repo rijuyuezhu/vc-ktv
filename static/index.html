@@ -12,7 +12,19 @@
   <header class="topbar">
     <div class="topinner">
       <div class="brand"><div class="brandicon" aria-hidden="true">♫</div><strong>VC KTV</strong></div>
-      <nav class="tabs" aria-label="页面导航"><a id="tab-guest" class="selected" href="/">♫ 点歌</a><a id="tab-admin" href="/admin/">⚙ 管理</a></nav>
+      <div class="top-actions">
+        <nav class="tabs" aria-label="页面导航"><a id="tab-guest" class="selected" href="/">♫ 点歌</a><a id="tab-admin" href="/admin/">⚙ 管理</a></nav>
+        <details id="account-menu" class="account-menu hidden">
+          <summary aria-label="账号菜单" title="账号">
+            <img src="/icons/user-round.svg" alt="" aria-hidden="true">
+            <span id="account-name"></span>
+          </summary>
+          <div class="account-dropdown">
+            <span id="account-role"></span>
+            <button id="account-logout" type="button"><img src="/icons/log-out.svg" alt="" aria-hidden="true">退出登录</button>
+          </div>
+        </details>
+      </div>
     </div>
   </header>
   <main class="layout">
@@ -60,15 +72,11 @@
           </div>
         </div>
       </section>
-      <section class="panel full-width hidden" id="guest-profile">
-        <span id="guest-greeting"></span>
-        <button id="user-logout-btn" class="btn subtle" type="button">↪ 退出</button>
-      </section>
       <section class="panel form-panel hidden" id="request-panel">
         <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♫</span> 点歌</h2></div>
         <div class="song-source-tabs" role="tablist" aria-label="选择音乐来源">
-          <button type="button" id="source-tab-bilibili" role="tab" aria-selected="true" aria-controls="source-panel-bilibili">📺 哔哩哔哩</button>
-          <button type="button" id="source-tab-netease" role="tab" aria-selected="false" aria-controls="source-panel-netease" tabindex="-1">🎵 网易云音乐</button>
+          <button type="button" id="source-tab-bilibili" role="tab" aria-selected="true" aria-controls="source-panel-bilibili"><img class="brand-icon" src="/icons/bilibili.svg" alt="" aria-hidden="true">B站</button>
+          <button type="button" id="source-tab-netease" role="tab" aria-selected="false" aria-controls="source-panel-netease" tabindex="-1"><img class="brand-icon" src="/icons/neteasecloudmusic.svg" alt="" aria-hidden="true">网易云</button>
         </div>
         <div id="source-panel-bilibili" role="tabpanel" aria-labelledby="source-tab-bilibili">
         <label for="bvid">视频链接或 BV 号</label>
@@ -133,17 +141,10 @@
           <button id="event-close-btn" class="btn neutral hidden" type="button">▣ 结束并归档</button>
         </section>
         <section class="panel">
-          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">▶</span> 播放控制</h2><button id="logout-btn" class="btn subtle">↪ 退出</button></div>
+          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">▶</span> 播放控制</h2></div>
           <div class="current-media-actions">
             <a id="current-song-download" class="btn primary hidden" href="#">↓ 下载当前视频</a>
             <button id="current-song-copy-source" class="btn neutral hidden" type="button">⧉ 复制来源</button>
-          </div>
-          <div class="mode-select-row">
-            <label for="playback-mode">播放方式</label>
-            <select id="playback-mode">
-              <option value="browser">浏览器播放</option>
-              <option value="manual">手动投屏（乐播相册）</option>
-            </select>
           </div>
           <div class="player-shell" id="browser-player">
             <video id="player" playsinline controls preload="metadata"></video>
@@ -172,13 +173,12 @@
           <div id="manage-status" class="song-list"></div>
         </section>
         <section class="panel full-width" id="event-settings-panel">
-          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">⚙</span> 本场设置</h2></div>
           <div class="settings-fields">
-            <div>
-              <label for="queue-policy">点歌顺序</label>
-              <select id="queue-policy">
-                <option value="fair">公平轮播</option>
-                <option value="fcfs">先来先唱</option>
+            <div class="settings-mode">
+              <label for="playback-mode">播放方式</label>
+              <select id="playback-mode">
+                <option value="browser">浏览器播放</option>
+                <option value="manual">相册播放</option>
               </select>
             </div>
             <div>
@@ -192,38 +192,39 @@
             <div>
               <label for="video-quality">原视频清晰度</label>
               <select id="video-quality">
-                <option value="720">720p（默认）</option>
-                <option value="480">480p（节省流量）</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
               </select>
             </div>
-            <label class="toggle">
-              <input id="allow-unsubtitled" type="checkbox">
-              允许播放无字幕歌曲
-            </label>
-            <label class="toggle">
-              <input id="pause-orders" type="checkbox">
-              暂停点歌
-            </label>
-            <label class="toggle">
-              <input id="tv-html-overlay" type="checkbox" checked>
-              电视播放本地原片，叠加实时卡拉 OK 字幕
-            </label>
             <div>
-              <label for="max-bandwidth-mbps">在线播放带宽预算（Mbps，默认 3）</label>
+              <label for="max-bandwidth-mbps">在线码率上限（Mbps）</label>
               <input id="max-bandwidth-mbps" type="number" min="1" step="0.1" value="3">
-              <p class="muted">烧录版与本地原片在线播放缓存共用，预留音频带宽。新设置对下一次制作生效。</p>
             </div>
           </div>
-          <div id="style-preview" class="style-preview classic" aria-label="字幕风格示意预览">
+          <label class="setting-toggle"><input id="tv-html-overlay" type="checkbox" checked><span>主屏实时字幕叠加</span></label>
+          <div id="style-preview" class="style-preview classic" aria-label="字幕样式预览">
             <span>♫ 示例歌词正在演唱</span>
             <span class="style-preview-second">下一行歌词也会显示</span>
           </div>
-          <p class="muted">新设置对下一首开始处理的歌生效。</p>
-          <button id="settings-save-btn" class="btn primary" type="button">✓ 保存设置</button>
+          <button id="settings-save-btn" class="btn primary" type="button">保存设置</button>
+          <p class="settings-note">影响下一首新制作的歌曲。</p>
+        </section>
+        <section class="panel full-width" id="event-queue-settings-panel">
+          <div class="settings-fields">
+            <div>
+              <label for="queue-policy">点歌顺序</label>
+              <select id="queue-policy">
+                <option value="fair">公平轮播</option>
+                <option value="fcfs">先来先唱</option>
+              </select>
+            </div>
+          </div>
+          <label class="setting-toggle"><input id="allow-unsubtitled" type="checkbox"><span>允许无字幕歌曲</span></label>
+          <label class="setting-toggle"><input id="pause-orders" type="checkbox"><span>暂停点歌</span></label>
+          <button id="queue-settings-save" class="btn primary" type="button">保存设置</button>
         </section>
         <details class="panel full-width fold-panel hidden" id="admin-accounts-panel">
-          <summary><span class="ui-icon" aria-hidden="true">♙</span> 本场管理员账号</summary>
-          <p class="muted">仅全局管理员可创建和撤销。本场结束后账号自动失效。</p>
+          <summary>本场管理员账号</summary>
           <div class="settings-fields">
             <div>
               <label for="admin-account-name">用户名</label>
@@ -238,8 +239,7 @@
           <div id="admin-account-list" class="archive-list"></div>
         </details>
         <section class="panel full-width hidden" id="netease-admin-panel">
-          <h2>🎵 网易云音乐连接</h2>
-          <p class="muted">仅全局管理员可连接。登录凭据安全地保存在服务器本地，重启后仍可使用；失效时重新扫码。</p>
+
           <p id="netease-login-status" class="muted" role="status" aria-live="polite">尚未连接网易云</p>
           <div id="netease-login-qr-box" class="netease-login-qr-box hidden">
             <img id="netease-login-qr-image" alt="使用网易云音乐 App 扫描登录二维码">
@@ -252,8 +252,8 @@
           </div>
           <details class="fold-panel netease-cookie-import" id="netease-cookie-import-panel">
             <summary>通过网易云网页登录态连接</summary>
-            <p class="muted">如果扫码提示 8821，需要在网易云完成安全验证。也可以在自己的浏览器中打开 <a href="https://music.163.com/" target="_blank" rel="noopener noreferrer">网易云音乐官网</a> 并正常登录，然后从开发者工具的 Application / Storage → Cookies → music.163.com 中复制 <code>MUSIC_U</code> 的 Value。</p>
-            <p class="muted">仅在这里粘贴，不要发送到聊天、Issue 或其他人。服务器会先验证账号，再保存到私有数据文件，重启仍有效。</p>
+            <p class="muted">扫码失败时，可从网易云网页的 Cookies 中复制 <code>MUSIC_U</code> 的 Value。</p>
+            <p class="muted">敏感凭据仅在此输入，请勿分享。</p>
             <form id="netease-cookie-import-form" class="input-row">
               <input type="password" id="netease-cookie-import-value" autocomplete="off" spellcheck="false" placeholder="仅粘贴 MUSIC_U 的 Value" aria-label="网易云 MUSIC_U 登录凭据" maxlength="4104" required>
               <button type="submit" id="netease-cookie-import-submit" class="btn primary">验证并连接</button>
