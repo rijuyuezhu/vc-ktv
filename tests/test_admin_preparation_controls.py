@@ -88,6 +88,43 @@ def test_single_song_skip_admin_auth_and_other_song_isolation(tmp_path):
         assert admin.post(url).status_code == 200
 
 
+def test_admin_skip_original_clears_failure_and_stays_played(tmp_path):
+    app = make_app(tmp_path)
+    song_id = add_song(app.state.store, "A", 1, state="original")
+    store = app.state.store
+    with store.lock:
+        store.db.execute(
+            "UPDATE songs SET prep_error='字幕对齐失败' WHERE id=?", (song_id,)
+        )
+        store.db.commit()
+    with TestClient(app) as admin:
+        login(admin)
+        before = admin.get(f"/api/songs/{song_id}/detail").json()
+        assert before["prep_error"] == "字幕对齐失败"
+        assert before["skip_subtitles"] == 0
+        assert (
+            admin.post(f"/api/admin/songs/{song_id}/subtitles/skip").status_code == 200
+        )
+        ready = admin.get(f"/api/songs/{song_id}/detail").json()
+        assert ready["prep_error"] == ""
+        assert ready["prep_state"] == "original"
+        assert ready["skip_subtitles"] == 1
+        with store.lock:
+            store.db.execute(
+                "UPDATE songs SET status='played',played_at=123456 WHERE id=?",
+                (song_id,),
+            )
+            store.db.commit()
+        played = admin.get(f"/api/songs/{song_id}/detail").json()
+        assert played["status"] == "played"
+        assert played["skip_subtitles"] == 1
+        assert played["prep_error"] == ""
+        assert any(
+            entry["id"] == song_id
+            for entry in admin.get("/api/songs/played").json()["songs"]
+        )
+
+
 def test_skip_only_ready_with_actual_original_and_not_playing(tmp_path):
     app = make_app(tmp_path)
     ready = add_song(app.state.store, "Ready", 1, state="aligning")

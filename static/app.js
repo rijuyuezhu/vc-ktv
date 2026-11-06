@@ -336,7 +336,8 @@ async function refreshSongDetail(){
   const state=appendText(panel,"div","","detail-state");
   appendText(state,"strong",songState(song));
   if(song.priority_next)appendText(state,"span","下一首优先","detail-note");
-  if(song.prep_error&&["unavailable","original"].includes(song.prep_state))
+  if(!song.skip_subtitles&&song.prep_error&&
+     ["unavailable","original"].includes(song.prep_state))
     appendText(state,"span",song.prep_error,"detail-note");
   detailMediaActions(panel,song);
   const actions=detailActions(song,isAdminPath());
@@ -350,7 +351,7 @@ async function refreshSongDetail(){
       align:"歌词对齐",subtitles:"字幕生成",render:"烧录"};
     const entries=Object.entries(names).filter(([name])=>song.stage_seconds?.[name]!=null);
     const running=["downloading","aligning"].includes(song.prep_state);
-    if(entries.length||running||song.prep_error){
+    if(entries.length||running||(song.prep_error&&!song.skip_subtitles)){
       const details=appendText(panel,"details","","timing-details");
       details.open=timingWasOpen;
       appendText(details,"summary","制作详情");
@@ -364,7 +365,7 @@ async function refreshSongDetail(){
         appendText(line,"span","当前阶段");
         appendText(line,"span",Math.max(0,Math.floor(Date.now()/1000-song.prep_stage_at))+" 秒","stage-current-time");
       }
-      if(song.prep_error)appendText(details,"p",song.prep_error,"muted");
+      if(song.prep_error&&!song.skip_subtitles)appendText(details,"p",song.prep_error,"muted");
     }
   }
   if(isAdminPath()&&song.status==="ready"){
