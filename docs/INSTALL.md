@@ -1,6 +1,6 @@
 # 安装与运行
 
-以 Debian/Ubuntu + Python 3.12 为例。需要 GitHub 仓库访问权限和 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
+以 Debian/Ubuntu + Python 3.12 为例。把 `OWNER` 换成仓库所有者；需要 GitHub 仓库访问权限和 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
 
 ## 安装基础服务
 
@@ -11,7 +11,7 @@ sudo apt-get install -y git gh curl ffmpeg fontconfig fonts-noto-cjk fonts-noto-
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # 将 uv 加入 PATH 后：
 gh auth login
-gh repo clone rijuyuezhu/vc-ktv
+gh repo clone OWNER/vc-ktv
 cd vc-ktv
 uv sync --locked
 ./scripts/setup.sh

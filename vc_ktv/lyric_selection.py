@@ -10,10 +10,8 @@ import logging
 
 import httpx
 
-from ktv_app.lyric_names import title_variants
-from ktv_app.text_normalization import clean_lyric_text
-
 from .lyric_sources import vcpedia_lyric_candidates
+from .pipeline import clean_lyric_text, title_variants
 from .timed_lyrics import provider_timeline
 
 log = logging.getLogger(__name__)

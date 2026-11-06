@@ -844,7 +844,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         nonlocal running
         if auto_prepare:
-            from ktv_app.font_support import primary_font_warning
+            from .pipeline import primary_font_warning
 
             warning = primary_font_warning("Noto Sans CJK SC")
             if warning:

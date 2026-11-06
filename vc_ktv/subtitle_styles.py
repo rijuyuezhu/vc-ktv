@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from ktv_app.timeline import Style
+from .pipeline import Style
 
 StylePreset = Literal["classic", "large", "compact"]
 DEFAULT_PRESET: StylePreset = "classic"

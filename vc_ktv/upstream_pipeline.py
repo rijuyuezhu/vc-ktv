@@ -6,7 +6,6 @@ the event lifecycle and final media commit.
 """
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -21,24 +20,11 @@ from ktv_app.separation import prepare_alignment_audio
 from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Style
 
+from .config import pipeline_settings
 
-def spark_settings(root: Path | None = None) -> Settings:
-    """Model assets and dedicated runtimes live in VCKTV's permanent data root."""
-    root = Path(
-        root or os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
-    ).expanduser()
-    models = root / "models"
-    runtime = root / "runtime"
-    return Settings(
-        tifa_source=models / "forced_alignment/sources/TIFA",
-        tifa_python=runtime / "tifa/bin/python",
-        tifa_model=models / "forced_alignment/tifa/TIFA-1.0-ST/model.pt",
-        kim_source=models / "separation/sources/Kim",
-        kim_model=models / "separation/Kim/MelBandRoformer.ckpt",
-        separation_python=runtime / "kim/bin/python",
-        asr_model=models / "Qwen3-ASR-1.7B",
-        locator_python=runtime / "qwen/bin/python",
-    )
+# Kept as a compatibility alias for existing scripts; the runtime-specific
+# installation layout is now configured in vc_ktv.config.
+spark_settings = pipeline_settings
 
 
 @dataclass(frozen=True)

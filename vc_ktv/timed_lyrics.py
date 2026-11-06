@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import re
 
-from ktv_app.text_normalization import LEADING_CREDIT, clean_lyric_text
-
 from .karaoke import LINE_STAMP, parse_lrc, seconds
+from .pipeline import LEADING_CREDIT, clean_lyric_text
 
 
 def provider_timeline(raw: str, confirmed: str) -> str | None:

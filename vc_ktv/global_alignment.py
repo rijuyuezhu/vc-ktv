@@ -9,11 +9,8 @@ import os
 import subprocess
 from pathlib import Path
 
-from ktv_app.aligners.scat_pronunciation import UNKNOWN_LATIN, pronunciation_lyrics
-from ktv_app.media import run
-from ktv_app.timeline import Line, Timeline, Unit
-
 from .karaoke import parse_lrc
+from .pipeline import UNKNOWN_LATIN, Line, Timeline, Unit, pronunciation_lyrics, run
 from .textgrid_import import chars, convert_textgrid
 
 

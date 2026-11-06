@@ -11,7 +11,7 @@ uv run --no-sync pytest -q
 bash -n scripts/*.sh
 ```
 
-前端位于 `static/`，服务端位于 `vc_ktv/`，字幕模型适配位于 `ktv_app/`。自动测试使用隔离数据库和合成媒体；真实 GPU 环境可另外运行：
+前端位于 `static/`，服务端位于 `vc_ktv/`，字幕引擎通过 `vc_ktv/pipeline/` 接入；`ktv_app/` 为固定版本的第三方源码。自动测试使用隔离数据库和合成媒体；真实 GPU 环境可另外运行：
 
 ```sh
 uv run --no-sync python -m scripts.gpu_smoke
