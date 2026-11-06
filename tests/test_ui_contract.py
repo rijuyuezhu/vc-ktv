@@ -318,3 +318,11 @@ def test_button_like_links_and_buttons_share_center_alignment():
     shared_button_rule = re.search(r"\.btn\s*\{([^}]+)\}", css)
     assert shared_button_rule is not None
     assert re.search(r"text-align:\s*center\s*;", shared_button_rule.group(1))
+
+
+def test_account_dropdown_shows_name_above_logout():
+    html = (Path(__file__).resolve().parents[1] / "static" / "index.html").read_text()
+    dropdown = html.split('class="account-dropdown"', 1)[1].split("</details>", 1)[0]
+    assert dropdown.index('id="account-name"') < dropdown.index('id="account-logout"')
+    summary = html.split('id="account-menu"', 1)[1].split("</summary>", 1)[0]
+    assert 'id="account-name"' not in summary

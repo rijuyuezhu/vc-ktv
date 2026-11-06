@@ -493,7 +493,7 @@ button, input, select { min-height: 44px; }
 .account-menu summary::-webkit-details-marker { display: none; }
 .account-menu summary:hover, .account-menu[open] summary { background: var(--accent-soft); }
 .account-menu summary img, .account-dropdown img { width: 19px; height: 19px; }
-#account-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#account-name { display: block; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
 .account-dropdown {
   position: absolute; right: 0; top: calc(100% + 12px); z-index: 12;
   display: grid; gap: 10px; width: 192px; padding: 12px;
