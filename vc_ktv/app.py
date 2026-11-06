@@ -2131,7 +2131,7 @@ def create_app(
                 store.db.execute(
                     "UPDATE songs SET media_file=source_file,prep_state='original',"
                     "skip_subtitles=1,prep_stage='skipped',prep_stage_at=?,"
-                    "prep_error='管理员已选择播放原片' WHERE id=?",
+                    "prep_error='' WHERE id=?",
                     (time_now(), song_id),
                 )
                 store.db.commit()
