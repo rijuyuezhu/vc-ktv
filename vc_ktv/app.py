@@ -125,8 +125,8 @@ class EventAdminPassword(BaseModel):
 
 
 class PlaybackSettings(BaseModel):
-    queue_policy: Literal["fair", "fcfs"]
-    allow_unsubtitled: bool
+    queue_policy: Literal["fair", "fcfs"] | None = None
+    allow_unsubtitled: bool | None = None
     # Old clients that omit the new field must not reset the chosen preset.
     subtitle_style: StylePreset | None = None
     video_quality: Literal[720, 480] | None = None
@@ -397,8 +397,8 @@ class Store:
 
     def save_settings(
         self,
-        queue_policy: str,
-        allow_unsubtitled: bool,
+        queue_policy: str | None,
+        allow_unsubtitled: bool | None,
         subtitle_style: StylePreset | None = None,
         video_quality: Literal[720, 480] | None = None,
         max_bandwidth_mbps: float | None = None,
@@ -406,10 +406,11 @@ class Store:
         tv_html_overlay: bool | None = None,
     ):
         # Optional values are updates, not resets; legacy admin clients omit them.
-        updates = {
-            "queue_policy": queue_policy,
-            "allow_unsubtitled": "1" if allow_unsubtitled else "0",
-        }
+        updates = {}
+        if queue_policy is not None:
+            updates["queue_policy"] = queue_policy
+        if allow_unsubtitled is not None:
+            updates["allow_unsubtitled"] = "1" if allow_unsubtitled else "0"
         for key, value in (
             ("subtitle_style", subtitle_style),
             ("video_quality", video_quality),

@@ -253,7 +253,7 @@ def test_netease_connection_lives_in_global_admin_settings_subpage():
     js = (root / "app.js").read_text()
     assert '<section class="panel full-width hidden" id="netease-admin-panel">' in html
     assert '"settings-netease":["网易云音乐连接","netease-admin-panel"]' in js
-    assert '["settings-netease","网易云音乐连接"]' in js
+    assert '["settings-netease","网易云音乐","音乐源连接"]' in js
     assert '["settings-accounts","settings-netease"]' in js
     assert 'currentRoute()==="settings-netease"&&!neteaseLoginPageActive' in js
     assert 'id="netease-login-check"' in html
