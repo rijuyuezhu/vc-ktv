@@ -1,8 +1,8 @@
 """Archive cleanup is scoped to closed normal sessions and global admins."""
+
 import csv
 import io
 import json
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -33,8 +33,32 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
                     requested_at,status,source_type,source_id
                 ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 [
-                    ("BV0000000001", 1, "B站歌", "UP", "", 100, guest_id, 1, "played", "bilibili", ""),
-                    ("", 1, "网易云歌", "歌手", "", 90, guest_id, 2, "played", "netease", "2613869782"),
+                    (
+                        "BV0000000001",
+                        1,
+                        "B站歌",
+                        "UP",
+                        "",
+                        100,
+                        guest_id,
+                        1,
+                        "played",
+                        "bilibili",
+                        "",
+                    ),
+                    (
+                        "",
+                        1,
+                        "网易云歌",
+                        "歌手",
+                        "",
+                        90,
+                        guest_id,
+                        2,
+                        "played",
+                        "netease",
+                        "2613869782",
+                    ),
                 ],
             )
             store.db.commit()
@@ -61,7 +85,10 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         assert guest.delete(delete).status_code == 401
         assert operator.post(release).status_code == 403
         assert operator.delete(delete).status_code == 403
-        assert admin.post(f"/api/admin/events/{second['id']}/release-media").status_code == 409
+        assert (
+            admin.post(f"/api/admin/events/{second['id']}/release-media").status_code
+            == 409
+        )
         assert admin.delete(f"/api/admin/events/{second['id']}").status_code == 409
         assert admin.post("/api/admin/events/legacy/release-media").status_code == 409
         assert admin.delete("/api/admin/events/legacy").status_code == 409
@@ -83,8 +110,11 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         assert rows[1]["source_id"] == "2613869782"
         assert admin.get(f"{delete}/songs.csv").content == csv_bytes
         assert (second_dir / "media" / "active.mp4").read_bytes() == b"active"
-        status = next(e for e in admin.get("/api/admin/events").json()["events"]
-                      if e["id"] == first["id"])
+        status = next(
+            e
+            for e in admin.get("/api/admin/events").json()["events"]
+            if e["id"] == first["id"]
+        )
         assert status.get("media_released_at")
 
         again = admin.post(release)
@@ -98,8 +128,10 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         assert admin.get(f"{delete}/songs.csv").status_code == 404
         assert second_dir.is_dir()
         assert (second_dir / "media" / "active.mp4").read_bytes() == b"active"
-        assert all(e["id"] != first["id"]
-                   for e in admin.get("/api/admin/events").json()["events"])
+        assert all(
+            e["id"] != first["id"]
+            for e in admin.get("/api/admin/events").json()["events"]
+        )
 
 
 def test_archive_cleanup_rejects_symlinked_session_directory(tmp_path):
@@ -109,10 +141,21 @@ def test_archive_cleanup_rejects_symlinked_session_directory(tmp_path):
         admin_login(admin)
         outside = tmp_path / "outside"
         outside.mkdir()
-        (outside / "info.json").write_text(json.dumps({
-            "id": "symlink-event", "name": "Bad", "status": "closed",
-        }))
-        (root / "sessions" / "symlink-event").symlink_to(outside, target_is_directory=True)
-        assert admin.post("/api/admin/events/symlink-event/release-media").status_code == 404
+        (outside / "info.json").write_text(
+            json.dumps(
+                {
+                    "id": "symlink-event",
+                    "name": "Bad",
+                    "status": "closed",
+                }
+            )
+        )
+        (root / "sessions" / "symlink-event").symlink_to(
+            outside, target_is_directory=True
+        )
+        assert (
+            admin.post("/api/admin/events/symlink-event/release-media").status_code
+            == 404
+        )
         assert admin.delete("/api/admin/events/symlink-event").status_code == 404
         assert (outside / "info.json").exists()
