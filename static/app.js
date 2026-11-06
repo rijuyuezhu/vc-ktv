@@ -68,20 +68,6 @@ function appendText(parent, tag, text, cls="") {
   parent.append(el);
   return el;
 }
-function preparationStatus(song) {
-  const stages={
-    queued:"等待字幕制作",extract:"提取音频",kim:"分离人声",
-    align:"语音对齐",subtitles:"生成字幕",render:"烧录字幕"
-  };
-  const states={
-    pending:"◷ 等待下载",downloading:"◷ 下载原片中",
-    downloaded:song.lyric_selected?"◷ 等待字幕制作":"◷ 等待歌词",
-    original:song.skip_subtitles?"✓ 使用原片":"! 字幕失败",
-    unavailable:"! 下载失败",done:"✓ 视频已就绪",manual:"✓ 视频已就绪"
-  };
-  if(song.prep_state==="aligning")return "◷ "+(stages[song.prep_stage]||"制作字幕中");
-  return states[song.prep_state]||"◷ 准备中";
-}
 function songSource(song){
   return song.source_type==="netease"?
     {label:"🎵 网易云",copyLabel:"网易云链接",ref:song.source_id?
@@ -89,8 +75,63 @@ function songSource(song){
     {label:"📺 B站",copyLabel:"BV 号",ref:song.bvid||""};
 }
 function addSourceTag(parent,song){
-  const tag=appendText(parent,"span",songSource(song).label,"source-tag");
-  tag.title="歌曲来源："+(song.source_type==="netease"?"网易云音乐":"哔哩哔哩");
+  const isNetease=song.source_type==="netease";
+  const tag=appendText(parent,"span","","source-tag");
+  const image=appendText(tag,"img","");
+  image.src=isNetease?"/icons/neteasecloudmusic.svg":"/icons/bilibili.svg";
+  image.alt="";image.setAttribute("aria-hidden","true");
+  appendText(tag,"span",isNetease?"网易云":"B站");
+  tag.title=isNetease?"网易云音乐":"哔哩哔哩";
+}
+function sourceUrl(song){
+  return song.source_type==="netease"?
+    song.source_id?"https://music.163.com/#/song?id="+encodeURIComponent(song.source_id):"":
+    song.bvid?"https://www.bilibili.com/video/"+encodeURIComponent(song.bvid)+"/?p="+(song.page||1):"";
+}
+async function copyValue(value,label){
+  if(!value)return;
+  try{
+    if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(value);
+    else{
+      const field=document.createElement("textarea");
+      field.value=value;field.style.cssText="position:fixed;left:-9999px";
+      document.body.append(field);field.select();
+      try{if(!document.execCommand("copy"))throw Error("clipboard");}finally{field.remove();}
+    }
+    toast("已复制"+label);
+  }catch{prompt("复制"+label,value);}
+}
+function actionIcon(parent,kind){
+  const icon=document.createElement("img");
+  icon.src="/icons/"+kind+".svg";icon.alt="";
+  icon.setAttribute("aria-hidden","true");
+  icon.className="action-icon";
+  parent.prepend(icon);
+}
+function detailMediaActions(panel,song){
+  const section=appendText(panel,"section","","detail-section");
+  appendText(section,"h3","视频与来源");
+  const row=appendText(section,"div","","detail-tools");
+  const link=(label,url,icon,external=false)=>{
+    const a=appendText(row,"a",label,"btn neutral");
+    actionIcon(a,icon);a.href=url;
+    if(external){a.target="_blank";a.rel="noopener noreferrer";}
+  };
+  const copy=(label,value,what)=>{
+    const btn=appendText(row,"button",label,"btn neutral");
+    actionIcon(btn,"copy");
+    btn.type="button";btn.onclick=()=>copyValue(value,what);
+  };
+  if(song.downloadable)link("下载成片","/api/songs/"+song.id+"/download","download");
+  if(song.source_downloadable)link(song.source_type==="netease"?"下载原始视频":"下载原片",
+    "/api/songs/"+song.id+"/download/source","download");
+  if(song.bvid)copy("复制 BV",song.bvid,"BV 号");
+  const url=sourceUrl(song);
+  if(url){
+    copy("复制链接",url,"链接");
+    link("打开来源",url,"external-link",true);
+  }
+  if(!row.children.length)section.remove();
 }
 async function copySongSource(song){
   const source=songSource(song);
@@ -113,24 +154,6 @@ async function copySongSource(song){
     prompt("复制"+source.copyLabel,source.ref);
   }
 }
-function addCopySource(parent,song,cls="mini"){
-  const source=songSource(song);
-  if(!source.ref)return;
-  const button=appendText(parent,"button","⧉ 复制"+source.copyLabel,cls+" source-copy");
-  button.type="button";button.title="复制"+source.copyLabel;
-  button.onclick=(event)=>{event.stopPropagation();guarded(()=>copySongSource(song),button);};
-}
-function addMediaActions(parent,song,large=false){
-  const bar=appendText(parent,"div","","media-controls");
-  if(song.downloadable){
-    const link=appendText(bar,"a",song.prep_state==="original"?"↓ 下载原片":"↓ 下载视频",large?"btn primary detail-download download-link":"mini download-link");
-    link.href="/api/songs/"+song.id+"/download";
-    link.onclick=(event)=>event.stopPropagation();
-    link.title="保存到手机后，在乐播投屏的本地视频或相册中选择";
-  }
-  addCopySource(bar,song,large?"btn neutral":"mini");
-  if(!bar.children.length)bar.remove();
-}
 async function cancelGuestSong(songId){
   if(!confirm("取消自己点的这首歌？"))return;
   await api(`/api/songs/${songId}/cancel`,"POST");
@@ -139,158 +162,111 @@ async function cancelGuestSong(songId){
   toast("✓ 已取消点歌");
   await refresh();
 }
-function makeSong(song, order, mode="row") {
-  const outer = document.createElement("div");outer.className="song-item";
-  if(["row","status","played"].includes(mode)){
-    outer.classList.add("song-open");outer.tabIndex=0;outer.setAttribute("role","link");
-    outer.setAttribute("aria-label","详情："+song.title);
-    outer.onclick=(e)=>{
-      if(e.target.closest("button,a,input,label"))return;
-      window.location.hash="song-"+song.id;
-    };
-    outer.onkeydown=(e)=>{
-      // A focused download link retains its own native keyboard action.
-      if(e.target!==outer)return;
-      if(e.key==="Enter"||e.key===" "){e.preventDefault();outer.click();}
-    };
-  }
-  appendText(outer,"span",String(order),"ordinal");
-  const copy = document.createElement("div");copy.className="song-copy";outer.append(copy);
-  const heading=appendText(copy,"div","","song-heading");
-  appendText(heading,"strong",song.title+(song.source_type!=="netease"&&song.page>1?` (P${song.page})`:"")+
-    (song.priority_next?(song.replay_of?"  ↻ 下一首重唱":"  ↥ 下一首播放"):""));
-  addSourceTag(heading,song);
-  appendText(copy,"small",`${song.nickname}  ${duration(song.duration)}  ${song.uploader}`);
-  if(mode==="row" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
-    const detail=appendText(outer,"button","详情 / 取消","mini");
-    detail.onclick=(e)=>{e.stopPropagation();window.location.hash="song-"+song.id;};
-  }
-  if(mode==="guest" && song.mine && ["ready","waiting"].includes(song.status) &&
-     song.prep_state!=="aligning"){
-    const pick=appendText(outer,"button",song.skip_subtitles?"♫ 改选歌词":(song.lyric_selected?"♫ 换歌词":"♫ 选歌词"),"mini lyric-pick");
-    pick.onclick=()=>guarded(()=>openLyricPicker(song.id,song.title,song.lyric_query),pick);
-  }
-  if(mode==="guest" && song.mine && ["waiting","ready","rendering"].includes(song.status)){
-    const cancel=appendText(outer,"button","✕ 取消","mini");
-    cancel.title="仅取消自己尚未开唱的歌曲";
-    cancel.onclick=()=>guarded(()=>cancelGuestSong(song.id),cancel);
-  }
-  if(mode==="status"){
-    const status=preparationStatus(song);
-    const stateLabel=appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
-    if(song.prep_error)stateLabel.title=song.prep_error;
-    if(song.prep_state==="unavailable"){
-      const netease=song.source_type==="netease";
-      const a=appendText(outer,"a",netease?"↗ 网易云":"↗ B站");
-      a.href=netease?"https://music.163.com/#/song?id="+encodeURIComponent(song.source_id):"https://www.bilibili.com/video/"+song.bvid+"/?p="+song.page;
-      a.target="_blank";a.rel="noopener noreferrer";
-    }
-  }else if(mode==="admin"){
-    const stageNames={
-      download:song.source_type==="netease"?"下载网易云音源":"下载原片",
-      downloaded:song.source_type==="netease"?"音乐视频已生成":"原片已下载",queued:"等待模型",
-      extract:"提取音频",kim:"Kim 人声分离",
-      align:"Qwen/TIFA 对齐",subtitles:"生成字幕",render:"FFmpeg 烧录",
-      done:"字幕已完成",skipped:"使用原视频"
-    };
-    const stage=stageNames[song.prep_stage];
-    if(stage && ["waiting","ready"].includes(song.status) &&
-       ["downloading","aligning","original","downloaded"].includes(song.prep_state)){
-      const elapsed=song.prep_stage_at?
-        Math.max(0,Math.floor(Date.now()/1000-song.prep_stage_at)):0;
-      const suffix=["downloading","aligning"].includes(song.prep_state)&&elapsed>=60?
-        "（已进行 "+Math.floor(elapsed/60)+" 分钟）":"";
-      const line=appendText(copy,"small",stage+suffix,"muted");
-      line.title="按阶段变更更新，不通过 GPU 采样估算百分比";
-    }
-    const actions=document.createElement("div");actions.className="song-actions";outer.append(actions);
-    if(song.status==="waiting" && song.prep_state==="unavailable"){
-      const retry=appendText(actions,"button","↻ 重试下载","mini");
-      retry.title=song.prep_error||"重新请求音源并制作视频";
-      retry.onclick=()=>guarded(async()=>{
-        await api(`/api/admin/songs/${song.id}/download/retry`,"POST");
-        toast("◷ 已重新排队下载");await refresh();
-      },retry);
-    }
-    if(song.status==="waiting" && !["downloading","pending"].includes(song.prep_state)){
-      const upload=appendText(actions,"label","上传 MP4","mini upload-label");
-      const file=document.createElement("input");file.type="file";file.accept=".mp4,.webm,.m4v,video/mp4,video/webm";
-      upload.append(file);file.addEventListener("change",() => {
+function songState(song) {
+  if(song.status==="playing")return "播放中";
+  if(song.status==="played")return "已唱";
+  if(song.status==="rendering")return "制作中";
+  if(song.prep_state==="unavailable")return "下载失败";
+  if(song.prep_state==="original"&&!song.skip_subtitles)return "字幕失败";
+  if(song.status==="ready"&&!song.awaiting_subtitles)return "待播";
+  if(song.prep_state==="downloaded"&&!song.lyric_selected&&!song.skip_subtitles)return "待选歌词";
+  if(["aligning","downloading"].includes(song.prep_state))return "制作中";
+  return "准备中";
+}
+function compactSong(song,order){
+  const row=document.createElement("button");row.type="button";
+  row.className="song-item song-row song-open";
+  row.setAttribute("aria-label",song.title+"，"+songState(song)+"，查看详情");
+  appendText(row,"span",String(order),"ordinal");
+  const copy=appendText(row,"span","","song-copy");
+  appendText(copy,"strong",song.title+(song.source_type!=="netease"&&song.page>1?" (P"+song.page+")":""));
+  const meta=appendText(copy,"span","","song-meta");
+  appendText(meta,"span",song.uploader||"未知作者");
+  addSourceTag(meta,song);
+  const status=appendText(row,"span",songState(song),"song-state");
+  if(["下载失败","字幕失败"].includes(status.textContent))status.classList.add("failed");
+  appendText(row,"span","›","song-chevron").setAttribute("aria-hidden","true");
+  row.onclick=()=>{window.location.hash="song-"+song.id;};
+  return row;
+}
+function songAction(parent,label,run,style="neutral"){
+  const button=appendText(parent,"button",label,"btn "+style);
+  button.type="button";
+  button.onclick=()=>guarded(()=>run(button),button);
+  return button;
+}
+function detailActions(song,isAdmin){
+  const actions=document.createElement("div");
+  actions.className="detail-actions";
+  const editable=["waiting","ready"].includes(song.status);
+  if(!isAdmin){
+    if(song.mine&&editable&&song.prep_state!=="aligning")
+      songAction(actions,song.lyric_selected?"更换歌词":"选择歌词",
+        ()=>openLyricPicker(song.id,song.title,song.lyric_query));
+    if(song.mine&&["waiting","ready","rendering"].includes(song.status))
+      songAction(actions,"取消点歌",()=>cancelGuestSong(song.id),"subtle");
+    if(song.status==="played"&&song.downloadable)
+      songAction(actions,"↻ 再来一首",async()=>{
+        const next=await api("/api/songs/"+song.id+"/replay","POST");
+        toast("已加入队列");window.location.hash="song-"+next.id;await refresh();
+      },"primary");
+  }else{
+    if(editable&&song.prep_state!=="aligning")
+      songAction(actions,"编辑歌词",()=>editLyrics(song.id,song.title));
+    if(song.status==="waiting"&&song.prep_state==="unavailable")
+      songAction(actions,"重试下载",async()=>{
+        await api("/api/admin/songs/"+song.id+"/download/retry","POST");
+        toast("已重试");await refresh();
+      });
+    if(song.status==="waiting"&&!["downloading","pending"].includes(song.prep_state)){
+      const label=appendText(actions,"label","上传 MP4","btn neutral detail-upload");
+      const file=document.createElement("input");file.type="file";
+      file.accept=".mp4,.webm,.m4v,video/mp4,video/webm";
+      label.append(file);
+      file.onchange=()=>guarded(async()=>{
         if(!file.files[0])return;
-        guarded(async()=>{
-          const fd=new FormData();fd.append("file",file.files[0]);
-          await api(`/api/admin/songs/${song.id}/media`,"POST",fd);
-          toast("✓ 已上传"); await refresh();
-        },upload);
+        const data=new FormData();data.append("file",file.files[0]);
+        await api("/api/admin/songs/"+song.id+"/media","POST",data);
+        toast("已上传");await refresh();
       });
     }
-    const lyrics=appendText(actions,"button","歌词","mini");lyrics.onclick=()=>editLyrics(song.id,song.title);
-    if(song.status==="ready" && (song.prep_state==="original" || song.prep_state==="done")){
-      const done=song.prep_state==="done";
-      const retry=appendText(
-        actions,"button",done?"↻ 按新风格重制":
-        song.skip_subtitles?"↻ 重新生成字幕":"↻ 重试字幕","mini"
-      );
-      retry.title=done?"使用当前本场字幕预设重新制作，旧成片保留到新片完成":song.prep_error||"只重试字幕，保留原视频";
-      retry.onclick=()=>guarded(async()=>{
-        if(done&&!confirm("按当前字幕风格重新制作这首歌？重制完成前旧成片会保留。"))return;
-        await api(`/api/admin/songs/${song.id}/subtitles/retry`,"POST");
-        toast("◷ 已重新排队制作字幕");await refresh();
-      },retry);
-    }
-    if(song.status==="ready" && song.has_media &&
-       ["downloaded","original","aligning"].includes(song.prep_state) &&
-       !song.skip_subtitles){
-      const bypass=appendText(actions,"button","▶ 原片入队","mini");
-      bypass.title="仅此首歌跳过字幕，立即以原视频排队；已经开始的推理不会立刻停止";
-      bypass.onclick=()=>guarded(async()=>{
-        if(!confirm("仅让这首歌以原视频进入队列？字幕制作结果将被忽略。"))return;
-        await api(`/api/admin/songs/${song.id}/subtitles/skip`,"POST");
-        toast("✓ 已允许原片入队");await refresh();
-      },bypass);
-    }
-    if(song.status==="ready" && song.prep_state!=="aligning"){
-      const render=appendText(actions,"button","手工制作 KTV","mini");render.onclick=()=>guarded(async()=>{
-        await api(`/api/admin/songs/${song.id}/render`,"POST",{lead:leadSeconds});
-        toast("◷ 正在制作字幕");await refresh();
-      },render);
-    }else if(song.status==="rendering"){
-      appendText(actions,"span","制作中","status wait");
-    }
-    if(song.status==="ready" && song.playable){
-      if(song.priority_next){
-        appendText(actions,"span","✓ 已设为下一首","status");
-      }else{
-        const pin=appendText(actions,"button","↥ 下一首播放","mini");
-        pin.title="当前歌曲播放完后优先播放本首，不会打断当前播放";
-        pin.onclick=()=>guarded(async()=>{
-          await api(`/api/admin/songs/${song.id}/pin-next`,"POST");
-          toast("✓ 已安排为下一首");await refresh();
-        },pin);
-      }
-    }
-    if(["waiting","ready","rendering"].includes(song.status)){
-      const cancel=appendText(actions,"button","✕ 取消点歌","mini");
-      cancel.title="取消这首待播歌曲；若正在推理，当前计算可能仍需结束";cancel.onclick=()=>guarded(async()=>{
-      if(!confirm("取消这首歌曲？"))return;
-      await api(`/api/admin/songs/${song.id}/cancel`,"POST"); await refresh();
-    },cancel);
-    }
-    if(song.status==="played"){
-      const replay=appendText(actions,"button","下一首重唱","mini");
-      replay.onclick=()=>guarded(async()=>{
-        if(!confirm("把这首歌安排到下一首？"))return;
-        await api(`/api/admin/songs/${song.id}/replay`,"POST");
-        toast("已加入队列");detailKey=null;await refresh();
-      },replay);
-    }
-  }else{
-    const status=song.status==="ready"&&!song.awaiting_subtitles?
-      "✓ 可播放":preparationStatus(song);
-    appendText(outer,"span",status,"status"+(status.startsWith("!")?" wait":""));
+    if(song.status==="ready"&&["original","done"].includes(song.prep_state))
+      songAction(actions,song.prep_state==="done"?"按新风格重制":"重试字幕",async()=>{
+        if(song.prep_state==="done"&&!confirm("按当前字幕样式重新制作？"))return;
+        await api("/api/admin/songs/"+song.id+"/subtitles/retry","POST");
+        toast("已开始制作");await refresh();
+      });
+    if(song.status==="ready"&&song.has_media&&
+       ["downloaded","original","aligning"].includes(song.prep_state)&&!song.skip_subtitles)
+      songAction(actions,"原片入队",async()=>{
+        if(!confirm("跳过字幕，使用原片入队？"))return;
+        await api("/api/admin/songs/"+song.id+"/subtitles/skip","POST");
+        toast("已加入队列");await refresh();
+      });
+    if(song.status==="ready"&&song.prep_state!=="aligning")
+      songAction(actions,"手工制作 KTV",async()=>{
+        await api("/api/admin/songs/"+song.id+"/render","POST",{lead:leadSeconds});
+        toast("制作中");await refresh();
+      });
+    if(song.status==="ready"&&song.playable&&!song.priority_next)
+      songAction(actions,"下一首播放",async()=>{
+        await api("/api/admin/songs/"+song.id+"/pin-next","POST");
+        toast("已安排为下一首");await refresh();
+      },"primary");
+    if(song.status==="played"&&song.downloadable)
+      songAction(actions,"↻ 下一首重唱",async()=>{
+        if(!confirm("安排为下一首？"))return;
+        await api("/api/admin/songs/"+song.id+"/replay","POST");
+        toast("已安排为下一首");await refresh();
+      },"primary");
+    if(["waiting","ready","rendering"].includes(song.status))
+      songAction(actions,"取消点歌",async()=>{
+        if(!confirm("取消这首歌？"))return;
+        await api("/api/admin/songs/"+song.id+"/cancel","POST");
+        window.location.hash="";await refresh();
+      },"subtle");
   }
-  addMediaActions(outer,song);
-  return outer;
+  return actions.children.length?actions:null;
 }
 function fillList(id, songs, mode="row") {
   const key=JSON.stringify([mode,songs]);
@@ -298,7 +274,7 @@ function fillList(id, songs, mode="row") {
   listKeys.set(id,key);
   const target=$(id);target.replaceChildren();
   if(!songs.length){ appendText(target,"div",mode==="admin"?"当前没有待处理的歌曲":"暂无歌曲","empty"); return; }
-  songs.forEach((s,i)=>target.append(makeSong(s,i+1,mode)));
+  songs.forEach((s,i)=>target.append(compactSong(s,i+1)));
 }
 async function refreshSongHistory(){
   const data=await api("/api/songs/played");
@@ -308,85 +284,78 @@ async function refreshSongHistory(){
   const target=$("page-played");target.replaceChildren();
   if(!data.songs.length){appendText(target,"p","还没有已唱歌曲","empty");return;}
   const list=appendText(target,"div","","song-list");
-  data.songs.forEach((song,index)=>list.append(makeSong(song,index+1,"played")));
+  data.songs.forEach((song,index)=>list.append(compactSong(song,index+1)));
 }
 async function refreshSongDetail(){
   const id=Number(currentRoute().slice(5));
   if(!Number.isInteger(id)||id<=0)return;
-  const song=await api(`/api/songs/${id}/detail`);
+  const song=await api("/api/songs/"+id+"/detail");
   const key=JSON.stringify([song,isAdminPath()]);
   if(detailKey===key){
     const running=$("page-song").querySelector(".stage-current-time");
-    if(running&&song.prep_stage_at)running.textContent="进行中 "+
+    if(running&&song.prep_stage_at)running.textContent=
       Math.max(0,Math.floor(Date.now()/1000-song.prep_stage_at))+" 秒";
     return;
   }
   detailKey=key;
-  $("subpage-back").href=song.status==="played"?"#played":"#";
   const target=$("page-song");
   const timingWasOpen=Boolean(target.querySelector(".timing-details")?.open);
   target.replaceChildren();
   const panel=appendText(target,"section","","panel song-detail-panel");
-  const heading=appendText(panel,"div","","song-detail-heading");
-  appendText(heading,"h2",song.title);
-  addSourceTag(heading,song);
-  appendText(panel,"small",song.nickname+"  "+duration(song.duration),"muted");
-  addMediaActions(panel,song,true);
-  appendText(panel,"small",song.status==="played"?"已唱完":preparationStatus(song),"muted");
-  if(song.lyric_timing_mode==="provider"){
-    const ms=Number(song.lyric_offset_ms||0);
-    appendText(panel,"small",`来源逐句时间轴（偏移 ${ms>=0?"+":""}${(ms/1000).toFixed(1)} 秒，逐字渐变为等分估算）`,"muted");
+  const header=appendText(panel,"div","","detail-header");
+  if(song.cover){
+    const cover=appendText(header,"img","","detail-cover");
+    cover.src=song.cover;cover.alt="";cover.loading="lazy";
+  }else appendText(header,"div","♫","detail-cover detail-placeholder");
+  const info=appendText(header,"div","","detail-info");
+  appendText(info,"h2",song.title);
+  const metadata=appendText(info,"div","","detail-meta");
+  appendText(metadata,"span",song.uploader||"未知作者");
+  addSourceTag(metadata,song);
+  appendText(info,"div","点歌者 "+song.nickname+"　"+duration(song.duration),"detail-byline");
+  const state=appendText(panel,"div","","detail-state");
+  appendText(state,"strong",songState(song));
+  if(song.priority_next)appendText(state,"span","下一首优先","detail-note");
+  if(song.prep_error&&["unavailable","original"].includes(song.prep_state))
+    appendText(state,"span",song.prep_error,"detail-note");
+  detailMediaActions(panel,song);
+  const actions=detailActions(song,isAdminPath());
+  if(actions){
+    const section=appendText(panel,"section","","detail-section");
+    appendText(section,"h3",isAdminPath()?"歌曲管理":"歌曲操作");
+    section.append(actions);
   }
   if(isAdminPath()){
     const names={download:"下载",extract:"提取音频",kim:"人声分离",
-      align:"歌词对齐",subtitles:"字幕生成",render:"视频烧录"};
-    const entries=Object.entries(names).filter(([key])=>song.stage_seconds?.[key]!=null);
+      align:"歌词对齐",subtitles:"字幕生成",render:"烧录"};
+    const entries=Object.entries(names).filter(([name])=>song.stage_seconds?.[name]!=null);
     const running=["downloading","aligning"].includes(song.prep_state);
-    if(entries.length||running){
-      const details=appendText(panel,"details","");
-      details.className="timing-details";
+    if(entries.length||running||song.prep_error){
+      const details=appendText(panel,"details","","timing-details");
       details.open=timingWasOpen;
-      appendText(details,"summary","处理耗时");
-      for(const [key,label] of entries){
+      appendText(details,"summary","制作详情");
+      for(const [name,label] of entries){
         const line=appendText(details,"div","","timing-row");
         appendText(line,"span",label);
-        appendText(line,"span",Number(song.stage_seconds[key]).toFixed(1)+" 秒");
+        appendText(line,"span",Number(song.stage_seconds[name]).toFixed(1)+" 秒");
       }
-      if(running && song.prep_stage_at){
+      if(running&&song.prep_stage_at){
         const line=appendText(details,"div","","timing-row");
-        appendText(line,"span",names[song.prep_stage]||"制作中");
-        const seconds=Math.max(0,Date.now()/1000-song.prep_stage_at);
-        appendText(line,"span","进行中 "+seconds.toFixed(0)+" 秒","stage-current-time");
+        appendText(line,"span","当前阶段");
+        appendText(line,"span",Math.max(0,Math.floor(Date.now()/1000-song.prep_stage_at))+" 秒","stage-current-time");
       }
-      const total=entries.reduce((sum,[key])=>sum+Number(song.stage_seconds[key]),0);
-      if(entries.length){
-        const line=appendText(details,"div","","timing-row");
-        appendText(line,"strong","合计");
-        appendText(line,"strong",total.toFixed(1)+" 秒");
-      }
+      if(song.prep_error)appendText(details,"p",song.prep_error,"muted");
     }
   }
-  const row=makeSong(song,1,isAdminPath()?"admin":"guest");
-  row.querySelector(".media-controls")?.remove();
-  row.querySelector(".song-copy")?.remove();
-  row.querySelector(".ordinal")?.remove();
-  if(row.querySelector(".song-actions,.lyric-pick,button"))panel.append(row);
   if(isAdminPath()&&song.status==="ready"){
-    const extras=appendText(panel,"details","");
-    appendText(extras,"summary","手工字幕参数");
-    const label=appendText(extras,"label","提前秒数");
+    const details=appendText(panel,"details","","timing-details");
+    appendText(details,"summary","手工字幕参数");
+    const label=appendText(details,"label","提前秒数");
     label.htmlFor="detail-lead-seconds";
-    const lead=document.createElement("input");
-    lead.id="detail-lead-seconds";
-    lead.type="number";lead.min="0";lead.max="5";lead.step="0.1";
-    lead.value=String(leadSeconds);
+    const lead=appendText(details,"input","");
+    lead.id="detail-lead-seconds";lead.type="number";lead.min="0";
+    lead.max="5";lead.step="0.1";lead.value=String(leadSeconds);
     lead.oninput=()=>{leadSeconds=Number(lead.value);};
-    extras.append(lead);
-  }
-  if(isAdminPath()&&song.prep_error){
-    const details=appendText(panel,"details","");
-    appendText(details,"summary","处理信息");
-    appendText(details,"p",song.prep_error,"muted");
   }
 }
 
@@ -1027,10 +996,21 @@ async function playNext(){
   if(manualMode)toast("已领取当前歌曲，请下载后手动投屏");
   await refresh();
 }
+function clearPlayingTitle(){
+  const title=$("playing-title");
+  title.textContent="当前没有正在播放的歌曲。";
+  title.classList.remove("playing-link");
+  title.removeAttribute("role");title.removeAttribute("tabindex");
+  title.onclick=null;title.onkeydown=null;
+}
 function setPlayingTitle(prefix,song){
   const title=$("playing-title");
   title.replaceChildren(document.createTextNode(prefix+song.title+"  "+song.nickname+"  "));
   addSourceTag(title,song);
+  title.classList.add("playing-link");
+  title.tabIndex=0;title.setAttribute("role","link");
+  title.onclick=()=>{window.location.hash="song-"+song.id;};
+  title.onkeydown=(e)=>{if(e.key==="Enter"){e.preventDefault();title.click();}};
 }
 async function assignPlayer(active, start){
   if(!active || !active.media_url)return;
@@ -1059,7 +1039,7 @@ async function finishActive(reason, auto){
   currentMediaId=null;
   player.removeAttribute("src");player.load();
   $("player-empty").classList.remove("hidden");
-  $("playing-title").textContent="当前没有正在播放的歌曲";
+  clearPlayingTitle();
   updatePlaybackUI();
   if(auto && $("autoplay").checked && !manualMode)await playNext();
   else await refresh();
@@ -1413,15 +1393,8 @@ async function refresh(){
           fillList("queue-ready",state.queue);
           fillList("queue-waiting",state.waiting);
           const current=$("current-guest");current.replaceChildren();
-          appendText(current,"span",state.playback_mode==="manual"?
-            "◷ 手动投屏中":"▶ 正在播放","current-label");
-          if(state.current){
-            const heading=appendText(current,"div","","song-heading");
-            appendText(heading,"strong",state.current.title);
-            addSourceTag(heading,state.current);
-            appendText(current,"small","点歌者："+state.current.nickname);
-            addMediaActions(current,state.current);
-          }else appendText(current,"p","当前空闲，等待管理员开始播放");
+          if(state.current)current.append(compactSong(state.current,"▶"));
+          else appendText(current,"p","暂无正在播放的歌曲");
         }
       }else{
         guestStateKey=null;
@@ -1467,7 +1440,7 @@ async function refresh(){
           }else if(currentMediaId!==null){
             currentMediaId=null;player.pause();player.removeAttribute("src");player.load();
             $("player-empty").classList.remove("hidden");
-            $("playing-title").textContent="当前没有正在播放的歌曲";
+            clearPlayingTitle();
             updatePlaybackUI();
           }
         }

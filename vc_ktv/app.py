@@ -2504,8 +2504,12 @@ def create_app(
                 raise
         return {"ok": True, "id": song_id, "priority_next": True}
 
-    def schedule_replay(song_id: int, *, current_only=False):
+    def schedule_replay(song_id: int, *, current_only=False, guest_id=None):
+        # A guest replay is a new ordinary fair-turn request. Admin/TV
+        # replays preserve their existing next-song priority behavior.
         with store.lock:
+            if guest_id is not None:
+                check_new_order(guest_id)
             if current_only and (
                 not store.current() or store.current()["id"] != song_id
             ):
@@ -2557,15 +2561,16 @@ def create_app(
             # Unique hard links isolate later per-song edits without copying MP4 bytes.
             links = []
             try:
-                store.db.execute(
-                    "UPDATE songs SET priority_next=0 WHERE priority_next=1"
-                )
+                if guest_id is None:
+                    store.db.execute(
+                        "UPDATE songs SET priority_next=0 WHERE priority_next=1"
+                    )
                 cur = store.db.execute(
                     """INSERT INTO songs(
                         bvid,page,title,uploader,cover,duration,requester,requested_at,
                         status,lyrics,lyric_choice,lyric_source,prep_state,
                         skip_subtitles,priority_next,replay_of,source_type,source_id
-                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,1,?,?,?)""",
+                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?,?,?,?)""",
                     (
                         row["bvid"],
                         row["page"],
@@ -2573,7 +2578,7 @@ def create_app(
                         row["uploader"],
                         row["cover"],
                         row["duration"],
-                        row["requester"],
+                        guest_id if guest_id is not None else row["requester"],
                         time_now(),
                         row["lyrics"],
                         row["lyric_choice"],
@@ -2584,6 +2589,7 @@ def create_app(
                                 row["skip_subtitles"] or row["prep_state"] == "original"
                             )
                         ),
+                        int(guest_id is None),
                         song_id,
                         row["source_type"],
                         row["source_id"],
@@ -2619,7 +2625,12 @@ def create_app(
                 for link in links:
                     link.unlink(missing_ok=True)
                 raise
-        return {"id": new_id, "status": "ready", "priority_next": True}
+        return {"id": new_id, "status": "ready", "priority_next": guest_id is None}
+
+    @app.post("/api/songs/{song_id}/replay")
+    def replay_own_turn(song_id: int, vc_guest: str | None = Cookie(default=None)):
+        user = require_user(vc_guest)
+        return schedule_replay(song_id, guest_id=user["id"])
 
     @app.post("/api/admin/songs/{song_id}/replay")
     def replay_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
@@ -2863,7 +2874,7 @@ def create_app(
         with store.lock:
             rows = store.rows(
                 """SELECT s.id,s.bvid,s.source_type,s.source_id,s.title,s.duration,
-                          s.played_at,s.page,s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
+                          s.uploader,s.played_at,s.page,s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.status='played'
@@ -2889,11 +2900,11 @@ def create_app(
         with store.lock:
             row = store.db.execute(
                 """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
-                          s.uploader,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
+                          s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
                           s.played_at,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
-                          s.lyric_timing_mode,s.lyric_offset_ms,
+                          s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,
                           g.id AS requester_id,g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.id=?""",
@@ -2908,6 +2919,13 @@ def create_app(
                 song["stage_seconds"] = {}
             song["mine"] = bool(guest and guest["id"] == song["requester_id"])
             song["downloadable"] = Store.downloadable(song)
+            source = store.media / Path(song["source_file"] or "").name
+            song["source_downloadable"] = bool(
+                song["source_file"]
+                and source.is_file()
+                and song["status"] in ("ready", "playing", "played")
+            )
+            song.pop("source_file", None)
             song["playable"] = Store.playable(song, store.settings())
             song["lyric_query"] = title_key(song["title"])
             return song
@@ -2985,6 +3003,40 @@ def create_app(
                 file,
                 media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
                 filename=f"vc-ktv-{song_id}-{title}{file.suffix}",
+                content_disposition_type="attachment",
+                headers={"Cache-Control": "private, no-store"},
+            )
+
+    @app.get("/api/songs/{song_id}/download/source")
+    def download_original(
+        song_id: int,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        if not events.active_id:
+            bail(404, "当前没有活动场次")
+        if admin_principal(vc_admin) is None:
+            require_user(vc_guest)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT title,status,source_file FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            if (
+                row["status"] not in ("ready", "playing", "played")
+                or not row["source_file"]
+            ):
+                bail(409, "原片尚未准备好")
+            file = store.media / Path(row["source_file"]).name
+            if not file.is_file():
+                bail(404, "原片文件缺失")
+            title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
+            title = title.strip(" ._")[:48] or "video"
+            return pinned_media_response(
+                file,
+                media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
+                filename=f"vc-ktv-{song_id}-{title}-original{file.suffix}",
                 content_disposition_type="attachment",
                 headers={"Cache-Control": "private, no-store"},
             )
