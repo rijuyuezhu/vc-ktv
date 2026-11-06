@@ -84,6 +84,11 @@ def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
         assert warning in js
 
 
+def test_lyric_cards_are_not_deduplicated_across_recordings():
+    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    assert "const key=[candidate.source,candidate.url,candidate.text].join(" in js
+
+
 def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()

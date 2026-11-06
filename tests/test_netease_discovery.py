@@ -123,6 +123,13 @@ def test_search_normalizes_results_and_uses_fixed_host():
     assert not any("stream" in s or "audio" in s for s in songs[0])
 
 
+def test_empty_search_results_are_not_treated_as_provider_failure():
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, json={"code": 200, "result": {"songCount": 0}})
+    )
+    assert asyncio.run(search_netease_songs("没有", transport=transport)) == []
+
+
 def test_search_requires_guest_and_allows_share_order(tmp_path):
     app = create_app(
         root=tmp_path / "room",

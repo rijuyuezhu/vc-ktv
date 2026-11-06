@@ -18,35 +18,53 @@ def provider_timeline(raw: str, confirmed: str) -> str | None:
     if not raw or not confirmed:
         return None
     offsets = re.findall(r"\[offset\s*:\s*([+-]?\d+)\s*\]", raw, re.I)
-    if any(int(value) != 0 for value in offsets):
-        return None  # Provider-global shift needs its own explicit calibration.
+    if len(set(offsets)) > 1:
+        return None
+    provider_offset = int(offsets[0]) / 1000 if offsets else 0
     try:
         records = parse_lrc(raw)
     except ValueError:
         return None
     if len(records) < 2:
         return None
-    # Disallow reordering/duplicate source timestamps; no guessing which verse.
+    # Ignore standalone timestamps: providers use them for instrumental gaps.
+    # They are not lyric records, and parse_lrc intentionally skips them.
+    # Still reject reordered/duplicate timestamps on sung lyric lines; leading
+    # production credits do not need distinct timestamps.
     starts = []
+    started = False
     for line in raw.splitlines():
         text = line.strip()
+        line_starts = []
         while match := LINE_STAMP.match(text):
-            starts.append(_timestamp(match.group(1)))
+            line_starts.append(_timestamp(match.group(1)))
             text = text[match.end() :]
-    if len(starts) != len(records) or any(b <= a for a, b in zip(starts, starts[1:])):
+        if text.strip() and line_starts:
+            if not started and LEADING_CREDIT.match(text.strip()):
+                continue
+            started = True
+            starts.extend(line_starts)
+    started, sung_records = False, []
+    for row in records:
+        if not started and LEADING_CREDIT.match(row["text"].strip()):
+            continue
+        started = True
+        sung_records.append(row)
+    if len(starts) != len(sung_records) or any(
+        b <= a for a, b in zip(starts, starts[1:])
+    ):
         return None
     cleaned = clean_lyric_text(raw)
     if cleaned != confirmed:
         return None
-    started, normalized = False, []
-    for row in records:
+    normalized = []
+    for row in sung_records:
         value = row["text"].strip()
-        if not started and LEADING_CREDIT.match(value):
-            continue
-        started = True
-        if not value or row["units"]:
-            return None  # Only reliable line-level LRC; YRC is a separate future mode.
-        normalized.append(f"[{_stamp(row['start'])}]{value}")
+        if not value or row["start"] + provider_offset < 0:
+            return None
+        # Enhanced LRC carries at least as much information as line LRC.
+        # Reuse its reliable line start rather than rejecting the entire song.
+        normalized.append(f"[{_stamp(row['start'] + provider_offset)}]{value}")
     if (
         len(normalized) < 2
         or "\n".join(line.split("]", 1)[1] for line in normalized) != confirmed
@@ -66,17 +84,20 @@ def project_provider_timeline(raw: str, original_text: str, selected: list[int])
         if not display:
             continue
         rows = parse_lrc(raw_line) if LINE_STAMP.match(raw_line.strip()) else []
-        if len(rows) > 1 or (
-            rows and (rows[0]["text"].strip() != display or rows[0]["units"])
-        ):
+        if len(rows) > 1 or (rows and rows[0]["text"].strip() != display):
             raise ValueError("来源歌词包含无法校正的时间标签")
         stamped.append(rows[0]["start"] if rows else None)
     if len(stamped) != len(all_lines):
         raise ValueError("来源歌词行数与时间轴不匹配")
     if any(stamped[index] is None for index in selected):
         raise ValueError("保留的歌词中有无时间戳行，请改用普通歌词对齐")
+    offsets = re.findall(r"\[offset\s*:\s*([+-]?\d+)\s*\]", raw, re.I)
+    if len(set(offsets)) > 1:
+        raise ValueError("来源包含冲突的全局偏移")
+    provider_offset = int(offsets[0]) / 1000 if offsets else 0
     return "\n".join(
-        f"[{_stamp(stamped[index])}]{all_lines[index]}" for index in selected
+        f"[{_stamp(stamped[index] + provider_offset)}]{all_lines[index]}"
+        for index in selected
     )
 
 
@@ -94,8 +115,6 @@ def _stamp(seconds: float) -> str:
 
 def offset_timeline(timed_lrc: str, offset_ms: int, duration: float) -> str:
     """Reject clip/version mismatch outside source media; no silent clamp."""
-    if not -60_000 <= offset_ms <= 60_000:
-        raise ValueError("偏移只支持 -60 到 60 秒")
     records = parse_lrc(timed_lrc)
     if len(records) < 2 or any(row["units"] for row in records):
         raise ValueError("来源需要至少两行逐句时间轴")
@@ -103,6 +122,6 @@ def offset_timeline(timed_lrc: str, offset_ms: int, duration: float) -> str:
     times = [row["start"] + offset for row in records]
     if any(t < 0 or t >= duration for t in times):
         raise ValueError("来源 LRC 时间轴超出视频边界；请检查翻唱版本和偏移")
-    if any(b - a < 0.05 for a, b in zip(times, times[1:])):
-        raise ValueError("来源 LRC 时间戳重复、倒退或过于密集")
+    if any(b <= a for a, b in zip(times, times[1:])):
+        raise ValueError("来源 LRC 时间戳重复或倒退")
     return "\n".join(f"[{_stamp(t)}]{row['text']}" for t, row in zip(times, records))

@@ -58,6 +58,9 @@ def title_key(name: str) -> str:
         if trimmed == name:
             break
         name = trimmed
+    # Bilibili often appends promotional tags to an otherwise complete title.
+    # Search the song name, not the full upload description.
+    name = re.split(r"\s*【[^】]{1,55}】", name, maxsplit=1)[0]
     return re.split(
         r"\s*[-—｜|]\s*(?:PV|MV|翻唱|cover|完整版)\b", name, maxsplit=1, flags=re.I
     )[0].strip()

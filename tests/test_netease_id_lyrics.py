@@ -50,6 +50,18 @@ def test_exact_lyrics_missing_or_invalid_returns_no_candidate():
     )
 
 
+def test_exact_lyrics_prefers_real_content_over_stale_nolyric_flag():
+    def respond(_):
+        return httpx.Response(
+            200, json={"code": 200, "nolyric": True, "lrc": {"lyric": RAW}}
+        )
+
+    rows = asyncio.run(
+        netease_song_lyrics(SONG, transport=httpx.MockTransport(respond))
+    )
+    assert rows[0]["timed_lrc"] == RAW
+
+
 def test_guest_candidates_prefer_exact_id_and_keep_other_sources(tmp_path):
     app = create_app(
         root=tmp_path / "room",

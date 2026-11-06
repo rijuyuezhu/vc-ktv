@@ -51,6 +51,12 @@ def test_public_metadata_rejects_bad_cover_or_unexpected_song_id():
         normalize_song_metadata(28391863, payload)
 
 
+def test_metadata_uses_valid_fallback_duration():
+    payload = sample_song()
+    payload["songs"][0].update(duration=0, dt=186200)
+    assert normalize_song_metadata(28391863, payload)["duration"] == 187
+
+
 def test_catalog_fetch_uses_fixed_host_only():
     requested = []
 

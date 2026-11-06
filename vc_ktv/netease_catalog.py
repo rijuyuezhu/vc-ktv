@@ -44,7 +44,13 @@ def normalize_song_metadata(song_id: int, payload: dict) -> dict:
     if track is None:
         raise LookupError("网易云未找到该单曲")
     title = track.get("name")
-    duration_ms = track.get("duration", track.get("dt"))
+    duration_ms = track.get("duration")
+    if (
+        not isinstance(duration_ms, int)
+        or isinstance(duration_ms, bool)
+        or duration_ms <= 0
+    ):
+        duration_ms = track.get("dt")
     if (
         not isinstance(title, str)
         or not title.strip()
