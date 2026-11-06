@@ -3,7 +3,7 @@ import time
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.app import create_app
 from vc_ktv.autoprep import title_key
 
@@ -38,6 +38,7 @@ def test_auto_bv_only_then_karaoke(tmp_path):
         root=tmp_path / "room", password="test", secret=b"test-key", auto_prepare=True
     )
     app.state.events.create("测试场次", "123456")
+    use_browser_playback(app)
     app.state.lookup = fake_preview
 
     def download(bvid, page, directory):

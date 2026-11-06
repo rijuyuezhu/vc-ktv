@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import primary_tv_token
+from tests.helpers import primary_tv_token, use_browser_playback
 from tests.test_events import admin_login, make_app
 
 
@@ -179,6 +179,7 @@ def test_operator_controls_song_and_downloads_video_without_guest_cookie(tmp_pat
     ):
         admin_login(owner)
         owner.post("/api/admin/events", json={"name": "演唱会", "code": "000123"})
+        use_browser_playback(app)
         create_account(owner)
         assert event_login(operator).status_code == 200
         join_and_register(guest, "观众", "000123")

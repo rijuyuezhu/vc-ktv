@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from tests.helpers import use_browser_playback
 from vc_ktv.app import Store, create_app
 
 
@@ -58,6 +59,7 @@ def add_song(store, requester, requested_at, prep_state="manual", page=1, title=
 def test_defaults_subtitle_gate_and_manual_media(tmp_path):
     app = app_for_policy(tmp_path)
     event = app.state.events.create("测试", "000001")
+    use_browser_playback(app)
     assert event["id"]
     with TestClient(app) as admin, TestClient(app) as guest:
         assert guest.get("/api/admin/settings").status_code == 401
@@ -124,6 +126,7 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
 def test_fairness_vs_fcfs_priority_and_counter(tmp_path):
     app = app_for_policy(tmp_path)
     app.state.events.create("公平", "654321")
+    use_browser_playback(app)
     with TestClient(app) as admin:
         admin_login(admin)
         store = app.state.store

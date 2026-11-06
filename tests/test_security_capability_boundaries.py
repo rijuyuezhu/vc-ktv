@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register, primary_tv_token
+from tests.helpers import join_and_register, primary_tv_token, use_browser_playback
 from vc_ktv.app import create_app
 
 
@@ -18,6 +18,7 @@ def secured_app(tmp_path):
         auto_prepare=False,
     )
     app.state.events.create("Test Event", "123456")
+    use_browser_playback(app)
 
     async def lookup(bvid, page):
         return {

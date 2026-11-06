@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import use_browser_playback
 from tests.test_fair_capped_two import ready
 from vc_ktv.app import create_app
 
@@ -44,6 +45,7 @@ def start_room(tmp_path):
         auto_prepare=False,
     )
     app.state.events.create("Playing", "123456")
+    use_browser_playback(app)
     return app, app.state.events.current_store
 
 

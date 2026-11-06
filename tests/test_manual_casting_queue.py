@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register, primary_tv_token
+from tests.helpers import join_and_register, primary_tv_token, use_browser_playback
 from vc_ktv.app import create_app
 
 
@@ -14,6 +14,7 @@ def new_app(tmp_path):
         auto_prepare=False,
     )
     app.state.events.create("本场测试", "123456")
+    use_browser_playback(app)
     return app
 
 
@@ -267,7 +268,7 @@ def test_priority_replay_during_current_manual_cast_next_and_tv_guard(tmp_path):
         assert guest.get("/api/state").json()["playback_mode"] == "browser"
 
 
-def test_playback_mode_persists_in_event_and_new_event_defaults_to_browser(tmp_path):
+def test_playback_mode_persists_in_event_and_new_event_defaults_to_tv(tmp_path):
     root = tmp_path / "ktv"
     app = new_app(tmp_path)
     with TestClient(app) as admin:
@@ -294,7 +295,7 @@ def test_playback_mode_persists_in_event_and_new_event_defaults_to_browser(tmp_p
         assert admin.post("/api/admin/events/close").status_code == 200
         new_event = admin.post("/api/admin/events", json={"name": "新场次"})
         assert new_event.status_code == 200
-        assert admin.get("/api/admin/state").json()["playback_mode"] == "browser"
+        assert admin.get("/api/admin/state").json()["playback_mode"] == "tv"
 
 
 def test_admin_pin_next_overrides_fair_and_fcfs_without_interrupting(tmp_path):

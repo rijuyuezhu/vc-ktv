@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv import lyric_selection
 from vc_ktv.app import create_app
 
@@ -16,6 +16,7 @@ def app_for_lyrics(tmp_path):
         auto_prepare=False,
     )
     app.state.events.create("测试场次", "123456")
+    use_browser_playback(app)
 
     async def lookup(bvid, page):
         return {

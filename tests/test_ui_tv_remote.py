@@ -41,6 +41,10 @@ def test_only_selected_playback_device_can_claim_and_finish(tmp_path):
     song = ready_song(app)
     with TestClient(app) as admin, TestClient(app) as tv:
         login(admin)
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "browser"}).status_code
+            == 200
+        )
         token = primary_tv_token(admin)
         assert tv.post("/api/tv/next", params={"token": token}).status_code == 409
         assert admin.post("/api/admin/next").json()["active"]["id"] == song
@@ -228,3 +232,19 @@ def test_event_admin_cannot_remote_control_global_primary(tmp_path):
             ).status_code
             == 200
         )
+
+
+def test_default_tv_mode_and_explicit_browser_choice_persist(tmp_path):
+    app = room(tmp_path)
+    with TestClient(app) as admin:
+        login(admin)
+        assert admin.get("/api/admin/state").json()["playback_mode"] == "tv"
+        assert (
+            admin.put("/api/admin/playback-mode", json={"mode": "browser"}).status_code
+            == 200
+        )
+        assert admin.get("/api/admin/state").json()["playback_mode"] == "browser"
+        assert admin.post("/api/admin/events/close").status_code == 200
+        created = admin.post("/api/admin/events", json={"name": "Next Room"})
+        assert created.status_code == 200, created.text
+        assert admin.get("/api/admin/state").json()["playback_mode"] == "tv"

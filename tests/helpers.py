@@ -28,3 +28,14 @@ def primary_tv_token(admin, *, replace=False):
     response = admin.post("/api/tv/activate", json={"pair": pair})
     assert response.status_code == 200, response.text
     return response.json()["token"]
+
+
+def use_browser_playback(app):
+    """Opt legacy browser-controlled test scenarios into browser mode explicitly."""
+    store = app.state.events.active()
+    with store.lock:
+        store.db.execute(
+            "INSERT INTO room_state(name,value) VALUES('playback_mode','browser') "
+            "ON CONFLICT(name) DO UPDATE SET value=excluded.value"
+        )
+        store.db.commit()

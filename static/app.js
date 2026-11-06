@@ -4,7 +4,7 @@ let preview = null;
 let admin = false;
 let currentMediaId = null;
 let manualMode = false;
-let playbackMode = "browser";
+let playbackMode = "tv";
 let tvRemoteState = null;
 let currentAdminSong = null;
 let nextAdminSong = null;
@@ -1568,7 +1568,7 @@ async function refresh(){
       if(admin){
         await refreshEvents();
         const activeState=adm.active?{...adm.active,media_url:null}:null;
-        playbackMode=adm.playback_mode||"browser";
+        playbackMode=adm.playback_mode||"tv";
         manualMode=playbackMode==="manual";
         currentAdminSong=adm.active||null;
         nextAdminSong=adm.queue?.[0]||null;

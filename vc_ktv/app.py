@@ -424,7 +424,7 @@ class Store:
         row = self.db.execute(
             "SELECT value FROM room_state WHERE name='playback_mode'"
         ).fetchone()
-        return row[0] if row and row[0] in ("tv", "manual") else "browser"
+        return row[0] if row and row[0] in ("browser", "tv", "manual") else "tv"
 
     def save_settings(
         self,

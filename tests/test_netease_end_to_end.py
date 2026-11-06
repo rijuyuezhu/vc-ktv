@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.app import create_app
 from vc_ktv.lyric_selection import _candidate
 from vc_ktv.netease_media import (
@@ -386,6 +386,7 @@ def test_real_ffmpeg_netease_song_to_karaoke_queue_and_tv(tmp_path):
         gpu_alignment=False,
     )
     app.state.events.create("NetEase Test", "123456")
+    use_browser_playback(app)
 
     async def lookup(song_id):
         assert song_id == 28391863

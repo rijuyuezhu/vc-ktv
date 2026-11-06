@@ -7,7 +7,7 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.app import create_app
 from vc_ktv.lyric_selection import _candidate
 from vc_ktv.timed_lyrics import offset_timeline, provider_timeline
@@ -138,6 +138,7 @@ def make_app(tmp_path, duration=60):
         auto_prepare=False,
     )
     app.state.events.create("测试场次", "123456")
+    use_browser_playback(app)
 
     async def lookup(bvid, page):
         return dict(

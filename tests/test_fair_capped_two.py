@@ -4,7 +4,7 @@ from contextlib import ExitStack
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.app import Store, create_app
 
 
@@ -16,6 +16,7 @@ def party(tmp_path, names):
         auto_prepare=False,
     )
     app.state.events.create("Party", "123456")
+    use_browser_playback(app)
     stack = ExitStack()
     guests = {}
     for name in names:

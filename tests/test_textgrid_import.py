@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from textgrid import IntervalTier, TextGrid
 
-from tests.helpers import join_and_register
+from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.app import create_app
 from vc_ktv.karaoke import parse_lrc, write_ass
 from vc_ktv.textgrid_import import convert_textgrid
@@ -146,6 +146,7 @@ def test_full_textgrid_to_rendered_mp4(tmp_path):
         auto_prepare=False,
     )
     app.state.events.create("测试场次", "123456")
+    use_browser_playback(app)
 
     async def lookup(bvid, page):
         return {

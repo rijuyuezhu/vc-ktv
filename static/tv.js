@@ -75,7 +75,7 @@ let replayInFlight=false;
 let panelTimer=null;
 let nextKey=null;
 let highlightTimer=null;
-let playbackMode="browser";
+let playbackMode="tv";
 let lastRemoteSeq=0;
 const START_BUFFER_SECONDS=12;
 const START_BUFFER_WAIT_MS=12000;
@@ -193,7 +193,7 @@ async function syncQueue(){
   try{
     const state=await api("/api/tv/state");
     if(requestId!==queueRequestId)return; // Ignore a slower, superseded poll.
-    playbackMode=state.playback_mode||"browser";
+    playbackMode=state.playback_mode||"tv";
     const queue=(state.queue||[]).slice(0,3);
     updateNextSong(queue[0]);
     nextList.replaceChildren();

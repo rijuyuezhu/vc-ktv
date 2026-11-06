@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 
-from tests.helpers import join_and_register, primary_tv_token
+from tests.helpers import join_and_register, primary_tv_token, use_browser_playback
 from vc_ktv.app import Store, create_app
 
 
@@ -54,6 +54,7 @@ def test_session_lifecycle_isolates_cookie_tv_media_and_song_files(tmp_path):
         assert admin.get("/api/event").json()["event"]["name"] == "第一场"
         assert admin.post("/api/admin/events", json={"name": "重复"}).status_code == 409
 
+        use_browser_playback(app)
         join_and_register(user, "第一场用户", "000012")
         first_song = user.post("/api/songs", json={"bvid": "BV0000000001"})
         assert first_song.status_code == 200
