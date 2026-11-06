@@ -180,12 +180,14 @@ function songState(song) {
 function compactSong(song,order){
   const row=document.createElement("button");row.type="button";
   row.className="song-item song-row song-open";
-  row.setAttribute("aria-label",song.title+"，"+songState(song)+"，查看详情");
+  row.setAttribute("aria-label",song.title+"，点歌者 "+(song.nickname||"未知")+"，"+songState(song)+"，查看详情");
   appendText(row,"span",String(order),"ordinal");
   const copy=appendText(row,"span","","song-copy");
   appendText(copy,"strong",song.title+(song.source_type!=="netease"&&song.page>1?" (P"+song.page+")":""));
   const meta=appendText(copy,"span","","song-meta");
-  appendText(meta,"span",song.uploader||"未知作者");
+  appendText(meta,"span",song.nickname||"未知点歌者","song-requester");
+  appendText(meta,"span","|","song-meta-separator").setAttribute("aria-hidden","true");
+  appendText(meta,"span",song.uploader||"未知作者","song-author");
   addSourceTag(meta,song);
   const status=appendText(row,"span",songState(song),"song-state");
   if(["下载失败","字幕失败"].includes(status.textContent))status.classList.add("failed");
