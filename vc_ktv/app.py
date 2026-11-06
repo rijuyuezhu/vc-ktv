@@ -1327,7 +1327,7 @@ def create_app(
             ) as db:
                 songs = db.execute(
                     """SELECT s.bvid,s.page,s.title,g.name,s.requested_at,
-                              s.status,s.played_at
+                              s.status,s.played_at,s.source_type,s.source_id
                        FROM songs s JOIN guests g ON g.id=s.requester
                        ORDER BY s.requested_at,s.id"""
                 ).fetchall()
@@ -1343,12 +1343,14 @@ def create_app(
                 "requested_at",
                 "status",
                 "played_at",
+                "source_type",
+                "source_id",
             )
         )
         for index, song in enumerate(songs, 1):
-            # Avoid spreadsheet formula execution for untrusted song titles/usernames.
+            # Avoid formula execution for user input and provider identifiers.
             fields = list(song)
-            for field in (2, 3):
+            for field in (2, 3, 7, 8):
                 if fields[field] and str(fields[field])[0] in "=+-@\t\r":
                     fields[field] = "'" + fields[field]
             writer.writerow((index, *fields))
