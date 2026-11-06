@@ -142,12 +142,12 @@ def test_limits_and_permissions(room):
         join_and_register(guest, "访客")
         login(admin)
         songs = [post_song(guest, page=1) for i in range(3)]
-        for _ in range(7):
+        for _ in range(17):
             assert post_song(guest, page=1)
-        eleventh = guest.post(
+        twenty_first = guest.post(
             "/api/songs", json={"bvid": "BV0000000004", "nickname": "A", "page": 1}
         )
-        assert eleventh.status_code == 409
+        assert twenty_first.status_code == 409
         assert (
             admin.post(
                 f"/api/admin/songs/{songs[0]}/media",
@@ -164,7 +164,7 @@ def test_limits_and_permissions(room):
         assert admin.get(f"/api/admin/songs/{songs[0]}/lyrics").json()["text"] == "歌词"
         assert guest.get(f"/api/admin/songs/{songs[0]}/lyrics").status_code == 401
         assert admin.post(f"/api/admin/songs/{songs[0]}/cancel").status_code == 200
-        assert len(admin.get("/api/state").json()["waiting"]) == 9
+        assert len(admin.get("/api/state").json()["waiting"]) == 19
 
 
 def test_admin_subpage_and_existing_cookie_auth(room):
