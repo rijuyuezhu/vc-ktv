@@ -1476,8 +1476,8 @@ def create_app(
         require_global_admin(vc_admin)
         with events.lock:
             events.closed_folder(event_id)
-            csv_data = export_event_songs(event_id, vc_admin).body.decode("utf-8")
-            return events.release_media(event_id, csv_data)
+        csv_data = export_event_songs(event_id, vc_admin).body.decode("utf-8")
+        return events.release_media(event_id, csv_data)
 
     @app.delete("/api/admin/events/{event_id}")
     def delete_event_record(event_id: str, vc_admin: str | None = Cookie(default=None)):
