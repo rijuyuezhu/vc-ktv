@@ -640,3 +640,21 @@ button, input, select { min-height: 44px; }
 .manual-replay-label { display:none; }
 .playback-remote.manual #remote-replay { display:flex; align-items:center; justify-content:center; gap:7px; }
 .playback-remote.manual .manual-replay-label { display:inline; font-size:13px; }
+
+
+/* Archive management: compact, deliberate controls without explanatory cards. */
+.archive-item { align-items: center; gap: 15px; padding: 12px 2px; }
+.archive-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 170px; }
+.archive-info strong { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
+.archive-info small { color: var(--muted); font-size: 12px; }
+.archive-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.archive-actions .btn { min-height: 40px; padding: 8px 12px; font-size: 12px; text-decoration: none; }
+.archive-actions .archive-delete { color: var(--danger); }
+.archive-actions .archive-delete:hover { color: var(--danger); background: var(--danger-soft); }
+@media (max-width: 600px) {
+  .archive-item { align-items: stretch; }
+  .archive-actions { width: 100%; }
+  .archive-actions .btn { flex: 1 1 auto; text-align: center; justify-content: center; }
+}
+/* The settings subpage already has a title; do not repeat it inside the card. */
+#page-settings-history #event-archive-panel > summary { display: none; }

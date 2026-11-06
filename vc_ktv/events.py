@@ -117,6 +117,83 @@ class Events:
             raise HTTPException(404, "场次不存在")
         return path
 
+    def closed_folder(self, event_id: str):
+        """Only normal closed sessions may have their files modified."""
+        if not EVENT_ID.fullmatch(event_id):
+            raise HTTPException(404, "场次不存在")
+        if event_id == "legacy":
+            raise HTTPException(409, "旧版场次不支持此操作")
+        if event_id == self.active_id:
+            raise HTTPException(409, "只能操作已结束的场次")
+        folder = self.base / event_id
+        info = folder / "info.json"
+        if (
+            folder.is_symlink()
+            or not folder.is_dir()
+            or info.is_symlink()
+            or not info.is_file()
+        ):
+            raise HTTPException(404, "场次不存在")
+        entry = json.loads(info.read_text())
+        if entry.get("id") != event_id or entry.get("status") != "closed":
+            raise HTTPException(409, "只能操作已结束的场次")
+        return folder, entry
+
+    def release_media(self, event_id: str, csv_text: str):
+        """Retain the event DB, CSV and small text; remove bulky media."""
+        with self.lock:
+            folder, entry = self.closed_folder(event_id)
+            self._write_atomic(folder / "songs.csv", csv_text)
+            media = folder / "media"
+            freed = 0
+            keep_text = {
+                ".csv",
+                ".json",
+                ".txt",
+                ".lrc",
+                ".ass",
+                ".srt",
+                ".vtt",
+                ".md",
+                ".textgrid",
+            }
+            if media.is_symlink():
+                media.unlink()
+            elif media.is_dir():
+                for file in sorted(
+                    media.rglob("*"), key=lambda p: len(p.parts), reverse=True
+                ):
+                    if file.is_symlink():
+                        file.unlink()
+                    elif file.is_dir():
+                        if not any(file.iterdir()):
+                            file.rmdir()
+                    elif file.is_file():
+                        size = file.stat().st_size
+                        if file.suffix.lower() in keep_text and size <= 1024 * 1024:
+                            continue
+                        file.unlink()
+                        freed += size
+                if not any(media.iterdir()):
+                    media.rmdir()
+            entry["media_released_at"] = entry.get(
+                "media_released_at"
+            ) or datetime.now().isoformat(timespec="seconds")
+            self._write_atomic(
+                folder / "info.json",
+                json.dumps(entry, ensure_ascii=False, indent=2) + "\n",
+            )
+            return {
+                "freed_bytes": freed,
+                "media_released_at": entry["media_released_at"],
+            }
+
+    def delete_closed(self, event_id: str):
+        with self.lock:
+            folder, _ = self.closed_folder(event_id)
+            shutil.rmtree(folder)
+            return {"ok": True}
+
     def create(self, name: str, code: str | None = None):
         with self.lock:
             if self.active_id:
