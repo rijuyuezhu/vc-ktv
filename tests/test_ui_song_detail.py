@@ -79,7 +79,7 @@ def test_guest_replay_does_not_steal_admin_priority_and_keeps_owner(tmp_path):
         assert item["priority_next"] is False
         with store.lock:
             replay = store.db.execute(
-                "SELECT requester,status,priority_next,replay_of,media_file,source_file "
+                "SELECT id,requester,status,priority_next,replay_of,media_file,source_file "
                 "FROM songs WHERE id=?",
                 (item["id"],),
             ).fetchone()
@@ -93,8 +93,17 @@ def test_guest_replay_does_not_steal_admin_priority_and_keeps_owner(tmp_path):
                 ).fetchone()[0]
                 == 1
             )
-            assert (store.media / replay["media_file"]).read_bytes() == b"rendered.mp4"
-            assert (store.media / replay["source_file"]).read_bytes() == b"original.mp4"
+            # Virtual replay references the original song, not two new MP4 links.
+            assert replay["media_file"] is None
+            assert replay["source_file"] is None
+            assets = store.replay_assets(replay)
+            assert (store.media / assets["media_file"]).read_bytes() == b"rendered.mp4"
+            assert (store.media / assets["source_file"]).read_bytes() == b"original.mp4"
+        assert bob.get(f"/api/songs/{item['id']}/download").content == b"rendered.mp4"
+        assert (
+            bob.get(f"/api/songs/{item['id']}/download/source").content
+            == b"original.mp4"
+        )
         assert (
             bob.get("/api/songs/" + str(item["id"]) + "/detail").json()["mine"] is True
         )

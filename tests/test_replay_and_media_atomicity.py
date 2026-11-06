@@ -56,9 +56,7 @@ def test_media_read_waits_for_worker_transaction_to_settle(tmp_path):
         ]
 
 
-def test_replay_media_link_failure_rolls_back_priority_and_cleans_links(
-    tmp_path, monkeypatch
-):
+def test_replay_insert_failure_rolls_back_priority_without_media_links(tmp_path):
     app = new_app(tmp_path)
     with TestClient(app, raise_server_exceptions=False) as admin:
         assert (
@@ -66,7 +64,6 @@ def test_replay_media_link_failure_rolls_back_priority_and_cleans_links(
             == 200
         )
         store = app.state.store
-        # Avoid user/network setup; this boundary is downstream of authorization.
         store.db.execute("INSERT INTO guests(id,name) VALUES ('singer','Singer')")
         store.db.commit()
         song_id = add_song(store, "singer", status="played", media="baked.mp4")
@@ -82,22 +79,16 @@ def test_replay_media_link_failure_rolls_back_priority_and_cleans_links(
             "SELECT id,priority_next,replay_of,media_file,source_file FROM songs ORDER BY id"
         )
         files_before = {f.name for f in store.media.iterdir()}
-
-        import vc_ktv.app as app_module
-
-        link_original = app_module.os.link
-        calls = []
-
-        def fail_second_link(source, destination, *args, **kwargs):
-            calls.append(destination)
-            if len(calls) == 2:
-                raise OSError("simulated second hard link failure")
-            return link_original(source, destination, *args, **kwargs)
-
-        monkeypatch.setattr(app_module.os, "link", fail_second_link)
+        with store.lock:
+            store.db.execute(
+                """CREATE TRIGGER reject_virtual_replay BEFORE INSERT ON songs
+                WHEN NEW.replay_of IS NOT NULL BEGIN
+                    SELECT RAISE(ABORT, 'simulated replay insert failure');
+                END"""
+            )
+            store.db.commit()
         response = admin.post(f"/api/admin/songs/{song_id}/replay")
         assert response.status_code == 500
-        assert len(calls) == 2
         assert (
             store.rows(
                 "SELECT id,priority_next,replay_of,media_file,source_file FROM songs ORDER BY id"
@@ -150,3 +141,37 @@ def test_lyrics_read_never_observes_uncommitted_worker_value(tmp_path):
             response = future.result(timeout=3)
         assert response.status_code == 200
         assert response.json() == {"text": "committed"}
+
+
+def test_virtual_replay_of_legacy_video_without_source_uses_video_as_source(tmp_path):
+    app = new_app(tmp_path)
+    with TestClient(app) as admin, TestClient(app) as guest:
+        join_and_register(guest, "Singer")
+        assert (
+            admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
+            == 200
+        )
+        store = app.state.store
+        owner = store.rows("SELECT id FROM users WHERE username='Singer'")[0]["id"]
+        song_id = add_song(store, owner, status="played", media="video-only.mp4")
+        with store.lock:
+            store.db.execute("UPDATE songs SET source_file=NULL WHERE id=?", (song_id,))
+            store.db.commit()
+        created = guest.post(f"/api/songs/{song_id}/replay")
+        assert created.status_code == 200, created.text
+        replay_id = created.json()["id"]
+        with store.lock:
+            row = store.db.execute(
+                "SELECT id,replay_of,media_file,source_file FROM songs WHERE id=?",
+                (replay_id,),
+            ).fetchone()
+            assert row["media_file"] is None
+            assert row["source_file"] is None
+        assert (
+            guest.get(f"/api/songs/{replay_id}/download").content
+            == b"valid-pretend-mp4"
+        )
+        assert (
+            guest.get(f"/api/songs/{replay_id}/download/source").content
+            == b"valid-pretend-mp4"
+        )

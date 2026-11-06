@@ -383,6 +383,44 @@ class Store:
         with self.lock:
             return [dict(x) for x in self.db.execute(sql, args).fetchall()]
 
+    def replay_chain(self, song):
+        """Return this turn and its ancestors within the current Store/event."""
+        with self.lock:
+            current = dict(song)
+            if "replay_of" not in current:
+                row = self.db.execute(
+                    "SELECT * FROM songs WHERE id=?", (current["id"],)
+                ).fetchone()
+                if row:
+                    current = dict(row)
+            chain, visited = [], set()
+            while current and current["id"] not in visited:
+                chain.append(current)
+                visited.add(current["id"])
+                parent_id = current.get("replay_of")
+                if parent_id is None:
+                    break
+                row = self.db.execute(
+                    "SELECT * FROM songs WHERE id=?", (parent_id,)
+                ).fetchone()
+                current = dict(row) if row else None
+            return chain
+
+    def replay_assets(self, song):
+        """Resolve effective media paths, without creating hard/soft links."""
+        resolved = dict(song)
+        for ancestor in self.replay_chain(song):
+            for name in ("media_file", "source_file"):
+                if not resolved.get(name) and ancestor.get(name):
+                    resolved[name] = ancestor[name]
+            if resolved.get("media_file") and resolved.get("source_file"):
+                break
+        # Legacy songs may only have a rendered video. Their replays used
+        # to treat that video as the source too; preserve that behavior.
+        if resolved.get("replay_of") is not None and not resolved.get("source_file"):
+            resolved["source_file"] = resolved.get("media_file")
+        return resolved
+
     def current(self):
         rows = self.rows(
             "SELECT * FROM songs WHERE status='playing' ORDER BY id LIMIT 1"
@@ -393,7 +431,7 @@ class Store:
         rows = self.rows("""
             SELECT s.id,s.bvid,s.page,s.source_type,s.source_id,
                    s.title,s.uploader,s.cover,s.duration,
-                   s.requested_at,s.status,s.media_file IS NOT NULL AS has_media,s.render_error,
+                   s.requested_at,s.status,(s.media_file IS NOT NULL OR s.replay_of IS NOT NULL) AS has_media,s.render_error,
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
                    s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.replay_of,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
@@ -1022,27 +1060,52 @@ def create_app(
         return f"/media/{song['id']}?token={quote(sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
 
     def overlay_bundle(song: dict):
-        """Find the latest completed source-matching bundle, never stale attempts."""
-        if not song.get("source_file") or song.get("prep_state") != "done":
+        """Use the nearest matching subtitle archive along replay_of lineage."""
+        if song.get("prep_state") != "done" or song.get("skip_subtitles"):
             return None
-        root = store.media / f"{song['id']}-auto-alignment"
-        for attempt in sorted(root.glob("attempt-*/attempt.json"), reverse=True):
-            try:
-                info = json.loads(attempt.read_text(encoding="utf-8"))
-                if (
-                    info.get("outcome") != "rendered"
-                    or info.get("source_file") != song["source_file"]
-                ):
+        resolved = store.replay_assets(song)
+        if not resolved.get("source_file") or not resolved.get("media_file"):
+            return None
+        source = store.media / Path(resolved["source_file"]).name
+        video = store.media / Path(resolved["media_file"]).name
+        for ancestor in store.replay_chain(song):
+            # An independently uploaded/re-rendered replay is not compatible
+            # with its parent's subtitle plan. Legacy hardlinks, however,
+            # remain valid when both physical files are still identical.
+            for field, actual in (("source_file", source), ("media_file", video)):
+                path = ancestor.get(field)
+                if path:
+                    try:
+                        if not (store.media / Path(path).name).samefile(actual):
+                            return None
+                    except OSError:
+                        return None
+            if ancestor["id"] != song["id"] and any(
+                ancestor.get(field) != song.get(field)
+                for field in ("lyrics", "lyric_choice", "lyric_offset_ms")
+            ):
+                return None
+            root = store.media / f"{ancestor['id']}-auto-alignment"
+            for attempt in sorted(root.glob("attempt-*/attempt.json"), reverse=True):
+                try:
+                    info = json.loads(attempt.read_text(encoding="utf-8"))
+                    if info.get("outcome") != "rendered" or info.get(
+                        "source_file"
+                    ) != ancestor.get("source_file"):
+                        continue
+                    for name in ("pipeline/subtitles", "provider_subtitles"):
+                        folder = attempt.parent / name
+                        if all(
+                            (folder / f).is_file()
+                            for f in (
+                                "timeline.json",
+                                "display_plan.json",
+                                "style.json",
+                            )
+                        ):
+                            return folder
+                except (OSError, ValueError, TypeError):
                     continue
-                for name in ("pipeline/subtitles", "provider_subtitles"):
-                    folder = attempt.parent / name
-                    if all(
-                        (folder / f).is_file()
-                        for f in ("timeline.json", "display_plan.json", "style.json")
-                    ):
-                        return folder
-            except (OSError, ValueError, TypeError):
-                continue
         return None
 
     def overlay_archive(bundle: Path) -> Path:
@@ -1051,7 +1114,8 @@ def create_app(
     def overlay_view(song: dict):
         if not store.settings()["tv_html_overlay"]:
             return None
-        source = store.media / Path(song.get("source_file") or "").name
+        source_name = store.replay_assets(song).get("source_file")
+        source = store.media / Path(source_name or "").name
         bundle = overlay_bundle(song)
         if (
             not source.is_file()
@@ -1089,6 +1153,7 @@ def create_app(
                              JOIN guests g ON g.id=s.requester WHERE s.id=?""",
             (song["id"],),
         )[0]
+        info = store.replay_assets(info)
         info["media_url"] = signed_media(info)
         info["html_overlay"] = overlay_view(info)
         return info
@@ -2227,8 +2292,7 @@ def create_app(
         require_admin(vc_admin)
         with store.lock:
             row = store.db.execute(
-                "SELECT status,prep_state,lyric_choice,source_file FROM songs WHERE id=?",
-                (song_id,),
+                "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
@@ -2237,15 +2301,16 @@ def create_app(
                 "done",
             ):
                 bail(409, "仅可重制尚未播放且字幕已完成或失败的歌曲")
-            if not row["lyric_choice"] or not row["source_file"]:
+            source_file = store.replay_assets(row).get("source_file")
+            if not row["lyric_choice"] or not source_file:
                 bail(409, "歌曲缺少已选歌词或原始视频")
-            if not (store.media / Path(row["source_file"]).name).is_file():
+            if not (store.media / Path(source_file).name).is_file():
                 bail(409, "原视频已丢失，无法仅重试字幕")
             try:
                 store.db.execute(
                     "UPDATE songs SET prep_state='downloaded',prep_error='',"
-                    "skip_subtitles=0,prep_stage='queued',prep_stage_at=? WHERE id=?",
-                    (time_now(), song_id),
+                    "source_file=?,skip_subtitles=0,prep_stage='queued',prep_stage_at=? WHERE id=?",
+                    (source_file, time_now(), song_id),
                 )
                 store.db.commit()
             except sqlite3.Error:
@@ -2530,12 +2595,14 @@ def create_app(
         await file.close()
         with store.lock:
             row = store.db.execute(
-                "SELECT status,lyrics,duration,source_file FROM songs WHERE id=?",
+                "SELECT * FROM songs WHERE id=?",
                 (song_id,),
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
-            if row["status"] not in ("ready", "waiting") or not row["source_file"]:
+            if row["status"] not in ("ready", "waiting") or not store.replay_assets(
+                row
+            ).get("source_file"):
                 bail(409, "请先上传原始视频，且不能在播放或制作过程中替换时间轴")
             original = row["lyrics"]
             duration = row["duration"]
@@ -2593,9 +2660,10 @@ def create_app(
                 ).fetchone()
                 if not row:
                     bail(404, "歌曲不存在")
-                if row["status"] != "ready" or not row["source_file"]:
+                asset = store.replay_assets(row)
+                if row["status"] != "ready" or not asset.get("source_file"):
                     bail(409, "请先上传可用视频")
-                source = store.media / row["source_file"]
+                source = store.media / Path(asset["source_file"]).name
                 if not source.is_file():
                     bail(404, "原视频不存在，请重新上传")
                 try:
@@ -2747,7 +2815,7 @@ def create_app(
                     else ("played",)
                 )
                 or row["prep_state"] not in ("done", "manual", "original")
-                or not row["media_file"]
+                or not store.replay_assets(row).get("media_file")
             ):
                 bail(409, "只能重唱当前正在播放或本场已唱完的成片")
             if current_only:
@@ -2774,17 +2842,15 @@ def create_app(
                         "status": "ready",
                         "priority_next": True,
                     }
-            media = store.media / Path(row["media_file"]).name
+            asset = store.replay_assets(row)
+            media = store.media / Path(asset.get("media_file") or "").name
             if not media.is_file():
                 bail(404, "成片已丢失")
             # Admin replay still works during pause, but cannot exceed the
             # same global unfinished-song capacity.
             check_room_capacity()
-            source = store.media / Path(row["source_file"] or "").name
-            if not source.is_file():
-                source = media
-            # Unique hard links isolate later per-song edits without copying MP4 bytes.
-            links = []
+            # Virtual replay: retain only the relationship. Source and video
+            # paths are resolved on demand, including repeated replays.
             try:
                 if guest_id is None:
                     store.db.execute(
@@ -2794,8 +2860,9 @@ def create_app(
                     """INSERT INTO songs(
                         bvid,page,title,uploader,cover,duration,requester,requested_at,
                         status,lyrics,lyric_choice,lyric_source,prep_state,
-                        skip_subtitles,priority_next,replay_of,source_type,source_id
-                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?,?,?,?)""",
+                        skip_subtitles,priority_next,replay_of,source_type,source_id,
+                        lyric_timing_mode,provider_lrc,source_lrc_raw,lyric_offset_ms
+                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         row["bvid"],
                         row["page"],
@@ -2818,37 +2885,16 @@ def create_app(
                         song_id,
                         row["source_type"],
                         row["source_id"],
-                    ),
-                )
-                new_id = cur.lastrowid
-                for label, old in (("video", media), ("source", source)):
-                    if label == "source" and old == media:
-                        continue
-                    new_path = store.media / (
-                        f"{new_id}-replay-{secrets.token_hex(5)}-{label}{old.suffix}"
-                    )
-                    os.link(old, new_path)
-                    links.append(new_path)
-                new_media = links[0].name
-                new_source = links[-1].name if source != media else new_media
-                store.db.execute(
-                    "UPDATE songs SET media_file=?,source_file=?,lyric_timing_mode=?,"
-                    "provider_lrc=?,source_lrc_raw=?,lyric_offset_ms=? WHERE id=?",
-                    (
-                        new_media,
-                        new_source,
                         row["lyric_timing_mode"],
                         row["provider_lrc"],
                         row["source_lrc_raw"],
                         row["lyric_offset_ms"],
-                        new_id,
                     ),
                 )
+                new_id = cur.lastrowid
                 store.db.commit()
             except BaseException:
                 store.db.rollback()
-                for link in links:
-                    link.unlink(missing_ok=True)
                 raise
         return {"id": new_id, "status": "ready", "priority_next": guest_id is None}
 
@@ -3174,11 +3220,12 @@ def create_app(
             media = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song["id"],)
             ).fetchone()
+            assets = store.replay_assets(media)
             return {
                 "candidate": {
                     "id": song["id"],
-                    "media_file": media["media_file"],
-                    "source_file": media["source_file"],
+                    "media_file": assets["media_file"],
+                    "source_file": assets["source_file"],
                     "media_url": signed_media(song),
                     "html_overlay": overlay_view(dict(media)),
                 }
@@ -3249,16 +3296,19 @@ def create_app(
             records = store.rows(
                 """SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.status,
                           s.source_type,s.source_id,s.prep_state,
-                          s.skip_subtitles,s.media_file,
+                          s.skip_subtitles,s.media_file,s.replay_of,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester"""
             )
             rank = {song_id: i for i, song_id in enumerate(order)}
             records.sort(key=lambda song: rank.get(song["id"], len(rank)))
             for song in records:
+                asset = store.replay_assets(song)
                 song["downloadable"] = (
-                    Store.downloadable(song)
-                    and (store.media / Path(song["media_file"] or "").name).is_file()
+                    Store.downloadable(asset)
+                    and (
+                        store.media / Path(asset.get("media_file") or "").name
+                    ).is_file()
                 )
                 song.pop("media_file", None)
             return {"songs": records, "archived": False}
@@ -3273,16 +3323,19 @@ def create_app(
         with store.lock:
             rows = store.rows(
                 """SELECT s.id,s.bvid,s.source_type,s.source_id,s.title,s.duration,
-                          s.uploader,s.played_at,s.page,s.prep_state,s.media_file,s.media_file IS NOT NULL AS has_media,
+                          s.uploader,s.played_at,s.page,s.prep_state,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.status='played'
                    ORDER BY s.played_at DESC,s.id DESC"""
             )
             for song in rows:
+                asset = store.replay_assets(song)
                 song["downloadable"] = (
-                    Store.downloadable({**song, "status": "played"})
-                    and (store.media / Path(song["media_file"] or "").name).is_file()
+                    Store.downloadable({**asset, "status": "played"})
+                    and (
+                        store.media / Path(asset.get("media_file") or "").name
+                    ).is_file()
                 )
                 song.pop("media_file", None)
             return {"songs": rows}
@@ -3301,7 +3354,7 @@ def create_app(
                 """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
                           s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
-                          s.played_at,s.media_file,s.media_file IS NOT NULL AS has_media,
+                          s.played_at,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
                           s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,
                           g.id AS requester_id,g.name AS nickname
@@ -3311,7 +3364,8 @@ def create_app(
             ).fetchone()
             if row is None:
                 bail(404, "歌曲不存在")
-            song = dict(row)
+            song = store.replay_assets(row)
+            song["has_media"] = bool(song.get("media_file"))
             try:
                 song["stage_seconds"] = json.loads(song.pop("prep_timing"))
             except (ValueError, TypeError):
@@ -3390,14 +3444,14 @@ def create_app(
             require_user(vc_guest)
         with store.lock:
             row = store.db.execute(
-                "SELECT title,status,prep_state,media_file FROM songs WHERE id=?",
-                (song_id,),
+                "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
-            if not Store.downloadable(dict(row)):
+            asset = store.replay_assets(row)
+            if not Store.downloadable(asset):
                 bail(409, "视频尚未准备好")
-            file = store.media / Path(row["media_file"]).name
+            file = store.media / Path(asset["media_file"]).name
             if not file.is_file():
                 bail(404, "媒体文件缺失")
             title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
@@ -3422,16 +3476,19 @@ def create_app(
             require_user(vc_guest)
         with store.lock:
             row = store.db.execute(
-                "SELECT title,status,source_file FROM songs WHERE id=?", (song_id,)
+                "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
-            if (
-                row["status"] not in ("ready", "playing", "played", "skipped")
-                or not row["source_file"]
-            ):
+            asset = store.replay_assets(row)
+            if row["status"] not in (
+                "ready",
+                "playing",
+                "played",
+                "skipped",
+            ) or not asset.get("source_file"):
                 bail(409, "原片尚未准备好")
-            file = store.media / Path(row["source_file"]).name
+            file = store.media / Path(asset["source_file"]).name
             if not file.is_file():
                 bail(404, "原片文件缺失")
             title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
@@ -3455,9 +3512,11 @@ def create_app(
             row = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
-            if not row or not row["source_file"]:
+            if not row:
                 bail(404, "原视频不存在")
-            song = dict(row)
+            song = store.replay_assets(row)
+            if not song.get("source_file"):
+                bail(404, "原视频不存在")
             # Refuse source if it would exceed the admin's selected budget.
             if not overlay_view(song):
                 bail(409, "原片模式不可用，请使用烧录版")
@@ -3518,11 +3577,14 @@ def create_app(
         # Share AutoPrep's Store mutex: do not serve an uncommitted media path.
         with store.lock:
             row = store.db.execute(
-                "SELECT media_file FROM songs WHERE id=?", (song_id,)
+                "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
-            if not row or not row[0]:
+            if not row:
                 bail(404, "媒体不存在")
-            name = Path(row[0]).name
+            asset = store.replay_assets(row)
+            if not asset.get("media_file"):
+                bail(404, "媒体不存在")
+            name = Path(asset["media_file"]).name
             file = store.media / name
             if not file.is_file():
                 bail(404, "媒体文件缺失")
