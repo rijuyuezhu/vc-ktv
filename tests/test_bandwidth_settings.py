@@ -6,8 +6,9 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-import vc_ktv.processing.autoprep as autoprep
+import vc_ktv.processing.worker as autoprep
 from vc_ktv.application.factory import create_app
+from vc_ktv.processing import media_preparation
 
 
 def make_app(tmp_path):
@@ -137,7 +138,7 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
             report=result / "export_report.json",
         )
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", fake_pipeline)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", fake_pipeline)
     worker = autoprep.AutoPrep(store, lambda path: 5)
     with TestClient(app) as owner:
         login(owner)
@@ -174,14 +175,14 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
 def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path):
     import pytest
 
-    from vc_ktv.processing.autoprep import render_upstream_video
+    from vc_ktv.processing.media_preparation import render_upstream_video
 
     def stop_before_models(video, lyrics, folder, settings, **kwargs):
         assert kwargs["render_options"].max_video_kbps == 2616
         raise RuntimeError("captured options")
 
     monkeypatch.setenv("VC_KTV_VIDEO_MAXRATE_KBPS", "12000")
-    monkeypatch.setattr(autoprep, "make_karaoke_video", stop_before_models)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", stop_before_models)
     source = tmp_path / "source.mp4"
     source.write_bytes(b"no models invoked")
     with pytest.raises(RuntimeError, match="captured options"):
@@ -193,7 +194,7 @@ def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path)
         assert kwargs["render_options"].max_video_kbps == 4116
         raise RuntimeError("custom budget")
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", check_default)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", check_default)
     with pytest.raises(RuntimeError, match="custom budget"):
         render_upstream_video(
             source,

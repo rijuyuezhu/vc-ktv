@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_stage_durations import ready_song
-from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.processing.worker import AutoPrep
 
 
 def eventually(predicate, timeout=5):

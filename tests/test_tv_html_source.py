@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, primary_tv_token
 from vc_ktv.application.factory import create_app
-from vc_ktv.processing.autoprep import prepare_tv_source, stream_video_kbps
+from vc_ktv.processing.media_preparation import prepare_tv_source, stream_video_kbps
 
 
 def room(tmp_path):
@@ -215,7 +215,7 @@ def test_compress_source_only_if_average_too_large_and_keep_original(
         Path(cmd[-1]).write_bytes(b"X" * 2048)
         return SimpleNamespace(returncode=0)
 
-    monkeypatch.setattr("vc_ktv.processing.autoprep.subprocess.run", fake_run)
+    monkeypatch.setattr("vc_ktv.processing.media_preparation.subprocess.run", fake_run)
     prepare_tv_source(source, target, 20, 3.0)
     assert requests == []
     prepare_tv_source(source, target, 0.02, 3.0)

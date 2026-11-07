@@ -110,7 +110,7 @@ def test_close_failure_resumes_autoprep_and_can_process_new_songs(
 def test_close_failure_with_worker_still_running_clears_stop_signal(
     tmp_path, monkeypatch
 ):
-    from vc_ktv.processing.autoprep import AutoPrep
+    from vc_ktv.processing.worker import AutoPrep
 
     entered = threading.Event()
     release = threading.Event()

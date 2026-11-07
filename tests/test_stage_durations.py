@@ -5,8 +5,9 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import vc_ktv.processing.autoprep as autoprep
+import vc_ktv.processing.worker as autoprep
 from vc_ktv.core.store import Store
+from vc_ktv.processing import media_preparation
 
 
 def ready_song(tmp_path):
@@ -57,7 +58,7 @@ def test_successful_full_song_tifa_records_each_real_stage(tmp_path, monkeypatch
             report=bundle / "export_report.json",
         )
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", fake_pipeline)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", fake_pipeline)
     worker = autoprep.AutoPrep(store, lambda path: 4)
     row = worker.claim()
     assert row["id"] == song_id
@@ -99,7 +100,7 @@ def test_failed_pipeline_retains_completed_stage_durations(tmp_path, monkeypatch
         time.sleep(0.012)
         raise RuntimeError("model cannot align")
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", fail_pipeline)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", fail_pipeline)
     worker = autoprep.AutoPrep(store, lambda path: 4)
     worker.prepare_subtitles(worker.claim())
     row = store.db.execute(

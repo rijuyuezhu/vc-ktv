@@ -8,7 +8,9 @@ from fastapi.testclient import TestClient
 
 from vc_ktv.application.factory import create_app
 from vc_ktv.core.store import Store
-from vc_ktv.processing.autoprep import AutoPrep, render_upstream_video
+from vc_ktv.processing import media_preparation
+from vc_ktv.processing.media_preparation import render_upstream_video
+from vc_ktv.processing.worker import AutoPrep
 from vc_ktv.rendering.subtitle_styles import preset_style
 
 
@@ -170,7 +172,6 @@ def test_style_is_snapshotted_at_claim_and_retry_uses_new_style(tmp_path):
 
 
 def test_real_adapter_forwards_selected_style(tmp_path, monkeypatch):
-    import vc_ktv.processing.autoprep as autoprep
 
     source = tmp_path / "source.mp4"
     source.write_bytes(b"original")
@@ -193,7 +194,7 @@ def test_real_adapter_forwards_selected_style(tmp_path, monkeypatch):
         result.write_bytes(b"finished")
         return SimpleNamespace(video=result, ass=ass, report=report)
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", fake_pipeline)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", fake_pipeline)
     dest = tmp_path / "output.mp4"
     assert (
         render_upstream_video(

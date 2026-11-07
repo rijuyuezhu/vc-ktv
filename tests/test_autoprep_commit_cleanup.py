@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from tests.test_stage_durations import ready_song
-from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.processing.worker import AutoPrep
 
 
 def test_obsolete_video_unlink_failure_keeps_committed_new_render(
