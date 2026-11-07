@@ -17,11 +17,27 @@ class IdCollector(HTMLParser):
                 self.ids.add(value)
 
 
+def app_scripts(root):
+    return "\n".join((root / name).read_text() for name in ("app.js", "lyrics.js"))
+
+
+def test_lyric_picker_is_loaded_as_a_module():
+    root = Path(__file__).resolve().parents[1] / "static"
+    html = (root / "index.html").read_text()
+    main = (root / "app.js").read_text()
+    lyrics = (root / "lyrics.js").read_text()
+    assert '<script type="module" src="/app.js"></script>' in html
+    assert 'import {createLyricPicker} from "./lyrics.js";' in main
+    assert "export function createLyricPicker(" in lyrics
+    assert "const {openLyricPicker} = lyricPicker;" in main
+    assert "selectedSongId:()=>selectingSongId" in lyrics
+
+
 def test_guest_and_admin_js_element_references_exist():
     root = Path(__file__).resolve().parents[1] / "static"
     document = IdCollector()
     document.feed((root / "index.html").read_text())
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     referenced = set(re.findall(r'\$\("([a-z0-9-]+)"\)', js))
     # These pages are built once by setupSubpages rather than present in HTML.
     runtime_pages = {"page-settings", "page-played", "page-song"}
@@ -32,7 +48,7 @@ def test_guest_and_admin_js_element_references_exist():
 
 def test_app_ui_omits_middle_dot_separator():
     root = Path(__file__).resolve().parents[1] / "static"
-    for file in ("index.html", "app.js", "tv.html", "tv.js"):
+    for file in ("index.html", "app.js", "lyrics.js", "tv.html", "tv.js"):
         assert "·" not in (root / file).read_text()
 
 
@@ -70,7 +86,7 @@ def test_tv_banner_transparency_control_exists():
 
 
 def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
-    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    js = app_scripts(Path(__file__).resolve().parents[1] / "static")
     assert "使用来源原时间轴" in js
     assert "普通歌词对齐" in js
     for warning in (
@@ -85,14 +101,14 @@ def test_provider_timing_help_explains_same_recording_and_no_word_sweep():
 
 
 def test_lyric_cards_are_not_deduplicated_across_recordings():
-    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    js = app_scripts(Path(__file__).resolve().parents[1] / "static")
     assert "const key=[candidate.source,candidate.url,candidate.text].join(" in js
 
 
 def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     css = (root / "style.css").read_text()
     for key in (
         "netease-review-dialog",
@@ -127,7 +143,7 @@ def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
 def test_tv_html_overlay_and_bandwidth_ui_controls():
     root = Path(__file__).resolve().parents[1] / "static"
     admin = (root / "index.html").read_text()
-    admin_js = (root / "app.js").read_text()
+    admin_js = app_scripts(root)
     tv = (root / "tv.html").read_text()
     player = (root / "tv.js").read_text()
     assert 'id="tv-html-overlay" type="checkbox" checked' in admin
@@ -145,7 +161,7 @@ def test_tv_html_overlay_and_bandwidth_ui_controls():
 
 
 def test_netease_review_is_not_a_second_simultaneous_modal():
-    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    js = app_scripts(Path(__file__).resolve().parents[1] / "static")
     assert "suspendingLyricPicker=true" in js
     assert '$("guest-lyrics-dialog").close();' in js
     assert '$("netease-review-dialog").addEventListener("close"' in js
@@ -198,7 +214,7 @@ def test_tv_font_fallback_and_admin_preview_share_family_list():
 def test_guest_auth_uses_native_forms_and_password_visibility_controls():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     for form, button in (
         ("entry-code", "join-btn"),
         ("register-form", "register-btn"),
@@ -231,7 +247,7 @@ def test_mobile_dialogs_use_tall_scrollable_viewport():
 def test_guest_request_tabs_include_netease_search_and_share():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     css = (root / "style.css").read_text()
     for source in ("bilibili", "netease"):
         assert f'id="source-tab-{source}" role="tab"' in html
@@ -250,7 +266,7 @@ def test_guest_request_tabs_include_netease_search_and_share():
 def test_netease_connection_lives_in_global_admin_settings_subpage():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     assert '<section class="panel full-width hidden" id="netease-admin-panel">' in html
     assert '"settings-netease":["网易云音乐连接","netease-admin-panel"]' in js
     assert '["settings-netease","网易云音乐","音乐源连接"]' in js
@@ -263,7 +279,7 @@ def test_netease_connection_lives_in_global_admin_settings_subpage():
 def test_netease_cookie_fallback_global_admin_ui():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     assert 'id="netease-cookie-import-panel"' in html
     assert 'id="netease-cookie-import-value"' in html
     assert 'type="password" id="netease-cookie-import-value"' in html
@@ -277,7 +293,7 @@ def test_netease_cookie_fallback_global_admin_ui():
 def test_provider_tag_and_copy_are_source_aware():
     root = Path(__file__).resolve().parents[1] / "static"
     html = (root / "index.html").read_text()
-    js = (root / "app.js").read_text()
+    js = app_scripts(root)
     css = (root / "style.css").read_text()
     tv_js = (root / "tv.js").read_text()
     assert "📺 B站" in js and "🎵 网易云" in js
@@ -295,7 +311,7 @@ def test_provider_tag_and_copy_are_source_aware():
 def test_primary_tv_controls_keep_labels_minimal():
     root = Path(__file__).resolve().parents[1] / "static"
     admin = (root / "index.html").read_text()
-    admin_js = (root / "app.js").read_text()
+    admin_js = app_scripts(root)
     tv_js = (root / "tv.js").read_text()
     assert 'id="tv-primary-status"' in admin
     assert 'id="tv-primary-status"></p>' in admin
@@ -305,7 +321,7 @@ def test_primary_tv_controls_keep_labels_minimal():
 
 
 def test_tv_replacement_has_separate_open_and_copy_actions():
-    js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text()
+    js = app_scripts(Path(__file__).resolve().parents[1] / "static")
     assert 'tv.active?"▣ 更换主屏":"▣ 打开主屏"' in js
     assert 'tv.active?"⧉ 复制更换链接":"⧉ 复制主屏链接"' in js
     assert '$("tv-copy-btn").classList.toggle("hidden",tv.active' not in js

@@ -13,7 +13,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin
 from urllib.request import urlopen
 
 
@@ -133,7 +133,7 @@ def check_ui(
     page.locator("#register-confirm").fill(user_password)
     page.locator("#register-btn").click()
     page.locator("#request-panel").wait_for(state="visible")
-    assert "Synthetic UI User" in page.locator("#guest-greeting").inner_text()
+    assert "Synthetic UI User" in page.locator("#account-name").text_content()
     guest.close()
     print("PASS mobile join and registration")
 
@@ -141,12 +141,31 @@ def check_ui(
     guest = browser.new_context(viewport={"width": 390, "height": 844})
     page = guest.new_page()
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.route(
-        "**/api/songs/*/lyrics/candidates*",
-        lambda route: route.fulfill(
-            status=200, content_type="application/json", body='{"candidates":[]}'
-        ),
-    )
+
+    # Exercise the real lyric-review UI with isolated, synthetic candidates.
+    def lyric_candidates(route):
+        candidates = []
+        if "phase=netease" in route.request.url:
+            candidates = [
+                {
+                    "source": "网易云音乐",
+                    "url": "synthetic://lyrics",
+                    "title": "Synthetic Lyrics",
+                    "text": "第一行\n第二行",
+                    "unfiltered_text": "制作说明\n第一行\n第二行",
+                    "ticket": "test-ticket",
+                    "unfiltered_ticket": "test-original-ticket",
+                    "timed_lrc": "[00:00.00]第一行\n[00:01.00]第二行",
+                    "timing_ticket": "test-timing-ticket",
+                }
+            ]
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"candidates": candidates}, ensure_ascii=False),
+        )
+
+    page.route("**/api/songs/*/lyrics/candidates*", lyric_candidates)
     page.goto(base, wait_until="domcontentloaded")
     page.locator("#join-code").fill(code)
     page.locator("#join-btn").click()
@@ -157,6 +176,10 @@ def check_ui(
     page.locator("#request-panel").wait_for(state="visible")
     page.locator("#bvid").fill("BV0000000001")
     page.locator("#quick-submit-btn").click()
+    page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    page.get_by_role("button", name="逐行校正并使用").click()
+    page.locator("#netease-review-dialog").wait_for(state="visible")
+    page.locator("#netease-review-back").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
     page.locator("#guest-lyrics-skip").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="hidden")
@@ -173,7 +196,7 @@ def check_ui(
     page.goto(base + "/admin/", wait_until="domcontentloaded")
     page.locator("#password").fill(admin_password)
     page.locator("#login-btn").click()
-    page.locator("#logout-btn").wait_for(state="visible")
+    page.locator("#login-box").wait_for(state="hidden")
     response = admin.request.post(
         f"{base}/api/admin/songs/{song_id}/media",
         multipart={
@@ -206,7 +229,10 @@ def check_ui(
     partial = tv.request.get(media["url"], headers={"Range": "bytes=0-1023"})
     assert partial.status == 206 and len(partial.body()) == 1024
 
-    state_url = base + "/api/tv/state?" + urlsplit(url).query
+    # The link contains a one-time pairing ticket; TV state requires the
+    # activated control token, which the player keeps in memory.
+    tv_token = page.evaluate("token")
+    state_url = base + "/api/tv/state?token=" + quote(tv_token, safe="")
     for _ in range(32):
         state = tv.request.get(state_url)
         assert state.status == 200
