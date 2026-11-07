@@ -253,6 +253,12 @@ def check_ui(
         'document.querySelector("#tv-online").textContent==="主屏在线"',
         timeout=12000,
     )
+    admin_page.wait_for_function(
+        'document.querySelector("#tv-link-btn").textContent.includes("更换主屏")',
+        timeout=12000,
+    )
+    assert "复制更换链接" in admin_page.locator("#tv-copy-btn").text_content()
+    assert admin_page.locator("#tv-revoke-btn").is_visible()
     assert admin_page.locator("#remote-opacity").is_enabled()
     admin_page.locator("#remote-opacity").evaluate(
         '(control) => {control.value="20";control.dispatchEvent(new Event("change"));}'

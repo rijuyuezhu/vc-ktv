@@ -20,7 +20,13 @@ class IdCollector(HTMLParser):
 def app_scripts(root):
     return "\n".join(
         (root / name).read_text()
-        for name in ("app.js", "lyrics.js", "song-requests.js", "remote-controls.js")
+        for name in (
+            "app.js",
+            "lyrics.js",
+            "song-requests.js",
+            "remote-controls.js",
+            "tv-primary.js",
+        )
     )
 
 
@@ -53,10 +59,27 @@ def test_admin_remote_controller_is_loaded_from_module():
     remote = (root / "remote-controls.js").read_text()
     assert 'import {setupRemoteControls} from "./remote-controls.js";' in main
     assert "export function setupRemoteControls(" in remote
-    assert "getState:()=>({playbackMode,tvRemoteState,tvPrimaryState," in main
+    assert (
+        "getState:()=>({playbackMode,currentAdminSong,nextAdminSong,currentMediaId,"
+        in main
+    )
+    assert "...primaryTV.state()" in main
     assert "const {updateRemoteControls} = setupRemoteControls({" in main
     assert '$("remote-pause").onclick=' in remote
     assert "function updatePlaybackUI()" in main
+
+
+def test_primary_tv_management_lives_in_its_own_module():
+    root = Path(__file__).resolve().parents[1] / "static"
+    main = (root / "app.js").read_text()
+    primary = (root / "tv-primary.js").read_text()
+    assert 'import {setupTVPrimary} from "./tv-primary.js";' in main
+    assert "export function setupTVPrimary(" in primary
+    assert "const primaryTV=setupTVPrimary({" in main
+    assert "state:()=>({tvPrimaryState,tvRemoteState})" in primary
+    assert "...primaryTV.state()" in main
+    for action in ("tv-link-btn", "tv-copy-btn", "tv-revoke-btn"):
+        assert f'$("{action}").onclick=' in primary
 
 
 def test_guest_and_admin_js_element_references_exist():
@@ -80,6 +103,7 @@ def test_app_ui_omits_middle_dot_separator():
         "lyrics.js",
         "song-requests.js",
         "remote-controls.js",
+        "tv-primary.js",
         "tv.html",
         "tv.js",
     ):
