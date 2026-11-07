@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from textgrid import IntervalTier, TextGrid
 
 from tests.helpers import join_and_register, use_browser_playback
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.karaoke import parse_lrc, write_ass
 from vc_ktv.textgrid_import import convert_textgrid
 

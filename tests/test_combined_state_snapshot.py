@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, primary_tv_token
 from tests.test_manual_casting_queue import add_song, new_app
-from vc_ktv.app import Store
+from vc_ktv.core.store import Store
 
 
 @pytest.mark.parametrize("endpoint", ("admin", "tv"))

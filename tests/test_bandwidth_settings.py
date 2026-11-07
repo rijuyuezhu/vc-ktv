@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from vc_ktv import autoprep
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def make_app(tmp_path):

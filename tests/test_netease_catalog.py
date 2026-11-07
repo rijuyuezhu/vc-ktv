@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.netease_catalog import lookup_netease_song, normalize_song_metadata
 
 

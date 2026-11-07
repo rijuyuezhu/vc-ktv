@@ -4,8 +4,8 @@ import sqlite3
 
 import pytest
 
-from vc_ktv.app import Store
 from vc_ktv.autoprep import AutoPrep
+from vc_ktv.core.store import Store
 
 
 def pending_source(tmp_path):

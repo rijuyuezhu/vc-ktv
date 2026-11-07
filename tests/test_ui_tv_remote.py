@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, primary_tv_token
 from tests.test_event_admins import create_account, event_login
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def room(tmp_path):

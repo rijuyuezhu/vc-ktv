@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_guest_replay_does_not_steal_admin_priority_and_keeps_owner(tmp_path):

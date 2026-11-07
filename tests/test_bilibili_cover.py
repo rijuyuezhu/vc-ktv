@@ -6,7 +6,7 @@ import importlib
 import httpx
 import pytest
 
-module = importlib.import_module("vc_ktv.app")
+module = importlib.import_module("vc_ktv.application.common")
 
 
 @pytest.mark.parametrize(

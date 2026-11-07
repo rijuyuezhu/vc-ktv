@@ -77,7 +77,7 @@ def test_manual_render_obsolete_unlink_error_keeps_new_video(tmp_path, monkeypat
         render_threads.append(threading.current_thread())
         render_started.set()
 
-    monkeypatch.setattr("vc_ktv.app.render_video", fake_render)
+    monkeypatch.setattr("vc_ktv.api.preparation_admin.render_video", fake_render)
     real_unlink = Path.unlink
 
     def fail_unlink(path, *args, **kwargs):

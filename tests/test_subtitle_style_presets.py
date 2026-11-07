@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from vc_ktv.app import Store, create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.autoprep import AutoPrep, render_upstream_video
+from vc_ktv.core.store import Store
 from vc_ktv.subtitle_styles import preset_style
 
 

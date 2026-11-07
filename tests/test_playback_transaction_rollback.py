@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import use_browser_playback
 from tests.test_fair_capped_two import ready
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 class FailOnceSql:

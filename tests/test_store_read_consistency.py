@@ -6,7 +6,7 @@ from concurrent.futures import TimeoutError as FutureTimeout
 
 import pytest
 
-from vc_ktv.app import Store
+from vc_ktv.core.store import Store
 
 
 def test_store_rows_blocks_on_uncommitted_worker_transaction(tmp_path):

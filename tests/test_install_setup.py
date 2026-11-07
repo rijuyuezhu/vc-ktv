@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from scripts import check_install, setup_spark_assets
 from scripts.setup_spark_runtimes import main as runtime_main
 from scripts.setup_spark_runtimes import require_cuda, setup, tifa_python
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_setup_initializes_isolated_config_and_base_app(tmp_path, monkeypatch):

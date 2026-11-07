@@ -17,7 +17,6 @@ from fastapi import Cookie, FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import app as legacy
 from ..api.admin_accounts import create_admin_accounts_router
 from ..api.admin_session import create_admin_session_router
 from ..api.cancellation import create_cancellation_router
@@ -44,7 +43,7 @@ from ..autoprep import AutoPrep
 from ..core.store import Store, time_now
 from ..disk_budget import DiskBudgetExceeded
 from ..events import CurrentStore, Events
-from ..lyric_selection import netease_song_lyrics
+from ..lyric_selection import netease_song_lyrics, search_lyric_candidates
 from ..media_pins import MediaPins
 from ..netease_catalog import lookup_netease_song
 from ..netease_discovery import resolve_song_reference, search_netease_songs
@@ -158,7 +157,7 @@ def create_app(
     app.state.netease_search = search_netease_songs
     app.state.netease_login = netease_login
     app.state.lyrics_lookup = vcpedia_find
-    app.state.candidate_search = legacy.search_lyric_candidates
+    app.state.candidate_search = search_lyric_candidates
     app.state.netease_lyrics = netease_song_lyrics
     lyric_search_times = {}
     failed_login = {}

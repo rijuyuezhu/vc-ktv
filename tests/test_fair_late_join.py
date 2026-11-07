@@ -3,7 +3,8 @@
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.app import Store, create_app
+from vc_ktv.application.factory import create_app
+from vc_ktv.core.store import Store
 
 
 def test_newcomer_gets_only_two_early_turns_but_plays_remain_real(tmp_path):

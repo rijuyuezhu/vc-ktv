@@ -2,8 +2,9 @@
 
 from fastapi.testclient import TestClient
 
+from vc_ktv.api.event_admin import EventCreate
 from vc_ktv.api.event_admin import EventCreate as RouterEventCreate
-from vc_ktv.app import EventCreate, create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_event_lifecycle_routes_preserve_api_and_publish_active_worker(tmp_path):

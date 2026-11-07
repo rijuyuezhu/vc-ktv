@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from vc_ktv import autoprep
-from vc_ktv.app import Store
+from vc_ktv.core.store import Store
 
 
 def ready_song(tmp_path):

@@ -9,11 +9,11 @@ from typing import Annotated, Literal
 import httpx
 from fastapi import APIRouter, Cookie, File, HTTPException, UploadFile
 
-from .. import app as legacy
 from ..application.common import LRC_LINE, LRC_WORD_TIME
 from ..application.schemas import GuestLyricChoice
 from ..core.store import time_now
 from ..core.titles import title_key
+from ..lyric_selection import search_lyric_candidates
 from ..lyric_sources import vcpedia_lyric_candidates
 from ..timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
 
@@ -171,7 +171,7 @@ def create_lyrics_router(
         lookup = (
             app.state.candidate_search(term)
             if phase == "all"
-            else legacy.search_lyric_candidates(term, phase)
+            else search_lyric_candidates(term, phase)
         )
         if song["source_type"] == "netease" and phase in ("all", "netease"):
 

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from ktv_app.lyrics import preprocess
 from ktv_app.text_normalization import clean_lyric_text
 from tests.helpers import join_and_register
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.lyric_selection import _candidate
 
 

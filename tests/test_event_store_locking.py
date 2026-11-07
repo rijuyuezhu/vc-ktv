@@ -2,7 +2,7 @@
 
 import threading
 
-from vc_ktv.app import Store
+from vc_ktv.core.store import Store
 from vc_ktv.events import CurrentStore, Events
 
 

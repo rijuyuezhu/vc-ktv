@@ -98,7 +98,7 @@ def test_failed_db_commit_does_not_publish_closed_metadata(tmp_path):
 
 
 def test_partial_legacy_close_marker_does_not_close_legacy(tmp_path, monkeypatch):
-    from vc_ktv.app import Store
+    from vc_ktv.core.store import Store
 
     root = tmp_path / "legacy-room"
     legacy = Store(root)

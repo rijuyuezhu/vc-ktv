@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv import lyric_selection
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def app_for_lyrics(tmp_path):

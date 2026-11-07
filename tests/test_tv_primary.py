@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 from fastapi.testclient import TestClient
 
 from tests.test_event_admins import create_account, event_login
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def app_at(root):

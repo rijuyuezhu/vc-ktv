@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.lyric_selection import _candidate
 from vc_ktv.timed_lyrics import project_provider_timeline
 

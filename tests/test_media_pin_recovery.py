@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.media_pins import MediaPins, fcntl
 
 pytestmark = pytest.mark.skipif(fcntl is None, reason="POSIX advisory locks required")

@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_settings_video_and_queue_partial_updates_preserve_other_group(tmp_path):

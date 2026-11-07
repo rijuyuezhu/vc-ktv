@@ -2,8 +2,9 @@
 
 from fastapi.testclient import TestClient
 
+from vc_ktv.api.event_admin import PlaybackSettings
 from vc_ktv.api.event_admin import PlaybackSettings as RouterPlaybackSettings
-from vc_ktv.app import PlaybackSettings, create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_settings_router_preserves_model_and_admin_scope(tmp_path):

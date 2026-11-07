@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, primary_tv_token, use_browser_playback
-from vc_ktv.app import Store, create_app
+from vc_ktv.application.factory import create_app
+from vc_ktv.core.store import Store
 
 
 def make_app(root):
@@ -284,7 +285,7 @@ def test_manual_render_worker_stays_with_own_event(tmp_path, monkeypatch):
         assert release.wait(5)
         destination.write_bytes(b"rendered")
 
-    monkeypatch.setattr("vc_ktv.app.render_video", delayed_render)
+    monkeypatch.setattr("vc_ktv.api.preparation_admin.render_video", delayed_render)
     with TestClient(app) as admin, TestClient(app) as guest:
         admin_login(admin)
         old = admin.post("/api/admin/events", json={"name": "Old"}).json()

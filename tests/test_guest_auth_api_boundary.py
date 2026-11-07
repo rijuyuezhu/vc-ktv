@@ -2,10 +2,11 @@
 
 from fastapi.testclient import TestClient
 
+from vc_ktv.api.guest_auth import JoinEvent, RegisterUser, UserLogin
 from vc_ktv.api.guest_auth import JoinEvent as RouterJoinEvent
 from vc_ktv.api.guest_auth import RegisterUser as RouterRegisterUser
 from vc_ktv.api.guest_auth import UserLogin as RouterUserLogin
-from vc_ktv.app import JoinEvent, RegisterUser, UserLogin, create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_guest_auth_router_keeps_signed_cookie_and_archived_event(tmp_path):
