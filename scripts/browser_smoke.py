@@ -174,6 +174,34 @@ def check_ui(
     page.locator("#user-login-password").fill(user_password)
     page.locator("#user-login-btn").click()
     page.locator("#request-panel").wait_for(state="visible")
+    page.route(
+        "**/api/netease/search*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "songs": [
+                        {
+                            "source_id": "123",
+                            "title": "Synthetic NetEase Song",
+                            "uploader": "Synthetic Singer",
+                            "duration": 60,
+                            "cover": "",
+                        }
+                    ]
+                }
+            ),
+        ),
+    )
+    page.locator("#source-tab-netease").click()
+    page.locator("#netease-song-query").fill("Synthetic")
+    page.locator("#netease-search-btn").click()
+    result = page.locator(".netease-search-result strong")
+    result.wait_for(state="visible")
+    assert result.text_content() == "Synthetic NetEase Song"
+    page.locator("#source-tab-bilibili").click()
+    print("PASS source switching and NetEase search results")
     page.locator("#bvid").fill("BV0000000001")
     page.locator("#quick-submit-btn").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
