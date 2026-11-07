@@ -24,7 +24,7 @@ def test_no_change_does_not_even_list_issues(monkeypatch):
 
 
 def test_dry_run_simulated_sha_without_any_writes(monkeypatch):
-    monkeypatch.setenv("GITHUB_REPOSITORY", "rijuyuezhu/vc-ktv")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/vc-ktv")
     calls = []
 
     def fake_gh(*args):
@@ -40,7 +40,7 @@ def test_dry_run_simulated_sha_without_any_writes(monkeypatch):
 
 
 def test_new_version_creates_issue_with_label_and_compare_link(monkeypatch):
-    monkeypatch.setenv("GITHUB_REPOSITORY", "rijuyuezhu/vc-ktv")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/vc-ktv")
     calls = []
 
     def fake_gh(*args):
@@ -70,7 +70,7 @@ def test_new_version_creates_issue_with_label_and_compare_link(monkeypatch):
 
 
 def test_open_existing_issue_updated_once(monkeypatch):
-    monkeypatch.setenv("GITHUB_REPOSITORY", "rijuyuezhu/vc-ktv")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/vc-ktv")
     calls = []
     existing = {
         "number": 42,
@@ -93,7 +93,7 @@ def test_open_existing_issue_updated_once(monkeypatch):
 
 @pytest.mark.parametrize("state", ["OPEN", "CLOSED"])
 def test_same_sha_already_reported_is_deduplicated(monkeypatch, state):
-    monkeypatch.setenv("GITHUB_REPOSITORY", "rijuyuezhu/vc-ktv")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/vc-ktv")
     calls = []
 
     def fake_gh(*args):
@@ -116,7 +116,7 @@ def test_same_sha_already_reported_is_deduplicated(monkeypatch, state):
 
 
 def test_closed_old_notification_allows_a_new_revision(monkeypatch):
-    monkeypatch.setenv("GITHUB_REPOSITORY", "rijuyuezhu/vc-ktv")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/vc-ktv")
     calls = []
 
     def fake_gh(*args):
@@ -141,7 +141,7 @@ def test_closed_old_notification_allows_a_new_revision(monkeypatch):
 
 
 def test_only_bot_owned_open_issue_can_be_edited(monkeypatch):
-    monkeypatch.setenv("GITHUB_REPOSITORY", "rijuyuezhu/vc-ktv")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/vc-ktv")
     calls = []
 
     def fake_gh(*args):

@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .accounts import password_hash, verify_password
+from .api.netease_admin import create_netease_admin_router
 from .autoprep import AutoPrep
 from .core.store import Store, time_now
 from .core.titles import title_key
@@ -42,7 +43,7 @@ from .lyric_sources import vcpedia_lyric_candidates
 from .media_pins import MediaPins
 from .netease_catalog import lookup_netease_song
 from .netease_discovery import resolve_song_reference, search_netease_songs
-from .netease_login import NeteaseLogin, NeteaseLoginError
+from .netease_login import NeteaseLogin
 from .process_cancel import terminate_thread_children
 from .sources import get_source
 from .subtitle_styles import StylePreset
@@ -89,10 +90,6 @@ class RequestSong(Preview):
 
 class RequestNetEaseSong(BaseModel):
     ref: str = Field(min_length=1, max_length=2048)
-
-
-class ImportNetEaseCookie(BaseModel):
-    music_u: str = Field(min_length=1, max_length=4104)
 
 
 class GuestLyricChoice(BaseModel):
@@ -926,62 +923,7 @@ def create_app(
         response.delete_cookie("vc_join", path="/")
         return {"ok": True}
 
-    @app.get("/api/admin/netease/status")
-    def netease_session_status(
-        response: Response, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_global_admin(vc_admin)
-        response.headers["Cache-Control"] = "no-store"
-        return netease_login.status()
-
-    @app.post("/api/admin/netease/qr")
-    def netease_session_qr(
-        response: Response, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_global_admin(vc_admin)
-        response.headers["Cache-Control"] = "no-store"
-        try:
-            return netease_login.start_qr()
-        except (httpx.HTTPError, NeteaseLoginError, ValueError):
-            bail(502, "网易云登录二维码暂不可用")
-
-    @app.post("/api/admin/netease/check")
-    def netease_session_check(
-        response: Response, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_global_admin(vc_admin)
-        response.headers["Cache-Control"] = "no-store"
-        try:
-            return netease_login.poll()
-        except NeteaseLoginError as exc:
-            bail(409, str(exc))
-        except httpx.HTTPStatusError as exc:
-            bail(502, f"网易云扫码接口返回 HTTP {exc.response.status_code}，请稍后再试")
-        except (httpx.HTTPError, ValueError):
-            bail(502, "网易云扫码接口网络异常，请稍后重试")
-
-    @app.post("/api/admin/netease/import")
-    def netease_session_import(
-        body: ImportNetEaseCookie,
-        response: Response,
-        vc_admin: str | None = Cookie(default=None),
-    ):
-        require_global_admin(vc_admin)
-        response.headers["Cache-Control"] = "no-store"
-        try:
-            return netease_login.import_cookie(body.music_u)
-        except NeteaseLoginError as exc:
-            bail(409, str(exc))
-        except (httpx.HTTPError, ValueError):
-            bail(502, "网易云登录状态验证暂不可用，请稍后再试")
-
-    @app.post("/api/admin/netease/disconnect")
-    def netease_session_disconnect(
-        response: Response, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_global_admin(vc_admin)
-        response.headers["Cache-Control"] = "no-store"
-        return netease_login.disconnect()
+    app.include_router(create_netease_admin_router(netease_login, require_global_admin))
 
     @app.get("/api/admin/settings")
     def get_playback_settings(vc_admin: str | None = Cookie(default=None)):
