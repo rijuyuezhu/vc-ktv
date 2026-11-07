@@ -4,10 +4,10 @@ VC-KTV 是一个自托管 KTV 点歌系统，支持 **B站视频**和**网易云
 
 ## 快速开始
 
-需要 Linux、Python 3.12、[uv](https://docs.astral.sh/uv/) 和 FFmpeg。源码仓库当前为私有仓库，需要 GitHub 访问权限。
+需要 Linux、Python 3.12、[uv](https://docs.astral.sh/uv/) 和 FFmpeg。源码仓库当前为私有仓库，需要 GitHub 访问权限；将 `OWNER` 换成仓库所有者。
 
 ```sh
-gh repo clone rijuyuezhu/vc-ktv
+gh repo clone OWNER/vc-ktv
 cd vc-ktv
 uv sync --locked
 ./scripts/setup.sh

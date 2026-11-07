@@ -10,7 +10,7 @@ VC-KTV 是一个 FastAPI 服务，使用 SQLite 管理场次与队列，使用�
 | `vc_ktv/netease_*`、`bilibili_media.py` | 网易云、B站歌曲信息和媒体获取 |
 | `vc_ktv/lyric_selection.py`、`lyric_sources.py` | 搜索歌词和选择时间轴 |
 | `vc_ktv/autoprep.py` | 自动下载、制作、失败重试与任务取消 |
-| `vc_ktv/upstream_pipeline.py`、`ktv_app/` | Kim、Qwen3-ASR、TIFA 对齐及字幕生成 |
+| `vc_ktv/pipeline/`、`ktv_app/` | 字幕引擎适配；`ktv_app` 是固定版本的第三方源码 |
 | `static/` | 点歌、管理员与电视播放器 |
 
 ## 一首歌如何准备

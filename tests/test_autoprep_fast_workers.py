@@ -88,7 +88,8 @@ def test_four_slow_workers_cannot_block_two_fast_workers(tmp_path, monkeypatch):
                 == 2
             )
         )
-        assert worker.active_claims == 4
+        # Completed DB writeback can precede the worker's claim cleanup.
+        assert eventually(lambda: worker.active_claims == 4)
     finally:
         gate.set()
         assert worker.stop()

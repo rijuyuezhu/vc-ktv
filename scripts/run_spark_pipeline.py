@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from vc_ktv.upstream_pipeline import make_karaoke_video, spark_settings
+from vc_ktv.upstream_pipeline import make_karaoke_video, pipeline_settings
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
         args.source,
         args.lyrics.read_text(encoding="utf-8"),
         args.out,
-        spark_settings(args.root.expanduser().resolve()),
+        pipeline_settings(args.root.expanduser().resolve()),
         progress=lambda event: print(event, flush=True),
     )
     print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2))

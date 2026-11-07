@@ -155,7 +155,7 @@ def run_profile(
             source,
             lyrics,
             target / "work",
-            upstream.spark_settings(pipeline_root),
+            upstream.pipeline_settings(pipeline_root),
             progress=lambda msg: record("event: " + msg),
             **({"mode": mode} if mode != "quality" else {}),
         )

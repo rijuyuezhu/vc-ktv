@@ -21,19 +21,25 @@ import threading
 import time
 from pathlib import Path
 
-from ktv_app.media import probe
-from ktv_app.rendering import RenderOptions, capped_h264_args, render
-from ktv_app.subtitles import write_bundle
-from ktv_app.timeline import Line, Timeline, Unit
-
 from .bilibili_media import QUALITY_HEIGHTS, public_media_download
 from .disk_budget import DiskBudgetExceeded, budget_scope, check_current_budget
 from .karaoke import parse_lrc
 from .netease_media import MusicUnavailable, download_netease_video
+from .pipeline import (
+    Line,
+    RenderOptions,
+    Timeline,
+    Unit,
+    capped_h264_args,
+    make_karaoke_video,
+    pipeline_settings,
+    probe,
+    render,
+    write_bundle,
+)
 from .process_cancel import terminate_thread_children
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .timed_lyrics import offset_timeline
-from .upstream_pipeline import make_karaoke_video, spark_settings
 
 log = logging.getLogger(__name__)
 
@@ -207,7 +213,7 @@ def render_upstream_video(
     if progress is not None:
         options["progress"] = progress
     result = make_karaoke_video(
-        source, lyrics, archive / "pipeline", spark_settings(), **options
+        source, lyrics, archive / "pipeline", pipeline_settings(), **options
     )
     shutil.copyfile(result.video, destination)
     shutil.copyfile(result.ass.parent / "lyrics.lrc", archive / "aligned.lrc")
@@ -297,8 +303,8 @@ def render_provider_video(
     video = render(
         source,
         bundle,
-        probe(source, spark_settings()),
-        spark_settings(),
+        probe(source, pipeline_settings()),
+        pipeline_settings(),
         options,
         "karaoke.mp4",
     )

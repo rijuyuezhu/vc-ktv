@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-from ktv_app.timeline import Line, Timeline, Unit
+from .pipeline import Line, Timeline, Unit
 
 
 def vocal_range(audio: Path | None, duration: float) -> tuple[float, float]:
