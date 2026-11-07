@@ -246,6 +246,22 @@ def check_ui(
     page.on("pageerror", lambda error: errors.append(str(error)))
     url = urljoin(base, tv_link.json()["url"])
     page.goto(url, wait_until="domcontentloaded")
+    # The administrator panel sees the primary via live remote reports.
+    # Exercise a real command before song playback (no timing-sensitive pause).
+    admin_page = admin.pages[0]
+    admin_page.wait_for_function(
+        'document.querySelector("#tv-online").textContent==="主屏在线"',
+        timeout=12000,
+    )
+    assert admin_page.locator("#remote-opacity").is_enabled()
+    admin_page.locator("#remote-opacity").evaluate(
+        '(control) => {control.value="20";control.dispatchEvent(new Event("change"));}'
+    )
+    page.wait_for_function(
+        'document.querySelector("#banner-transparency").value==="20"',
+        timeout=8000,
+    )
+    print("PASS administrator TV remote command and acknowledgment")
     page.locator("#start").click()
     page.wait_for_function(
         "document.querySelector('#video').currentTime > 0.3", timeout=12000
