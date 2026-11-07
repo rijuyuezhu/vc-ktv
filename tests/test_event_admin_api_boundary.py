@@ -1,0 +1,55 @@
+"""Event lifecycle router keeps the current worker and permissions in sync."""
+
+from fastapi.testclient import TestClient
+
+from vc_ktv.api.event_admin import EventCreate as RouterEventCreate
+from vc_ktv.app import EventCreate, create_app
+
+
+def test_event_lifecycle_routes_preserve_api_and_publish_active_worker(tmp_path):
+    assert EventCreate is RouterEventCreate
+    app = create_app(
+        root=tmp_path / "room",
+        password="test-admin",
+        secret=b"event-admin-api-contract",
+        auto_prepare=False,
+    )
+    routes = {
+        (path, method)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+    }
+    assert {
+        ("/api/admin/events", "post"),
+        ("/api/admin/events/close", "post"),
+        ("/api/admin/events/{event_id}", "delete"),
+        ("/api/admin/events/{event_id}/release-media", "post"),
+    } <= routes
+
+    initial = app.state.autoprep
+    with TestClient(app) as admin, TestClient(app) as outsider:
+        assert outsider.post("/api/admin/events", json={"name": "A"}).status_code == 401
+        assert (
+            admin.post("/api/admin/login", json={"password": "test-admin"}).status_code
+            == 200
+        )
+
+        created = admin.post("/api/admin/events", json={"name": "A"})
+        assert created.status_code == 200, created.text
+        first_worker = app.state.autoprep
+        assert first_worker is not initial
+        assert first_worker.store is app.state.events.current_store
+        assert app.state.events.active_id == created.json()["id"]
+        assert admin.get("/api/health").json()["autoprep_ready"] is False
+        assert outsider.post("/api/admin/events/close").status_code == 401
+
+        assert admin.post("/api/admin/events/close").status_code == 200
+        assert app.state.events.active_id is None
+        created_again = admin.post("/api/admin/events", json={"name": "B"})
+        assert created_again.status_code == 200
+        assert app.state.autoprep is not first_worker
+        assert app.state.autoprep.store is app.state.events.current_store
+        assert (
+            admin.delete(f"/api/admin/events/{created.json()['id']}").status_code == 200
+        )
+        assert app.state.events.active_id == created_again.json()["id"]
