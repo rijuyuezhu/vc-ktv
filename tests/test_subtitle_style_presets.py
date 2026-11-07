@@ -7,9 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from vc_ktv.application.factory import create_app
-from vc_ktv.autoprep import AutoPrep, render_upstream_video
 from vc_ktv.core.store import Store
-from vc_ktv.subtitle_styles import preset_style
+from vc_ktv.processing.autoprep import AutoPrep, render_upstream_video
+from vc_ktv.rendering.subtitle_styles import preset_style
 
 
 @pytest.mark.parametrize(
@@ -170,7 +170,7 @@ def test_style_is_snapshotted_at_claim_and_retry_uses_new_style(tmp_path):
 
 
 def test_real_adapter_forwards_selected_style(tmp_path, monkeypatch):
-    from vc_ktv import autoprep
+    import vc_ktv.processing.autoprep as autoprep
 
     source = tmp_path / "source.mp4"
     source.write_bytes(b"original")

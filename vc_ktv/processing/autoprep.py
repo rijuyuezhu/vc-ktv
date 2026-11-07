@@ -20,12 +20,15 @@ import threading
 import time
 from pathlib import Path
 
-from .bilibili_media import QUALITY_HEIGHTS, public_media_download
-from .core.titles import title_key as title_key
-from .disk_budget import DiskBudgetExceeded, budget_scope, check_current_budget
-from .karaoke import parse_lrc
-from .netease_media import MusicUnavailable, download_netease_video
-from .pipeline import (
+from vc_ktv.core.titles import title_key as title_key
+from vc_ktv.infra.disk_budget import (
+    DiskBudgetExceeded,
+    budget_scope,
+    check_current_budget,
+)
+from vc_ktv.infra.process_cancel import terminate_thread_children
+from vc_ktv.lyrics.timed_lyrics import offset_timeline
+from vc_ktv.pipeline import (
     Line,
     RenderOptions,
     Timeline,
@@ -37,10 +40,11 @@ from .pipeline import (
     render,
     write_bundle,
 )
-from .process_cancel import terminate_thread_children
-from .sources import DownloadTools, get_source
-from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
-from .timed_lyrics import offset_timeline
+from vc_ktv.rendering.karaoke import parse_lrc
+from vc_ktv.rendering.subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
+from vc_ktv.sources import DownloadTools, get_source
+from vc_ktv.sources.bilibili_media import QUALITY_HEIGHTS, public_media_download
+from vc_ktv.sources.netease_media import MusicUnavailable, download_netease_video
 
 log = logging.getLogger(__name__)
 

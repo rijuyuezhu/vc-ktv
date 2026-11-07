@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Cookie, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from ..netease_login import NeteaseLogin, NeteaseLoginError
+from vc_ktv.sources.netease_login import NeteaseLogin, NeteaseLoginError
 
 
 class ImportNetEaseCookie(BaseModel):

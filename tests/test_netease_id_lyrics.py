@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.lyric_selection import _candidate, netease_song_lyrics
+from vc_ktv.lyrics.lyric_selection import _candidate, netease_song_lyrics
 
 SONG = 3434373208
 RAW = "[00:01.00]第一句歌词\n[00:05.00]第二句歌词"

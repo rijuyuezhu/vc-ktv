@@ -7,12 +7,12 @@ import pytest
 
 from ktv_app.config import Settings
 from tests.test_textgrid_import import grid_file
-from vc_ktv.global_alignment import (
+from vc_ktv.rendering.global_alignment import (
     align_full_song,
     pronunciation_lyrics,
     timeline_from_lrc,
 )
-from vc_ktv.textgrid_import import convert_textgrid
+from vc_ktv.rendering.textgrid_import import convert_textgrid
 
 
 def test_recovered_old_scat_mapping_preserves_original_display():
@@ -52,7 +52,7 @@ def test_full_song_preserves_strict_words_but_reports_suspicious_timing(tmp_path
 def test_global_mode_executes_one_tifa_process_and_saves_raw_evidence(
     tmp_path, monkeypatch
 ):
-    from vc_ktv import global_alignment
+    import vc_ktv.rendering.global_alignment as global_alignment
 
     tifa = tmp_path / "tifa"
     tifa.mkdir()
@@ -106,8 +106,9 @@ def test_kim_full_song_adapter_keeps_native_times_and_original_audio(
     tmp_path, monkeypatch
 ):
     """Explicit legacy global-kim mode must not invoke ASR or split songs."""
+    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.rendering.global_alignment as global_alignment
     from ktv_app.timeline import Line, Timeline, Unit
-    from vc_ktv import global_alignment, upstream_pipeline
 
     # Make an actual 2s AAC video and perform the real final MP4 render.
     video = tmp_path / "original.mp4"

@@ -15,9 +15,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .disk_budget import check_current_budget
-from .netease_catalog import HEADERS, _cover_url
-from .netease_weapi import encode_weapi_form
+from vc_ktv.infra.disk_budget import check_current_budget
+from vc_ktv.sources.netease_catalog import HEADERS, _cover_url
+from vc_ktv.sources.netease_weapi import encode_weapi_form
 
 
 class MusicUnavailable(ValueError):

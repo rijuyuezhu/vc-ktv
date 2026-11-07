@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.application.factory import create_app
-from vc_ktv.autoprep import title_key
+from vc_ktv.processing.autoprep import title_key
 
 
 def fake_preview(bvid, page):
@@ -254,7 +254,7 @@ def test_default_auto_renderer_selects_upstream_quality_mode(tmp_path, monkeypat
     import json
     from types import SimpleNamespace
 
-    from vc_ktv import autoprep
+    import vc_ktv.processing.autoprep as autoprep
 
     source = tmp_path / "original.mp4"
     source.write_bytes(b"original-soundtrack")

@@ -8,8 +8,8 @@ from typing import Literal
 from fastapi import APIRouter, Cookie, HTTPException
 from pydantic import BaseModel, Field
 
-from ..autoprep import AutoPrep
-from ..subtitle_styles import StylePreset
+from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.rendering.subtitle_styles import StylePreset
 
 
 class EventCreate(BaseModel):

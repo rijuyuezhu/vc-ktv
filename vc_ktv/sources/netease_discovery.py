@@ -10,8 +10,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from .netease_catalog import HEADERS, normalize_song_metadata
-from .netease_source import parse_netease_song_id
+from vc_ktv.sources.netease_catalog import HEADERS, normalize_song_metadata
+from vc_ktv.sources.netease_reference import parse_netease_song_id
 
 SHARE_HOST = "163cn.tv"
 SHARE_PATH = re.compile(r"/[A-Za-z0-9_-]{4,40}\Z")

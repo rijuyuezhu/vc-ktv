@@ -4,9 +4,9 @@ import hmac
 
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 
-from ..accounts import verify_password
-from ..application.schemas import Login
-from ..core.store import time_now
+from vc_ktv.application.schemas import Login
+from vc_ktv.core.accounts import verify_password
+from vc_ktv.core.store import time_now
 
 
 def create_admin_session_router(

@@ -3,9 +3,7 @@
 import json
 from pathlib import Path
 
-from ktv_app.aligners.asr_timing import (
-    time_asr_chunks,
-)
+from ktv_app.aligners.asr_timing import time_asr_chunks
 from ktv_app.timeline import Line, Timeline, Unit
 
 

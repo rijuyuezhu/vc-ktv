@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.lyric_selection import _candidate
+from vc_ktv.lyrics.lyric_selection import _candidate
 
 RAW = "[00:01.00]第一行正确歌词\n[00:05.00]第二行正确歌词"
 

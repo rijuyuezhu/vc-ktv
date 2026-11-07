@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.application.factory import create_app
-from vc_ktv.lyric_selection import _candidate
-from vc_ktv.timed_lyrics import offset_timeline, provider_timeline
+from vc_ktv.lyrics.lyric_selection import _candidate
+from vc_ktv.lyrics.timed_lyrics import offset_timeline, provider_timeline
 
 RAW = (
     "[ar:Artist]\n[00:01.00]画师：Painter\n[00:02.00]策划/混音：Team\n"
@@ -105,7 +105,7 @@ def test_standalone_instrumental_stamps_do_not_hide_valid_timing(raw, expected_l
 
 def test_global_offset_and_enhanced_lrc_keep_line_timing():
     from ktv_app.text_normalization import clean_lyric_text
-    from vc_ktv.timed_lyrics import project_provider_timeline
+    from vc_ktv.lyrics.timed_lyrics import project_provider_timeline
 
     raw = (
         "[offset:+1500]\n[00:01.00]<00:01.00>第一句歌词\n"
@@ -396,7 +396,7 @@ def test_lrclib_prefers_synced_over_plain_when_available(monkeypatch):
 
     import httpx
 
-    from vc_ktv import lyric_selection
+    import vc_ktv.lyrics.lyric_selection as lyric_selection
 
     async def handler(request):
         assert request.url.path.endswith("/api/search")

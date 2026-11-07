@@ -6,8 +6,8 @@ from textgrid import IntervalTier, TextGrid
 
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.application.factory import create_app
-from vc_ktv.karaoke import parse_lrc, write_ass
-from vc_ktv.textgrid_import import convert_textgrid
+from vc_ktv.rendering.karaoke import parse_lrc, write_ass
+from vc_ktv.rendering.textgrid_import import convert_textgrid
 
 
 def grid_file(path: Path, tokens=None):
@@ -256,7 +256,7 @@ def test_real_tifa_generated_fixture_to_ktv_ass(tmp_path):
     assert info["semantic_units"] == 4
     assert "<00:00.00>你<00:00.32>" in lrc
     assert "<00:01.21>界<00:01.65>" in lrc
-    from vc_ktv.karaoke import write_ass
+    from vc_ktv.rendering.karaoke import write_ass
 
     result = write_ass(lrc, tmp_path / "verified.ass", 2.263628, 1.2)
     assert result["timed_units"] == 4

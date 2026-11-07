@@ -7,8 +7,8 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, HTTPException
 
-from ..core.store import Store
-from ..core.titles import title_key
+from vc_ktv.core.store import Store
+from vc_ktv.core.titles import title_key
 
 
 def create_history_router(

@@ -22,7 +22,7 @@ import httpx
 import qrcode
 import qrcode.image.svg
 
-from .netease_weapi import encode_weapi_form
+from vc_ktv.sources.netease_weapi import encode_weapi_form
 
 QR_TTL_SECONDS = 180
 QR_KEY_PATTERN = re.compile(r"[a-zA-Z0-9_=-]{8,256}\Z")

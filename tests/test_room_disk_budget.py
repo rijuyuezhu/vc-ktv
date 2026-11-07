@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.autoprep import AutoPrep
 from vc_ktv.core.store import Store
-from vc_ktv.disk_budget import DiskBudgetExceeded, EventDiskBudget, directory_size
+from vc_ktv.infra.disk_budget import DiskBudgetExceeded, EventDiskBudget, directory_size
+from vc_ktv.processing.autoprep import AutoPrep
 
 
 def eventually(predicate, seconds=6):

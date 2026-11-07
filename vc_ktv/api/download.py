@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Cookie, HTTPException
 
-from ..core.store import Store
-from ..core.titles import title_key
+from vc_ktv.core.store import Store
+from vc_ktv.core.titles import title_key
 
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 

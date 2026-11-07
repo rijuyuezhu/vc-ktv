@@ -8,8 +8,8 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, HTTPException
 
-from ..application.schemas import Finish, TVPair, TVRemoteCommand, TVRemoteReport
-from ..core.store import time_now
+from vc_ktv.application.schemas import Finish, TVPair, TVRemoteCommand, TVRemoteReport
+from vc_ktv.core.store import time_now
 
 
 def create_tv_router(

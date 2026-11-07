@@ -17,39 +17,27 @@ from fastapi import Cookie, FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from ..api.admin_accounts import create_admin_accounts_router
-from ..api.admin_session import create_admin_session_router
-from ..api.cancellation import create_cancellation_router
-from ..api.download import create_download_router
-from ..api.event_admin import EventCreate as EventCreate
-from ..api.event_admin import PlaybackSettings as PlaybackSettings
-from ..api.event_admin import create_event_admin_router
-from ..api.event_history import create_event_history_router
-from ..api.guest_auth import JoinEvent as JoinEvent
-from ..api.guest_auth import RegisterUser as RegisterUser
-from ..api.guest_auth import UserLogin as UserLogin
-from ..api.guest_auth import create_guest_auth_router
-from ..api.history import create_history_router
-from ..api.lyrics import create_lyrics_router
-from ..api.media import create_media_router
-from ..api.netease_admin import create_netease_admin_router
-from ..api.playback import create_playback_router
-from ..api.preparation_admin import create_preparation_admin_router
-from ..api.song_sources import (
-    create_song_source_router,
-)
-from ..api.tv import create_tv_router
-from ..autoprep import AutoPrep
-from ..core.store import Store, time_now
-from ..disk_budget import DiskBudgetExceeded
-from ..events import CurrentStore, Events
-from ..lyric_selection import netease_song_lyrics, search_lyric_candidates
-from ..media_pins import MediaPins
-from ..netease_catalog import lookup_netease_song
-from ..netease_discovery import resolve_song_reference, search_netease_songs
-from ..netease_login import NeteaseLogin
-from ..process_cancel import terminate_thread_children
-from .common import (
+from vc_ktv.api.admin_accounts import create_admin_accounts_router
+from vc_ktv.api.admin_session import create_admin_session_router
+from vc_ktv.api.cancellation import create_cancellation_router
+from vc_ktv.api.download import create_download_router
+from vc_ktv.api.event_admin import EventCreate as EventCreate
+from vc_ktv.api.event_admin import PlaybackSettings as PlaybackSettings
+from vc_ktv.api.event_admin import create_event_admin_router
+from vc_ktv.api.event_history import create_event_history_router
+from vc_ktv.api.guest_auth import JoinEvent as JoinEvent
+from vc_ktv.api.guest_auth import RegisterUser as RegisterUser
+from vc_ktv.api.guest_auth import UserLogin as UserLogin
+from vc_ktv.api.guest_auth import create_guest_auth_router
+from vc_ktv.api.history import create_history_router
+from vc_ktv.api.lyrics import create_lyrics_router
+from vc_ktv.api.media import create_media_router
+from vc_ktv.api.netease_admin import create_netease_admin_router
+from vc_ktv.api.playback import create_playback_router
+from vc_ktv.api.preparation_admin import create_preparation_admin_router
+from vc_ktv.api.song_sources import create_song_source_router
+from vc_ktv.api.tv import create_tv_router
+from vc_ktv.application.common import (
     MAX_ACTIVE_SONGS,
     MAX_USER_SONGS,
     STATIC,
@@ -60,6 +48,19 @@ from .common import (
     probe_media,
     vcpedia_find,
 )
+from vc_ktv.core.events import CurrentStore, Events
+from vc_ktv.core.store import Store, time_now
+from vc_ktv.infra.disk_budget import DiskBudgetExceeded
+from vc_ktv.infra.media_pins import MediaPins
+from vc_ktv.infra.process_cancel import terminate_thread_children
+from vc_ktv.lyrics.lyric_selection import netease_song_lyrics, search_lyric_candidates
+from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.sources.netease_catalog import lookup_netease_song
+from vc_ktv.sources.netease_discovery import (
+    resolve_song_reference,
+    search_netease_songs,
+)
+from vc_ktv.sources.netease_login import NeteaseLogin
 
 
 def create_app(
@@ -122,7 +123,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         nonlocal running
         if auto_prepare:
-            from ..pipeline import primary_font_warning
+            from vc_ktv.pipeline import primary_font_warning
 
             warning = primary_font_warning("Noto Sans CJK SC")
             if warning:

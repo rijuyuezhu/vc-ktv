@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import re
 
-from .karaoke import LINE_STAMP, parse_lrc, seconds
-from .pipeline import LEADING_CREDIT, clean_lyric_text
+from vc_ktv.pipeline import LEADING_CREDIT, clean_lyric_text
+from vc_ktv.rendering.karaoke import LINE_STAMP, parse_lrc, seconds
 
 
 def provider_timeline(raw: str, confirmed: str) -> str | None:

@@ -3,8 +3,8 @@
 import threading
 
 from tests.test_autoprep_concurrency import eventually
-from vc_ktv.autoprep import AutoPrep
 from vc_ktv.core.store import Store
+from vc_ktv.processing.autoprep import AutoPrep
 
 
 def seed_ready(store, song_id, timing="align"):
@@ -63,7 +63,7 @@ def test_four_slow_workers_cannot_block_two_fast_workers(tmp_path, monkeypatch):
         target.write_bytes(b"fast-rendered")
         return {}
 
-    monkeypatch.setattr("vc_ktv.autoprep.render_provider_video", fast)
+    monkeypatch.setattr("vc_ktv.processing.autoprep.render_provider_video", fast)
     worker = AutoPrep(
         store,
         lambda _: 30,

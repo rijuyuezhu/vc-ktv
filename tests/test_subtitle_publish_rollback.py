@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from tests.test_stage_durations import ready_song
-from vc_ktv.autoprep import AutoPrep
+from vc_ktv.processing.autoprep import AutoPrep
 
 
 @pytest.mark.parametrize("prior_baked", [False, True])

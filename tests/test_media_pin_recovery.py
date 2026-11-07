@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from vc_ktv.application.factory import create_app
-from vc_ktv.media_pins import MediaPins, fcntl
+from vc_ktv.infra.media_pins import MediaPins, fcntl
 
 pytestmark = pytest.mark.skipif(fcntl is None, reason="POSIX advisory locks required")
 
@@ -89,7 +89,7 @@ def test_abrupt_subprocess_exit_releases_owner_for_recovery(tmp_path):
 import os
 import sys
 from pathlib import Path
-from vc_ktv.media_pins import MediaPins
+from vc_ktv.infra.media_pins import MediaPins
 root = Path(sys.argv[1])
 owner = MediaPins(root)
 owner.pin(root / "media" / "source.mp4")

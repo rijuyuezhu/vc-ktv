@@ -3,9 +3,9 @@
 from pathlib import Path
 
 from ktv_app.timeline import Timeline
-from vc_ktv.config import pipeline_settings
+from vc_ktv.infra.config import pipeline_settings
 from vc_ktv.pipeline import Timeline as PublicTimeline
-from vc_ktv.upstream_pipeline import spark_settings
+from vc_ktv.processing.upstream_pipeline import spark_settings
 
 
 def test_pipeline_settings_preserves_installed_layout(tmp_path, monkeypatch):
@@ -33,7 +33,11 @@ def test_vendor_timeline_identity_is_preserved():
 def test_vendor_imports_only_through_pipeline_adapter():
     # Guard the architectural boundary without rewriting the vendored engine.
     root = Path(__file__).resolve().parents[1] / "vc_ktv"
-    allowed = {"pipeline/__init__.py", "config.py", "upstream_pipeline.py"}
+    allowed = {
+        "pipeline/__init__.py",
+        "infra/config.py",
+        "processing/upstream_pipeline.py",
+    }
     for path in root.rglob("*.py"):
         name = path.relative_to(root).as_posix()
         if name in allowed:

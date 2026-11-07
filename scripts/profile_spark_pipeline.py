@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import vc_ktv.upstream_pipeline as upstream
+import vc_ktv.processing.upstream_pipeline as upstream
 
 
 def clock() -> str:

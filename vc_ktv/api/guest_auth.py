@@ -7,8 +7,8 @@ import sqlite3
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
-from ..accounts import password_hash, verify_password
-from ..core.store import time_now
+from vc_ktv.core.accounts import password_hash, verify_password
+from vc_ktv.core.store import time_now
 
 
 class JoinEvent(BaseModel):

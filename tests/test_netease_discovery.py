@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.netease_discovery import (
+from vc_ktv.sources.netease_discovery import (
     extract_song_reference,
     resolve_song_reference,
     search_netease_songs,

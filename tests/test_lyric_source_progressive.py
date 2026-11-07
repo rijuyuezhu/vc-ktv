@@ -6,10 +6,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+import vc_ktv.lyrics.lyric_selection as lyric_selection
+import vc_ktv.lyrics.lyric_sources as lyric_sources
 from tests.helpers import join_and_register
-from vc_ktv import lyric_selection, lyric_sources
 from vc_ktv.application.factory import create_app
-from vc_ktv.autoprep import title_key
+from vc_ktv.processing.autoprep import title_key
 
 
 @pytest.mark.parametrize("query", ["花", "秋鶄岚夜曲"])

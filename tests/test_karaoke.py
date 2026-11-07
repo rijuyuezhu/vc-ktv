@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.application.common import probe_media
 from vc_ktv.application.factory import create_app
-from vc_ktv.karaoke import parse_lrc, render_video, write_ass
+from vc_ktv.rendering.karaoke import parse_lrc, render_video, write_ass
 
 LRC = "[00:01.00]<00:01.00>你<00:01.40>好\n[00:02.40]下一句"
 

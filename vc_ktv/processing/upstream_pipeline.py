@@ -19,8 +19,7 @@ from ktv_app.rendering import RenderOptions, render
 from ktv_app.separation import prepare_alignment_audio
 from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Style
-
-from .config import pipeline_settings
+from vc_ktv.infra.config import pipeline_settings
 
 # Kept as a compatibility alias for existing scripts; the runtime-specific
 # installation layout is now configured in vc_ktv.config.
@@ -94,7 +93,7 @@ def make_karaoke_video(
 
         def rough(reason):
             emit("精确对齐不可用，使用估计时间轴保留全部歌词")
-            from .rough_timing import approximate_timeline
+            from vc_ktv.rendering.rough_timing import approximate_timeline
 
             fallback = approximate_timeline(
                 confirmed_lyrics,
@@ -124,12 +123,12 @@ def make_karaoke_video(
         if recovery:
             timeline = rough(recovery[-1]["error"])
         elif mode in ("global", "global-kim"):
-            from .global_alignment import (
+            from vc_ktv.rendering.global_alignment import (
                 UNKNOWN_LATIN,
                 align_full_song,
                 pronunciation_lyrics,
             )
-            from .rough_timing import approximate_timeline
+            from vc_ktv.rendering.rough_timing import approximate_timeline
 
             align_audio = source
             # Known scat syllables use precise mappings; pre-convert only

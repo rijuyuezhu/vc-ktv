@@ -11,12 +11,12 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, File, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from ..application.common import MEDIA_MIMES
-from ..application.schemas import Lyrics, RenderRequest
-from ..core.store import Store, time_now
-from ..disk_budget import DiskBudgetExceeded
-from ..karaoke import render_video, write_ass
-from ..textgrid_import import convert_textgrid
+from vc_ktv.application.common import MEDIA_MIMES
+from vc_ktv.application.schemas import Lyrics, RenderRequest
+from vc_ktv.core.store import Store, time_now
+from vc_ktv.infra.disk_budget import DiskBudgetExceeded
+from vc_ktv.rendering.karaoke import render_video, write_ass
+from vc_ktv.rendering.textgrid_import import convert_textgrid
 
 
 def create_preparation_admin_router(

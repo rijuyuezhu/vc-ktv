@@ -3,8 +3,8 @@ import asyncio
 import pytest
 from fastapi.testclient import TestClient
 
+import vc_ktv.lyrics.lyric_selection as lyric_selection
 from tests.helpers import join_and_register, use_browser_playback
-from vc_ktv import lyric_selection
 from vc_ktv.application.factory import create_app
 
 

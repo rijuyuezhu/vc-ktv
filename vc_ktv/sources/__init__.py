@@ -1,8 +1,8 @@
 """Fixed, explicit source registry. Lyrics are independent of media sources."""
 
-from .base import DownloadTools, SongInfo, SongSource
-from .bilibili import BilibiliSource
-from .netease import NetEaseSource
+from vc_ktv.sources.base import DownloadTools, SongInfo, SongSource
+from vc_ktv.sources.bilibili import BilibiliSource
+from vc_ktv.sources.netease import NetEaseSource
 
 SOURCES: dict[str, SongSource] = {
     "bilibili": BilibiliSource(),

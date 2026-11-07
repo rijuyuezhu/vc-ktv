@@ -5,8 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Cookie, HTTPException
 
-from ..application.schemas import Finish, PlaybackMode
-from ..core.store import time_now
+from vc_ktv.application.schemas import Finish, PlaybackMode
+from vc_ktv.core.store import time_now
 
 
 def create_playback_router(

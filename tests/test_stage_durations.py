@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from vc_ktv import autoprep
+import vc_ktv.processing.autoprep as autoprep
 from vc_ktv.core.store import Store
 
 
