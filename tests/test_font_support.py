@@ -79,7 +79,7 @@ def test_startup_checks_primary_font_without_stopping_service(
 ):
     from fastapi.testclient import TestClient
 
-    from vc_ktv.app import create_app
+    from vc_ktv.application.factory import create_app
 
     monkeypatch.setattr(
         font_support, "primary_font_warning", lambda font: "测试主字体缺失"

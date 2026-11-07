@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_admin_account_routes_preserve_authorization(tmp_path):

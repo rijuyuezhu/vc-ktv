@@ -1,6 +1,6 @@
 """The moved Store is the same class seen by existing callers."""
 
-from vc_ktv.app import Store, time_now
+from vc_ktv.core.store import Store, time_now
 from vc_ktv.core.store import Store as CoreStore
 from vc_ktv.core.store import time_now as core_time_now
 

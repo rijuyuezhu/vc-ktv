@@ -5,7 +5,8 @@ from contextlib import ExitStack
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, use_browser_playback
-from vc_ktv.app import Store, create_app
+from vc_ktv.application.factory import create_app
+from vc_ktv.core.store import Store
 
 
 def party(tmp_path, names):

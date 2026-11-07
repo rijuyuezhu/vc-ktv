@@ -8,7 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from tests.helpers import use_browser_playback
-from vc_ktv.app import Store, create_app
+from vc_ktv.application.factory import create_app
+from vc_ktv.core.store import Store
 
 
 def app_for_policy(tmp_path):

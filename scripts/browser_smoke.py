@@ -23,7 +23,7 @@ def serve() -> None:
 
     import uvicorn
 
-    from vc_ktv.app import create_app
+    from vc_ktv.application.factory import create_app
 
     root = Path(os.environ["STAGE_ROOT"])
     app = create_app(

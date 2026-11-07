@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from tests.test_events import admin_login, make_app
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_close_preserves_turn_order_and_marks_unfinished(tmp_path):

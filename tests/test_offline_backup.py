@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 from scripts import offline_backup
 from scripts.offline_backup import restore, snapshot, verify
-from vc_ktv.app import Store, create_app
+from vc_ktv.application.factory import create_app
+from vc_ktv.core.store import Store
 
 
 def fixture_roots(tmp_path):

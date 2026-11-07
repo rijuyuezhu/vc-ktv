@@ -5,8 +5,8 @@ import time
 
 import pytest
 
-from vc_ktv.app import Store
 from vc_ktv.autoprep import AutoPrep
+from vc_ktv.core.store import Store
 
 
 def seed_downloads(store, count):

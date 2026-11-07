@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_manual_casting_queue import add_song
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.autoprep import AutoPrep
 
 

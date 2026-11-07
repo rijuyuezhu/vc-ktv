@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 from vc_ktv.netease_login import NeteaseLogin, NeteaseLoginError
 from vc_ktv.netease_media import fetch_audio_url
 

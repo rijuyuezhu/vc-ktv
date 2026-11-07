@@ -11,12 +11,11 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, File, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from .. import app as legacy
 from ..application.common import MEDIA_MIMES
 from ..application.schemas import Lyrics, RenderRequest
 from ..core.store import Store, time_now
 from ..disk_budget import DiskBudgetExceeded
-from ..karaoke import write_ass
+from ..karaoke import render_video, write_ass
 from ..textgrid_import import convert_textgrid
 
 
@@ -276,7 +275,7 @@ def create_preparation_admin_router(
                 ).fetchone()
                 if not current or current["status"] != "rendering":
                     return
-            legacy.render_video(source, lyrics, destination, duration, lead)
+            render_video(source, lyrics, destination, duration, lead)
             with target_store.lock:
                 row = target_store.db.execute(
                     "SELECT media_file,status FROM songs WHERE id=?", (song_id,)

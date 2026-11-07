@@ -3,8 +3,8 @@
 import threading
 
 from tests.test_autoprep_concurrency import eventually
-from vc_ktv.app import Store
 from vc_ktv.autoprep import AutoPrep
+from vc_ktv.core.store import Store
 
 
 def seed_ready(store, song_id, timing="align"):

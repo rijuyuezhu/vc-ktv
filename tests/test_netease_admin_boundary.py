@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def test_netease_login_route_methods_and_permissions(tmp_path):

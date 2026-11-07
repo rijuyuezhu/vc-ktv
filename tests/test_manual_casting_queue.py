@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, primary_tv_token, use_browser_playback
-from vc_ktv.app import create_app
+from vc_ktv.application.factory import create_app
 
 
 def new_app(tmp_path):

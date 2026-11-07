@@ -1,7 +1,7 @@
 """SQLite Store is the authority for playback turns and room settings."""
 
 from tests.test_fair_capped_two import ready
-from vc_ktv.app import Store
+from vc_ktv.core.store import Store
 
 
 def test_store_claim_and_settle_preserves_fair_turn_and_is_idempotent(tmp_path):
