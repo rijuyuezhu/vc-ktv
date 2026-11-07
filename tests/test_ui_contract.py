@@ -18,7 +18,10 @@ class IdCollector(HTMLParser):
 
 
 def app_scripts(root):
-    return "\n".join((root / name).read_text() for name in ("app.js", "lyrics.js"))
+    return "\n".join(
+        (root / name).read_text()
+        for name in ("app.js", "lyrics.js", "song-requests.js")
+    )
 
 
 def test_lyric_picker_is_loaded_as_a_module():
@@ -31,6 +34,17 @@ def test_lyric_picker_is_loaded_as_a_module():
     assert "export function createLyricPicker(" in lyrics
     assert "const {openLyricPicker} = lyricPicker;" in main
     assert "selectedSongId:()=>selectingSongId" in lyrics
+
+
+def test_song_request_actions_are_loaded_from_a_module():
+    root = Path(__file__).resolve().parents[1] / "static"
+    main = (root / "app.js").read_text()
+    requests = (root / "song-requests.js").read_text()
+    assert 'import {setupSongRequests} from "./song-requests.js";' in main
+    assert "export function setupSongRequests(" in requests
+    assert "setupSongRequests({" in main
+    assert "let preview = null;" in requests
+    assert "async function queryNeteaseSongs()" in requests
 
 
 def test_guest_and_admin_js_element_references_exist():
@@ -48,7 +62,14 @@ def test_guest_and_admin_js_element_references_exist():
 
 def test_app_ui_omits_middle_dot_separator():
     root = Path(__file__).resolve().parents[1] / "static"
-    for file in ("index.html", "app.js", "lyrics.js", "tv.html", "tv.js"):
+    for file in (
+        "index.html",
+        "app.js",
+        "lyrics.js",
+        "song-requests.js",
+        "tv.html",
+        "tv.js",
+    ):
         assert "·" not in (root / file).read_text()
 
 
