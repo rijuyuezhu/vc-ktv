@@ -247,6 +247,48 @@ def check_ui(
     account.wait_for(state="detached")
     print("PASS event administrator create, reset and revoke")
 
+    # Exercise both settings forms and keep an in-progress edit intact across
+    # the administrator's periodic refresh.
+    page.goto(base + "/admin/#settings-playback", wait_until="networkidle")
+    quality = page.locator("#video-quality")
+    quality.wait_for(state="visible")
+    quality.focus()
+    quality.select_option("720")
+    page.wait_for_timeout(4000)
+    assert quality.input_value() == "720"
+    with page.expect_response(
+        lambda response: (
+            "/api/admin/settings" in response.url and response.request.method == "PUT"
+        )
+    ) as saved:
+        page.locator("#settings-save-btn").click()
+    assert saved.value.status == 200
+    assert (
+        admin.request.get(base + "/api/admin/settings").json()["video_quality"] == 720
+    )
+
+    page.goto(base + "/admin/#settings-queue", wait_until="networkidle")
+    page.locator("#queue-settings-save").wait_for(state="visible")
+    page.locator("#pause-orders").check()
+    with page.expect_response(
+        lambda response: (
+            "/api/admin/settings" in response.url and response.request.method == "PUT"
+        )
+    ) as saved:
+        page.locator("#queue-settings-save").click()
+    assert saved.value.status == 200
+    assert admin.request.get(base + "/api/admin/settings").json()["orders_paused"]
+    page.locator("#pause-orders").uncheck()
+    with page.expect_response(
+        lambda response: (
+            "/api/admin/settings" in response.url and response.request.method == "PUT"
+        )
+    ) as saved:
+        page.locator("#queue-settings-save").click()
+    assert saved.value.status == 200
+    assert not admin.request.get(base + "/api/admin/settings").json()["orders_paused"]
+    print("PASS playback and queue settings save, with focused edit preserved")
+
     # Mock connection APIs; no NetEase network access or credentials.
     page.route(
         "**/api/admin/netease/status",

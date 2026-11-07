@@ -26,6 +26,7 @@ def app_scripts(root):
             "song-requests.js",
             "remote-controls.js",
             "tv-primary.js",
+            "admin-settings.js",
             "admin-accounts.js",
             "admin-netease.js",
         )
@@ -105,6 +106,20 @@ def test_admin_account_and_netease_connection_modules():
     assert "neteaseLoginPageActive" in main
 
 
+def test_event_settings_are_owned_by_a_module():
+    root = Path(__file__).resolve().parents[1] / "static"
+    main = (root / "app.js").read_text()
+    settings = (root / "admin-settings.js").read_text()
+    assert 'import {setupAdminSettings} from "./admin-settings.js";' in main
+    assert "export function setupAdminSettings(" in settings
+    assert "const {refreshAdminSettings} = setupAdminSettings({" in main
+    assert "await refreshAdminSettings(active?.id||null)" in main
+    assert "let settingsEventId=null;" in settings
+    assert "document.activeElement" in settings
+    assert "invalidateQueueState();" in settings
+    assert "function updateStylePreview()" in settings
+
+
 def test_guest_and_admin_js_element_references_exist():
     root = Path(__file__).resolve().parents[1] / "static"
     document = IdCollector()
@@ -127,6 +142,7 @@ def test_app_ui_omits_middle_dot_separator():
         "song-requests.js",
         "remote-controls.js",
         "tv-primary.js",
+        "admin-settings.js",
         "admin-accounts.js",
         "admin-netease.js",
         "tv.html",
