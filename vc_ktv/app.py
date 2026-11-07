@@ -43,6 +43,7 @@ from .netease_catalog import lookup_netease_song
 from .netease_discovery import resolve_song_reference, search_netease_songs
 from .netease_login import NeteaseLogin, NeteaseLoginError
 from .process_cancel import terminate_thread_children
+from .sources import get_source
 from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
@@ -1804,6 +1805,7 @@ def create_app(
         with store.lock:
             check_new_order(guest)
         info = await app.state.lookup(get_bvid(body.bvid), body.page)
+        metadata = get_source("bilibili").metadata(info, ref=body.bvid, page=body.page)
         with store.lock:
             if events.active_id != event_id:
                 bail(409, "场次已变化，请在新场次重新点歌")
@@ -1813,18 +1815,11 @@ def create_app(
             try:
                 cur = store.db.execute(
                     """
-                    INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at)
-                    VALUES(?,?,?,?,?,?,?,?)""",
-                    (
-                        info["bvid"],
-                        info["page"],
-                        info["title"],
-                        info["uploader"],
-                        info["cover"],
-                        info["duration"],
-                        guest,
-                        time_now(),
-                    ),
+                    INSERT INTO songs(
+                        bvid,page,title,uploader,cover,duration,requester,requested_at,
+                        source_type,source_id
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    metadata.db_values(guest, time_now()),
                 )
                 store.db.commit()
             except sqlite3.Error:
@@ -1858,6 +1853,7 @@ def create_app(
             bail(404, "网易云未找到该单曲")
         except (httpx.HTTPError, ValueError, TypeError):
             bail(502, "网易云歌曲信息暂不可用")
+        metadata = get_source("netease").metadata(info, ref=str(song_id))
         with store.lock:
             if events.active_id != event_id:
                 bail(409, "场次已变化，请重新点歌")
@@ -1867,16 +1863,8 @@ def create_app(
                     """INSERT INTO songs(
                          bvid,page,title,uploader,cover,duration,requester,requested_at,
                          source_type,source_id
-                       ) VALUES('',1,?,?,?,?,?,?,'netease',?)""",
-                    (
-                        info["title"],
-                        info["uploader"],
-                        info["cover"],
-                        info["duration"],
-                        user["id"],
-                        time_now(),
-                        str(song_id),
-                    ),
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                    metadata.db_values(user["id"], time_now()),
                 )
                 store.db.commit()
             except sqlite3.Error:

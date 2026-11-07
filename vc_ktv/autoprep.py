@@ -38,6 +38,7 @@ from .pipeline import (
     write_bundle,
 )
 from .process_cancel import terminate_thread_children
+from .sources import DownloadTools, get_source
 from .subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from .timed_lyrics import offset_timeline
 
@@ -715,23 +716,17 @@ class AutoPrep:
         with tempfile.TemporaryDirectory(
             prefix=f"vc-ktv-{song_id}-", dir=self.store.root
         ) as tmp:
-            if row.get("source_type", "bilibili") == "netease":
-                path = self.netease_download(
-                    int(row["source_id"]),
-                    row["cover"],
-                    Path(tmp),
-                    duration=row["duration"],
-                    cookies=self.netease_cookies(),
-                )
-            elif self.download is media_download:
-                path = self.download(
-                    row["bvid"],
-                    row["page"],
-                    Path(tmp),
-                    max_height=row["video_quality"],
-                )
-            else:
-                path = self.download(row["bvid"], row["page"], Path(tmp))
+            source = get_source(row.get("source_type") or "bilibili")
+            path = source.download(
+                row,
+                Path(tmp),
+                DownloadTools(
+                    video=self.download,
+                    music=self.netease_download,
+                    cookies=self.netease_cookies,
+                    video_quality_keyword=self.download is media_download,
+                ),
+            )
             check_current_budget()
             actual_duration = self.probe(path)
             budget = getattr(self.store, "disk_budget", None)
