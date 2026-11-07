@@ -4,7 +4,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-import vc_ktv.processing.autoprep as autoprep
+import vc_ktv.processing.media_preparation as autoprep
 import vc_ktv.sources.bilibili_media as bilibili_media
 
 

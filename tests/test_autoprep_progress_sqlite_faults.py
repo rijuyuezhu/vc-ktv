@@ -6,8 +6,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import vc_ktv.processing.autoprep as autoprep
+import vc_ktv.processing.worker as autoprep
 from tests.test_stage_durations import ready_song
+from vc_ktv.processing import media_preparation
 
 
 @pytest.mark.parametrize("fault", ("stage_update", "stage_commit"))
@@ -42,7 +43,7 @@ def test_progress_telemetry_sqlite_failure_preserves_render(
             report=bundle / "export_report.json",
         )
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", fake_pipeline)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", fake_pipeline)
     worker = autoprep.AutoPrep(store, lambda _: 4, max_workers=1)
     row = worker.claim()
     assert row and row["id"] == song_id

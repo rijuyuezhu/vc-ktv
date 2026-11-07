@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from vc_ktv.application.factory import create_app
-from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.processing import media_preparation
+from vc_ktv.processing.worker import AutoPrep
 
 
 def make_app(tmp_path):
@@ -188,7 +189,6 @@ def test_skip_mid_alignment_keeps_original_even_after_stale_job(tmp_path):
 
 
 def test_real_stage_events_only_five_transitions(tmp_path, monkeypatch):
-    import vc_ktv.processing.autoprep as autoprep
 
     app = make_app(tmp_path)
     store = app.state.store
@@ -226,7 +226,7 @@ def test_real_stage_events_only_five_transitions(tmp_path, monkeypatch):
         video.write_bytes(b"mp4")
         return SimpleNamespace(video=video, ass=ass, report=report)
 
-    monkeypatch.setattr(autoprep, "make_karaoke_video", fake_upstream)
+    monkeypatch.setattr(media_preparation, "make_karaoke_video", fake_upstream)
     worker = AutoPrep(store, lambda path: 5)
     row = worker.claim()
     assert row["id"] == sid

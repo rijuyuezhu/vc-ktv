@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from vc_ktv.core.store import Store
-from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.processing.worker import AutoPrep
 
 
 def pending_source(tmp_path):
@@ -44,7 +44,7 @@ def test_copy_failure_does_not_leave_partial_original_video(tmp_path, monkeypatc
 
     # Copying is now chunked to enforce the room's aggregate disk budget.
     monkeypatch.setattr(
-        "vc_ktv.processing.autoprep.check_current_budget", fail_after_chunk
+        "vc_ktv.processing.worker.check_current_budget", fail_after_chunk
     )
     with pytest.raises(OSError, match="disk full"):
         worker.prepare_source(claimed)

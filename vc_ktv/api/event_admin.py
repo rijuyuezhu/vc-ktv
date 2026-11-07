@@ -8,7 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Cookie, HTTPException
 from pydantic import BaseModel, Field
 
-from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.processing.worker import AutoPrep
 from vc_ktv.rendering.subtitle_styles import StylePreset
 
 

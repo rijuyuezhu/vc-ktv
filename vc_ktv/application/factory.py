@@ -54,7 +54,7 @@ from vc_ktv.infra.disk_budget import DiskBudgetExceeded
 from vc_ktv.infra.media_pins import MediaPins
 from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.lyrics.lyric_selection import netease_song_lyrics, search_lyric_candidates
-from vc_ktv.processing.autoprep import AutoPrep
+from vc_ktv.processing.worker import AutoPrep
 from vc_ktv.sources.netease_catalog import lookup_netease_song
 from vc_ktv.sources.netease_discovery import (
     resolve_song_reference,

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.processing.autoprep import SubtitleError
+from vc_ktv.processing.worker import SubtitleError
 
 
 def test_retry_only_subtitles_preserves_download_and_previous_logs(tmp_path):
