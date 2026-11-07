@@ -8,9 +8,9 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from ..autoprep import title_key
 from ..disk_budget import EventDiskBudget
 from ..subtitle_styles import StylePreset
+from .titles import title_key
 
 
 def time_now():

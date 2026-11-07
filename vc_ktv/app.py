@@ -31,8 +31,9 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .accounts import password_hash, verify_password
-from .autoprep import AutoPrep, title_key
+from .autoprep import AutoPrep
 from .core.store import Store, time_now
+from .core.titles import title_key
 from .disk_budget import DiskBudgetExceeded
 from .events import CurrentStore, Events
 from .karaoke import render_video, write_ass
