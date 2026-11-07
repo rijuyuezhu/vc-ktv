@@ -30,6 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from .accounts import verify_password
 from .api.admin_accounts import create_admin_accounts_router
 from .api.event_admin import EventCreate as EventCreate
+from .api.event_admin import PlaybackSettings as PlaybackSettings
 from .api.event_admin import create_event_admin_router
 from .api.event_history import create_event_history_router
 from .api.guest_auth import JoinEvent as JoinEvent
@@ -54,7 +55,6 @@ from .netease_catalog import lookup_netease_song
 from .netease_discovery import resolve_song_reference, search_netease_songs
 from .netease_login import NeteaseLogin
 from .process_cancel import terminate_thread_children
-from .subtitle_styles import StylePreset
 from .textgrid_import import convert_textgrid
 from .timed_lyrics import offset_timeline, project_provider_timeline, provider_timeline
 
@@ -104,18 +104,6 @@ class GuestLyricChoice(BaseModel):
 class Login(BaseModel):
     password: str
     username: str | None = None
-
-
-class PlaybackSettings(BaseModel):
-    queue_policy: Literal["fair", "fcfs"] | None = None
-    allow_unsubtitled: bool | None = None
-    # Old clients that omit the new field must not reset the chosen preset.
-    subtitle_style: StylePreset | None = None
-    video_quality: Literal[720, 480] | None = None
-    # Optional to preserve older admin clients' current per-event setting.
-    max_bandwidth_mbps: float | None = Field(default=None, ge=1)
-    orders_paused: bool | None = None
-    tv_html_overlay: bool | None = None
 
 
 class Finish(BaseModel):
@@ -777,28 +765,6 @@ def create_app(
 
     app.include_router(create_netease_admin_router(netease_login, require_global_admin))
 
-    @app.get("/api/admin/settings")
-    def get_playback_settings(vc_admin: str | None = Cookie(default=None)):
-        require_admin(vc_admin)
-        with store.lock:
-            return store.settings()
-
-    @app.put("/api/admin/settings")
-    def update_playback_settings(
-        body: PlaybackSettings, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_admin(vc_admin)
-        with store.lock:
-            return store.save_settings(
-                body.queue_policy,
-                body.allow_unsubtitled,
-                body.subtitle_style,
-                body.video_quality,
-                body.max_bandwidth_mbps,
-                body.orders_paused,
-                body.tv_html_overlay,
-            )
-
     event_history_router, export_event_songs = create_event_history_router(
         events, require_admin
     )
@@ -811,6 +777,7 @@ def create_app(
 
     app.include_router(
         create_event_admin_router(
+            store=store,
             events=events,
             require_admin=require_admin,
             require_global_admin=require_global_admin,
