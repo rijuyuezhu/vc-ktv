@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from .accounts import password_hash, verify_password
+from .api.admin_accounts import create_admin_accounts_router
 from .api.history import create_history_router
 from .api.netease_admin import create_netease_admin_router
 from .api.song_sources import (
@@ -99,15 +100,6 @@ class GuestLyricChoice(BaseModel):
 class Login(BaseModel):
     password: str
     username: str | None = None
-
-
-class EventAdminCredentials(BaseModel):
-    username: str = Field(min_length=1, max_length=24)
-    password: str = Field(min_length=6, max_length=72)
-
-
-class EventAdminPassword(BaseModel):
-    password: str = Field(min_length=6, max_length=72)
 
 
 class PlaybackSettings(BaseModel):
@@ -1508,80 +1500,7 @@ def create_app(
         # Uploaded timing is not trusted; the original quality pipeline realigns the text.
         return save_guest_lyrics(song_id, song["requester"], lyrics, "上传 LRC")
 
-    @app.get("/api/admin/accounts")
-    def list_event_admins(vc_admin: str | None = Cookie(default=None)):
-        require_global_admin(vc_admin)
-        with store.lock:
-            return {
-                "accounts": store.rows(
-                    "SELECT id,username FROM event_admins ORDER BY username COLLATE NOCASE"
-                )
-            }
-
-    @app.post("/api/admin/accounts", status_code=201)
-    def create_event_admin(
-        body: EventAdminCredentials, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_global_admin(vc_admin)
-        username = body.username.strip()
-        if not username:
-            bail(422, "管理员用户名不能为空")
-        hashed = password_hash(body.password)
-        with store.lock:
-            account_id = secrets.token_hex(16)
-            try:
-                store.db.execute(
-                    "INSERT INTO event_admins(id,username,password_hash) VALUES(?,?,?)",
-                    (account_id, username, hashed),
-                )
-                store.db.commit()
-            except sqlite3.IntegrityError:
-                store.db.rollback()
-                bail(409, "本场管理员用户名已存在")
-            except sqlite3.Error:
-                store.db.rollback()
-                raise
-        return {"id": account_id, "username": username}
-
-    @app.put("/api/admin/accounts/{account_id}/password")
-    def reset_event_admin_password(
-        account_id: str,
-        body: EventAdminPassword,
-        vc_admin: str | None = Cookie(default=None),
-    ):
-        require_global_admin(vc_admin)
-        hashed = password_hash(body.password)
-        with store.lock:
-            try:
-                updated = store.db.execute(
-                    "UPDATE event_admins SET password_hash=?,revision=revision+1 WHERE id=?",
-                    (hashed, account_id),
-                )
-                store.db.commit()
-            except sqlite3.Error:
-                store.db.rollback()
-                raise
-        if not updated.rowcount:
-            bail(404, "管理员账号不存在")
-        return {"ok": True}
-
-    @app.delete("/api/admin/accounts/{account_id}")
-    def revoke_event_admin(
-        account_id: str, vc_admin: str | None = Cookie(default=None)
-    ):
-        require_global_admin(vc_admin)
-        with store.lock:
-            try:
-                deleted = store.db.execute(
-                    "DELETE FROM event_admins WHERE id=?", (account_id,)
-                )
-                store.db.commit()
-            except sqlite3.Error:
-                store.db.rollback()
-                raise
-        if not deleted.rowcount:
-            bail(404, "管理员账号不存在")
-        return {"ok": True}
+    app.include_router(create_admin_accounts_router(app, require_global_admin))
 
     @app.post("/api/admin/login")
     def login(body: Login, request: Request, response: Response):
