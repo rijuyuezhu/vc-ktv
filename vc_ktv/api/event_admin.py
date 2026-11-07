@@ -3,11 +3,13 @@
 import logging
 import shutil
 from collections.abc import Callable
+from typing import Literal
 
 from fastapi import APIRouter, Cookie, HTTPException
 from pydantic import BaseModel, Field
 
 from ..autoprep import AutoPrep
+from ..subtitle_styles import StylePreset
 
 
 class EventCreate(BaseModel):
@@ -15,8 +17,21 @@ class EventCreate(BaseModel):
     code: str | None = None
 
 
+class PlaybackSettings(BaseModel):
+    queue_policy: Literal["fair", "fcfs"] | None = None
+    allow_unsubtitled: bool | None = None
+    # Old clients that omit the new field must not reset the chosen preset.
+    subtitle_style: StylePreset | None = None
+    video_quality: Literal[720, 480] | None = None
+    # Optional to preserve older admin clients' current per-event setting.
+    max_bandwidth_mbps: float | None = Field(default=None, ge=1)
+    orders_paused: bool | None = None
+    tv_html_overlay: bool | None = None
+
+
 def create_event_admin_router(
     *,
+    store,
     events,
     require_admin,
     require_global_admin,
@@ -34,6 +49,28 @@ def create_event_admin_router(
 
     def bail(status: int, message: str):
         raise HTTPException(status_code=status, detail=message)
+
+    @router.get("/api/admin/settings")
+    def get_playback_settings(vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        with store.lock:
+            return store.settings()
+
+    @router.put("/api/admin/settings")
+    def update_playback_settings(
+        body: PlaybackSettings, vc_admin: str | None = Cookie(default=None)
+    ):
+        require_admin(vc_admin)
+        with store.lock:
+            return store.save_settings(
+                body.queue_policy,
+                body.allow_unsubtitled,
+                body.subtitle_style,
+                body.video_quality,
+                body.max_bandwidth_mbps,
+                body.orders_paused,
+                body.tv_html_overlay,
+            )
 
     @router.post("/api/admin/events/{event_id}/release-media")
     def release_event_media(event_id: str, vc_admin: str | None = Cookie(default=None)):
