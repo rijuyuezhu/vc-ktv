@@ -52,6 +52,7 @@ jobs:
           node --input-type=module --check < static/tv-primary.js
           node --input-type=module --check < static/admin-accounts.js
           node --input-type=module --check < static/admin-netease.js
+          node --input-type=module --check < static/admin-settings.js
           node --check static/tv.js
           node --check static/tv-overlay.js
           node --test tests/test_tv_buffering.cjs tests/test_tv_html_overlay.cjs

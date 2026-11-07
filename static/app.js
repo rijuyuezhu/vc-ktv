@@ -1,3 +1,4 @@
+import {setupAdminSettings} from "./admin-settings.js";
 import {setupAdminAccounts} from "./admin-accounts.js";
 import {setupNeteaseConnection} from "./admin-netease.js";
 import {setupTVPrimary} from "./tv-primary.js";
@@ -23,7 +24,6 @@ const listKeys = new Map();
 let currentEventId = null;
 let leadSeconds = 1.8;
 let archiveListKey = null;
-let settingsEventId = null;
 let adminAccountsEventId = null;
 let neteaseLoginPageActive = false;
 let adminCurrentEvent = null;
@@ -791,57 +791,12 @@ async function refreshEvents(){
       }
     });
   }
-  if(!active){settingsEventId=null;return;}
-  const settings=await api("/api/admin/settings");
-  if(settingsEventId!==active.id){
-    settingsEventId=active.id;
-    $("queue-policy").value=settings.queue_policy;
-    $("subtitle-style").value=settings.subtitle_style;
-    $("video-quality").value=String(settings.video_quality);
-    $("allow-unsubtitled").checked=settings.allow_unsubtitled;
-    $("max-bandwidth-mbps").value=String(settings.max_bandwidth_mbps);
-    $("pause-orders").checked=settings.orders_paused;
-    $("tv-html-overlay").checked=settings.tv_html_overlay;
-  }else if(document.activeElement!==$("queue-policy")&&
-           document.activeElement!==$("allow-unsubtitled")&&
-           document.activeElement!==$("subtitle-style")&&
-           document.activeElement!==$("video-quality")&&
-           document.activeElement!==$("max-bandwidth-mbps")&&
-           document.activeElement!==$("pause-orders")&&
-           document.activeElement!==$("tv-html-overlay")&&
-           document.activeElement!==$("settings-save-btn")){
-    $("queue-policy").value=settings.queue_policy;
-    $("subtitle-style").value=settings.subtitle_style;
-    $("video-quality").value=String(settings.video_quality);
-    $("allow-unsubtitled").checked=settings.allow_unsubtitled;
-    $("max-bandwidth-mbps").value=String(settings.max_bandwidth_mbps);
-    $("pause-orders").checked=settings.orders_paused;
-    $("tv-html-overlay").checked=settings.tv_html_overlay;
-  }
-  updateStylePreview();
+  await refreshAdminSettings(active?.id||null);
 }
-function updateStylePreview(){
-  $("style-preview").className="style-preview "+$("subtitle-style").value;
-}
-$("subtitle-style").onchange=updateStylePreview;
-$("settings-save-btn").onclick=()=>guarded(async()=>{
-  await api("/api/admin/settings","PUT",{
-    subtitle_style:$("subtitle-style").value,
-    video_quality:Number($("video-quality").value),
-    max_bandwidth_mbps:Number($("max-bandwidth-mbps").value),
-    tv_html_overlay:$("tv-html-overlay").checked
-  });
-  toast("已保存");await refresh();
-},$("settings-save-btn"));
-$("queue-settings-save").onclick=()=>guarded(async()=>{
-  await api("/api/admin/settings","PUT",{
-    queue_policy:$("queue-policy").value,
-    allow_unsubtitled:$("allow-unsubtitled").checked,
-    orders_paused:$("pause-orders").checked
-  });
-  adminStateKey=null;listKeys.clear();
-  toast("已保存");await refresh();
-},$("queue-settings-save"));
+const {refreshAdminSettings} = setupAdminSettings({
+  $, api, guarded, toast, refresh,
+  invalidateQueueState:()=>{adminStateKey=null;listKeys.clear();}
+});
 $("event-create-btn").onclick=()=>guarded(async()=>{
   const name=$("event-name").value.trim();
   const code=$("event-code").value.trim();
