@@ -225,6 +225,64 @@ def check_ui(
     page.locator("#password").fill(admin_password)
     page.locator("#login-btn").click()
     page.locator("#login-box").wait_for(state="hidden")
+
+    # Global administrator actions are isolated to the disposable test event.
+    page.goto(base + "/admin/#settings-accounts", wait_until="domcontentloaded")
+    page.locator("#admin-account-create").wait_for(state="visible")
+    page.locator("#admin-account-name").fill("Synthetic Event Admin")
+    page.locator("#admin-account-password").fill("smoke-password-123")
+    page.locator("#admin-account-create").click()
+    account = page.locator("#admin-account-list .account-entry").filter(
+        has_text="Synthetic Event Admin"
+    )
+    account.wait_for(state="visible")
+    account.locator("summary").click()
+    account.locator('input[type="password"]').fill("smoke-reset-123")
+    account.get_by_role("button", name="重置密码").click()
+    page.wait_for_function(
+        'document.querySelector("#admin-account-list input[type=password]").value === ""'
+    )
+    page.once("dialog", lambda dialog: dialog.accept())
+    account.get_by_role("button", name="撤销账号").click()
+    account.wait_for(state="detached")
+    print("PASS event administrator create, reset and revoke")
+
+    # Mock connection APIs; no NetEase network access or credentials.
+    page.route(
+        "**/api/admin/netease/status",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"connected":false,"pending":false,"phase":"idle"}',
+        ),
+    )
+    page.route(
+        "**/api/admin/netease/qr",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "connected": False,
+                    "pending": True,
+                    "phase": "waiting",
+                    "qr_image": "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+                }
+            ),
+        ),
+    )
+    page.goto(base + "/admin/#settings-netease", wait_until="domcontentloaded")
+    page.locator("#netease-login-start").wait_for(state="visible")
+    page.locator("#netease-login-start").click()
+    page.locator("#netease-login-qr-box").wait_for(state="visible")
+    assert (
+        page.locator("#netease-login-qr-image")
+        .get_attribute("src")
+        .startswith("data:image/gif")
+    )
+    page.goto(base + "/admin/", wait_until="domcontentloaded")
+    print("PASS NetEase admin connection QR UI and navigation")
+
     response = admin.request.post(
         f"{base}/api/admin/songs/{song_id}/media",
         multipart={

@@ -50,6 +50,8 @@ jobs:
           node --input-type=module --check < static/song-requests.js
           node --input-type=module --check < static/remote-controls.js
           node --input-type=module --check < static/tv-primary.js
+          node --input-type=module --check < static/admin-accounts.js
+          node --input-type=module --check < static/admin-netease.js
           node --check static/tv.js
           node --check static/tv-overlay.js
           node --test tests/test_tv_buffering.cjs tests/test_tv_html_overlay.cjs

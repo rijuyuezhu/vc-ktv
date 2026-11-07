@@ -26,6 +26,8 @@ def app_scripts(root):
             "song-requests.js",
             "remote-controls.js",
             "tv-primary.js",
+            "admin-accounts.js",
+            "admin-netease.js",
         )
     )
 
@@ -82,6 +84,27 @@ def test_primary_tv_management_lives_in_its_own_module():
         assert f'$("{action}").onclick=' in primary
 
 
+def test_admin_account_and_netease_connection_modules():
+    root = Path(__file__).resolve().parents[1] / "static"
+    main = (root / "app.js").read_text()
+    accounts = (root / "admin-accounts.js").read_text()
+    netease = (root / "admin-netease.js").read_text()
+    assert 'import {setupAdminAccounts} from "./admin-accounts.js";' in main
+    assert 'import {setupNeteaseConnection} from "./admin-netease.js";' in main
+    assert "const {refreshAdminAccounts} = setupAdminAccounts({" in main
+    assert (
+        "const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection({"
+        in main
+    )
+    assert "export function setupAdminAccounts(" in accounts
+    assert "export function setupNeteaseConnection(" in netease
+    assert "let neteaseLoginPolling=null;" in netease
+    assert "async function refreshAdminAccounts()" in accounts
+    assert "async function refreshNeteaseLogin()" in netease
+    assert "adminAccountsEventId" in main
+    assert "neteaseLoginPageActive" in main
+
+
 def test_guest_and_admin_js_element_references_exist():
     root = Path(__file__).resolve().parents[1] / "static"
     document = IdCollector()
@@ -104,6 +127,8 @@ def test_app_ui_omits_middle_dot_separator():
         "song-requests.js",
         "remote-controls.js",
         "tv-primary.js",
+        "admin-accounts.js",
+        "admin-netease.js",
         "tv.html",
         "tv.js",
     ):

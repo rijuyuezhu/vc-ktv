@@ -1,3 +1,5 @@
+import {setupAdminAccounts} from "./admin-accounts.js";
+import {setupNeteaseConnection} from "./admin-netease.js";
 import {setupTVPrimary} from "./tv-primary.js";
 import {setupRemoteControls} from "./remote-controls.js";
 import {setupSongRequests} from "./song-requests.js";
@@ -23,6 +25,7 @@ let leadSeconds = 1.8;
 let archiveListKey = null;
 let settingsEventId = null;
 let adminAccountsEventId = null;
+let neteaseLoginPageActive = false;
 let adminCurrentEvent = null;
 let guestAuthenticated = false;
 let detailKey = null;
@@ -680,133 +683,12 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
   await api(`/api/admin/songs/${popupSongId}/lyrics`,"POST",{text:$("lyrics-textarea").value});
   $("lyrics-dialog").close();toast("已保存参考歌词");await refresh();
 },$("lyrics-save"));
-let neteaseLoginPolling=null;
-let neteaseLoginChecking=false;
-let neteaseLoginPageActive=false;
-function stopNeteaseLoginPolling(){
-  if(neteaseLoginPolling!==null)clearInterval(neteaseLoginPolling);
-  neteaseLoginPolling=null;
-}
-function displayNeteaseLoginStatus(state){
-  const connected=Boolean(state.connected);
-  const pending=Boolean(state.pending)&&!connected;
-  $("netease-login-start").classList.toggle("hidden",connected||pending);
-  $("netease-login-disconnect").classList.toggle("hidden",!connected&&!pending);
-  $("netease-login-check").classList.add("hidden");
-  if(!pending)$("netease-login-qr-box").classList.add("hidden");
-  $("netease-login-status").textContent=connected?
-    "✓ 已保存网易云登录态（服务重启后可继续使用）":
-    state.phase==="verification_required"?
-      "网易云要求安全验证（8821）。本次扫码已暂停；可在官方网页正常登录，再使用下方网页登录态连接。":
-    pending?(state.phase==="confirm"?"请在网易云音乐 App 中确认登录":"等待扫码确认……"):
-    state.phase==="expired"?"二维码已过期，请重新扫码":"尚未连接网易云";
-  if(connected||!pending||state.phase==="verification_required")stopNeteaseLoginPolling();
-}
-async function refreshNeteaseLogin(){
-  const state=await api("/api/admin/netease/status");
-  displayNeteaseLoginStatus(state);
-  if(state.pending&&state.phase!=="verification_required"){
-    if($("netease-login-qr-image").getAttribute("src")){
-      stopNeteaseLoginPolling();
-      neteaseLoginPolling=setInterval(checkNeteaseLogin,2500);
-    }else{
-      // Another browser initiated the QR; cancel and start a new one here.
-      $("netease-login-status").textContent="其他页面正在扫码，可取消后重新连接";
-    }
-  }
-}
-async function checkNeteaseLogin(){
-  if(neteaseLoginChecking)return;
-  neteaseLoginChecking=true;
-  try{
-    const state=await api("/api/admin/netease/check","POST");
-    displayNeteaseLoginStatus(state);
-    if(state.connected)toast("✓ 网易云音乐已连接");
-    if(state.phase==="verification_required")$("netease-cookie-import-panel").open=true;
-  }catch(e){
-    stopNeteaseLoginPolling();
-    $("netease-login-status").textContent=e.message||"扫码检查失败，请稍后重试";
-    $("netease-login-check").classList.remove("hidden");
-  }finally{neteaseLoginChecking=false;}
-}
-$("netease-cookie-import-form").addEventListener("submit",(event)=>{
-  event.preventDefault();
-  guarded(async()=>{
-    const field=$("netease-cookie-import-value");
-    const value=field.value.trim();
-    if(!value)throw new Error("请提供 MUSIC_U");
-    try{
-      const state=await api("/api/admin/netease/import","POST",{music_u:value});
-      stopNeteaseLoginPolling();
-      $("netease-login-qr-image").removeAttribute("src");
-      displayNeteaseLoginStatus(state);
-      $("netease-cookie-import-panel").open=false;
-      toast("✓ 网易云网页登录态已验证并保存");
-    }finally{field.value="";}
-  },$("netease-cookie-import-submit"));
+const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection({
+  $, api, guarded, toast
 });
-$("netease-login-check").onclick=()=>guarded(checkNeteaseLogin,$("netease-login-check"));
-$("netease-login-start").onclick=()=>guarded(async()=>{
-  const state=await api("/api/admin/netease/qr","POST");
-  displayNeteaseLoginStatus(state);
-  if(state.qr_image){
-    $("netease-login-qr-image").src=state.qr_image;
-    $("netease-login-qr-box").classList.remove("hidden");
-    stopNeteaseLoginPolling();
-    neteaseLoginPolling=setInterval(checkNeteaseLogin,2500);
-  }
-},$("netease-login-start"));
-$("netease-login-disconnect").onclick=()=>guarded(async()=>{
-  stopNeteaseLoginPolling();
-  const wasConnected=!$("netease-login-disconnect").classList.contains("hidden") && $("netease-login-qr-box").classList.contains("hidden");
-  const state=await api("/api/admin/netease/disconnect","POST");
-  $("netease-login-qr-image").removeAttribute("src");
-  displayNeteaseLoginStatus(state);
-  toast(wasConnected?"已断开网易云连接":"已取消扫码");
-},$("netease-login-disconnect"));
-async function refreshAdminAccounts(){
-  const target=$("admin-account-list");
-  const data=await api("/api/admin/accounts");
-  target.replaceChildren();
-  if(!data.accounts.length){appendText(target,"p","本场尚未创建管理员","muted");return;}
-  data.accounts.forEach(account=>{
-    const item=appendText(target,"details","","account-entry");
-    appendText(item,"summary",account.username);
-    const actions=appendText(item,"div","","account-entry-actions");
-    const password=document.createElement("input");
-    password.type="password";password.autocomplete="new-password";
-    password.minLength=6;password.maxLength=72;password.placeholder="新密码";
-    password.setAttribute("aria-label","重置 "+account.username+" 的密码");
-    actions.append(password);
-    const reset=appendText(actions,"button","重置密码","btn neutral");
-    reset.type="button";
-    reset.onclick=()=>guarded(async()=>{
-      if(password.value.length<6)throw new Error("密码至少 6 个字符");
-      await api("/api/admin/accounts/"+account.id+"/password","PUT",{password:password.value});
-      password.value="";toast("密码已重置");
-    },reset);
-    const revoke=appendText(actions,"button","撤销账号","btn subtle");
-    revoke.type="button";
-    revoke.onclick=()=>guarded(async()=>{
-      if(!confirm("撤销管理员「"+account.username+"」？"))return;
-      await api("/api/admin/accounts/"+account.id,"DELETE");
-      toast("账号已撤销");await refreshAdminAccounts();
-    },revoke);
-  });
-}
-$("admin-accounts-panel").addEventListener("toggle",()=>{
-  if($("admin-accounts-panel").open && !$("admin-accounts-panel").classList.contains("hidden"))
-    guarded(refreshAdminAccounts);
+const {refreshAdminAccounts} = setupAdminAccounts({
+  $, api, guarded, toast, appendText
 });
-$("admin-account-create").onclick=()=>guarded(async()=>{
-  const username=$("admin-account-name").value.trim();
-  const password=$("admin-account-password").value;
-  if(!username||password.length<6)throw new Error("请输入用户名和至少 6 位的密码");
-  await api("/api/admin/accounts","POST",{username,password});
-  $("admin-account-name").value="";
-  $("admin-account-password").value="";
-  toast("本场管理员已创建");await refreshAdminAccounts();
-},$("admin-account-create"));
 async function refreshEvents(){
   const data=await api("/api/admin/events");
   if(adminCurrentEvent!==data.active){
