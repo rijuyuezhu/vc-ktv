@@ -5,11 +5,18 @@ import base64
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 
-from vc_ktv.netease_weapi import _IV, _PRESET_KEY, _PUBLIC_KEY, encode_weapi_form
+from vc_ktv.sources.netease_weapi import (
+    _IV,
+    _PRESET_KEY,
+    _PUBLIC_KEY,
+    encode_weapi_form,
+)
 
 
 def test_weapi_encrypt_decrypt_round_trip(monkeypatch):
-    monkeypatch.setattr("vc_ktv.netease_weapi.secrets.choice", lambda _alphabet: "A")
+    monkeypatch.setattr(
+        "vc_ktv.sources.netease_weapi.secrets.choice", lambda _alphabet: "A"
+    )
     payload = {"type": 1, "key": "this_is_a_temporary_qr_key", "noCheckToken": True}
     form = encode_weapi_form(payload)
     assert set(form) == {"params", "encSecKey"}

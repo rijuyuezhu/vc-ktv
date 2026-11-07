@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.netease_catalog import lookup_netease_song, normalize_song_metadata
+from vc_ktv.sources.netease_catalog import lookup_netease_song, normalize_song_metadata
 
 
 def sample_song(song_id=28391863):

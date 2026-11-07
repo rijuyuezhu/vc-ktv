@@ -4,8 +4,8 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.lyric_selection import _candidate
-from vc_ktv.timed_lyrics import project_provider_timeline
+from vc_ktv.lyrics.lyric_selection import _candidate
+from vc_ktv.lyrics.timed_lyrics import project_provider_timeline
 
 RAW = (
     "[ar:Artist]\n[00:01]画师：Alice\n[00:02]策划：Bob\n"

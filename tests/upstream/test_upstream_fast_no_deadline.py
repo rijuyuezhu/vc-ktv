@@ -4,9 +4,9 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
+import vc_ktv.processing.upstream_pipeline as upstream_pipeline
 from ktv_app.aligners import fast
 from ktv_app.timeline import Line, Timeline
-from vc_ktv import upstream_pipeline
 
 
 def test_fast_alignment_continues_after_160_seconds(monkeypatch, tmp_path):

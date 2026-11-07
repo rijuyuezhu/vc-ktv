@@ -9,8 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from vc_ktv.application.factory import create_app
-from vc_ktv.netease_login import NeteaseLogin, NeteaseLoginError
-from vc_ktv.netease_media import fetch_audio_url
+from vc_ktv.sources.netease_login import NeteaseLogin, NeteaseLoginError
+from vc_ktv.sources.netease_media import fetch_audio_url
 
 KEY = "test_QR_KEY_for_netease_00001"
 COOKIE = "test_MUSIC_U_cookie_private_123456789"

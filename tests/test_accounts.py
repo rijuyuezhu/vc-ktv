@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.accounts import password_hash, verify_password
 from vc_ktv.application.factory import create_app
+from vc_ktv.core.accounts import password_hash, verify_password
 
 
 def setup_room(tmp_path):

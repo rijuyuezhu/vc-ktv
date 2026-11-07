@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from vc_ktv.autoprep import AutoPrep
 from vc_ktv.core.store import Store
+from vc_ktv.processing.autoprep import AutoPrep
 
 
 def eventually(predicate, timeout=6):

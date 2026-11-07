@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.application.factory import create_app
-from vc_ktv.lyric_selection import _candidate
-from vc_ktv.netease_media import (
+from vc_ktv.lyrics.lyric_selection import _candidate
+from vc_ktv.sources.netease_media import (
     MusicUnavailable,
     assemble_album_video,
     download_limited,
@@ -136,7 +136,9 @@ def test_player_webapi_default_matches_go_musicfox_encode_type(monkeypatch):
     from Crypto.Cipher import AES
     from Crypto.Util.Padding import unpad
 
-    monkeypatch.setattr("vc_ktv.netease_weapi.secrets.choice", lambda _alphabet: "A")
+    monkeypatch.setattr(
+        "vc_ktv.sources.netease_weapi.secrets.choice", lambda _alphabet: "A"
+    )
     observed = []
 
     def handler(request):
@@ -156,7 +158,7 @@ def test_player_webapi_default_matches_go_musicfox_encode_type(monkeypatch):
 
     assert fetch_audio_url(42, transport=httpx.MockTransport(handler))
     form = parse_qs(observed[0].content.decode())
-    from vc_ktv.netease_weapi import _IV, _PRESET_KEY
+    from vc_ktv.sources.netease_weapi import _IV, _PRESET_KEY
 
     second = unpad(
         AES.new(b"A" * 16, AES.MODE_CBC, _IV).decrypt(
@@ -248,7 +250,7 @@ def test_large_netease_cover_download_has_no_artificial_limit(tmp_path):
 
 
 def test_netease_song_download_uses_full_cover_without_size_cap(tmp_path, monkeypatch):
-    from vc_ktv import netease_media
+    import vc_ktv.sources.netease_media as netease_media
 
     def fake_resolve(song_id, *, cookies, level):
         assert (song_id, level) == (42, "exhigh")
@@ -288,7 +290,7 @@ def test_netease_song_download_uses_full_cover_without_size_cap(tmp_path, monkey
 
 
 def test_download_tries_next_official_quality_on_cdn_rejection(tmp_path, monkeypatch):
-    from vc_ktv import netease_media
+    import vc_ktv.sources.netease_media as netease_media
 
     levels = []
 
@@ -320,7 +322,7 @@ def test_download_tries_next_official_quality_on_cdn_rejection(tmp_path, monkeyp
 
 
 def test_download_falls_back_to_official_download_api(tmp_path, monkeypatch):
-    from vc_ktv import netease_media
+    import vc_ktv.sources.netease_media as netease_media
 
     levels = []
     download_ids = []

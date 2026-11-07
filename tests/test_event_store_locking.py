@@ -2,8 +2,8 @@
 
 import threading
 
+from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store
-from vc_ktv.events import CurrentStore, Events
 
 
 def test_http_and_worker_do_not_share_unlocked_sqlite_transaction(tmp_path):

@@ -8,8 +8,8 @@ import soundfile as sf
 
 from ktv_app.config import Settings
 from ktv_app.timeline import Line, Timeline, Unit
-from vc_ktv.global_alignment import pronunciation_lyrics
-from vc_ktv.rough_timing import approximate_timeline, vocal_range
+from vc_ktv.rendering.global_alignment import pronunciation_lyrics
+from vc_ktv.rendering.rough_timing import approximate_timeline, vocal_range
 
 
 def test_unknown_scat_maps_to_approximate_pronunciation_preserving_display():
@@ -76,7 +76,8 @@ def _small_video(path):
 def test_unknown_vocable_preprocessing_produces_video_on_first_tifa_attempt(
     tmp_path, monkeypatch
 ):
-    from vc_ktv import global_alignment, upstream_pipeline
+    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.rendering.global_alignment as global_alignment
 
     video = tmp_path / "source.mp4"
     _small_video(video)
@@ -123,7 +124,8 @@ def test_unknown_vocable_preprocessing_produces_video_on_first_tifa_attempt(
 
 
 def test_no_models_at_all_still_makes_karaoke_mp4(tmp_path, monkeypatch):
-    from vc_ktv import global_alignment, upstream_pipeline
+    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.rendering.global_alignment as global_alignment
 
     video = tmp_path / "source.mp4"
     _small_video(video)
@@ -170,7 +172,8 @@ def test_no_models_at_all_still_makes_karaoke_mp4(tmp_path, monkeypatch):
 def test_kim_tifa_failure_tries_whole_song_original_mix_before_rough(
     tmp_path, monkeypatch
 ):
-    from vc_ktv import global_alignment, upstream_pipeline
+    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.rendering.global_alignment as global_alignment
 
     video = tmp_path / "source.mp4"
     _small_video(video)

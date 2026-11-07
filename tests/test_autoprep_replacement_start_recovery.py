@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.test_manual_casting_queue import add_song
 from vc_ktv.application.factory import create_app
-from vc_ktv.autoprep import AutoPrep
+from vc_ktv.processing.autoprep import AutoPrep
 
 
 @pytest.mark.parametrize("failure_kind", ("start", "started_then_error", "constructor"))

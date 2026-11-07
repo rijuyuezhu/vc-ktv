@@ -11,7 +11,7 @@ from pathlib import Path
 
 from textgrid import TextGrid
 
-from .textgrid_import import chars
+from vc_ktv.rendering.textgrid_import import chars
 
 
 def reconcile_lyrics(

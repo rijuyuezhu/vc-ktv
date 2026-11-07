@@ -8,9 +8,9 @@ import time
 from pathlib import Path
 from typing import Literal
 
-from ..disk_budget import EventDiskBudget
-from ..subtitle_styles import StylePreset
-from .titles import title_key
+from vc_ktv.core.titles import title_key
+from vc_ktv.infra.disk_budget import EventDiskBudget
+from vc_ktv.rendering.subtitle_styles import StylePreset
 
 
 def time_now():

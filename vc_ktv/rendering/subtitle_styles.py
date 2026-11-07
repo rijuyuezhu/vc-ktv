@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from .pipeline import Style
+from vc_ktv.pipeline import Style
 
 StylePreset = Literal["classic", "large", "compact"]
 DEFAULT_PRESET: StylePreset = "classic"

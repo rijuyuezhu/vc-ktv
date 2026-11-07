@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any, Mapping
 
-from .base import DownloadTools, SongInfo
+from vc_ktv.sources.base import DownloadTools, SongInfo
 
 
 class BilibiliSource:

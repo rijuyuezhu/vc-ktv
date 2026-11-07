@@ -12,9 +12,8 @@ from ktv_app.rendering import RenderOptions, capped_h264_args, render
 from ktv_app.subtitles import write_bundle
 from ktv_app.text_normalization import LEADING_CREDIT, clean_lyric_text
 from ktv_app.timeline import Line, Style, Timeline, Unit
-
-from ..config import pipeline_settings
-from ..upstream_pipeline import make_karaoke_video
+from vc_ktv.infra.config import pipeline_settings
+from vc_ktv.processing.upstream_pipeline import make_karaoke_video
 
 
 def primary_font_warning(font: str) -> str | None:

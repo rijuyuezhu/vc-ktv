@@ -1,9 +1,4 @@
-from ktv_app.aligners.anchor_policy import (
-    POLICY,
-    build_parts,
-    clean_tifa,
-    endpoints,
-)
+from ktv_app.aligners.anchor_policy import POLICY, build_parts, clean_tifa, endpoints
 from ktv_app.completion import complete_timeline, remove_estimates
 from ktv_app.subtitles import display_windows
 from ktv_app.timeline import Line, Style, Timeline, Unit, quality

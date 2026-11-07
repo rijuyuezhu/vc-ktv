@@ -4,7 +4,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from vc_ktv import autoprep, bilibili_media
+import vc_ktv.processing.autoprep as autoprep
+import vc_ktv.sources.bilibili_media as bilibili_media
 
 
 def test_only_trusted_cdn_hosts():

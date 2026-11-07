@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from vc_ktv.upstream_pipeline import make_karaoke_video, pipeline_settings
+from vc_ktv.processing.upstream_pipeline import make_karaoke_video, pipeline_settings
 
 
 def main():

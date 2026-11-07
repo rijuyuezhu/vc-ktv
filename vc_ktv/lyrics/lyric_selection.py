@@ -10,9 +10,9 @@ import logging
 
 import httpx
 
-from .lyric_sources import vcpedia_lyric_candidates
-from .pipeline import clean_lyric_text, title_variants
-from .timed_lyrics import provider_timeline
+from vc_ktv.lyrics.lyric_sources import vcpedia_lyric_candidates
+from vc_ktv.lyrics.timed_lyrics import provider_timeline
+from vc_ktv.pipeline import clean_lyric_text, title_variants
 
 log = logging.getLogger(__name__)
 HEADERS = {"User-Agent": "VC-KTV/0.5 (guest lyrics search)"}

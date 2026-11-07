@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import APIRouter, Cookie, HTTPException
 from pydantic import BaseModel, Field
 
-from ..accounts import password_hash
+from vc_ktv.core.accounts import password_hash
 
 
 class EventAdminCredentials(BaseModel):

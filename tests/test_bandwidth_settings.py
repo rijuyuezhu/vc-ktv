@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from vc_ktv import autoprep
+import vc_ktv.processing.autoprep as autoprep
 from vc_ktv.application.factory import create_app
 
 
@@ -174,7 +174,7 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
 def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path):
     import pytest
 
-    from vc_ktv.autoprep import render_upstream_video
+    from vc_ktv.processing.autoprep import render_upstream_video
 
     def stop_before_models(video, lyrics, folder, settings, **kwargs):
         assert kwargs["render_options"].max_video_kbps == 2616

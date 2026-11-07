@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import vc_ktv.processing.autoprep as autoprep
 from tests.test_stage_durations import ready_song
-from vc_ktv import autoprep
 
 
 @pytest.mark.parametrize("fault", ("stage_update", "stage_commit"))

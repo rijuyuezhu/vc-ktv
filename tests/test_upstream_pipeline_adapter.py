@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
+import vc_ktv.processing.upstream_pipeline as pipeline
 from ktv_app.config import Settings
 from ktv_app.timeline import Timeline, Unit
-from vc_ktv import upstream_pipeline as pipeline
 
 
 def fake_timeline(
@@ -195,7 +195,7 @@ def test_quality_best_effort_keeps_all_lyrics_and_renders_real_mp4(
     media, tmp_path, monkeypatch, failure, expected_stages
 ):
     """All recoverable failures still render full visible lyrics with original audio."""
-    import vc_ktv.upstream_pipeline as upstream
+    import vc_ktv.processing.upstream_pipeline as upstream
 
     lyrics = "扬州的风轻轻吹过\n你看见满天星星\n我们还可以再见\nDUDUDU DaLaDa"
     original_extract = upstream.extract

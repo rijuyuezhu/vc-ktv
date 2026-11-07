@@ -7,9 +7,9 @@ import httpx
 from fastapi import APIRouter, Cookie, HTTPException, Response
 from pydantic import BaseModel, Field
 
-from ..core.store import time_now
-from ..core.titles import title_key
-from ..sources import get_source
+from vc_ktv.core.store import time_now
+from vc_ktv.core.titles import title_key
+from vc_ktv.sources import get_source
 
 
 class Preview(BaseModel):

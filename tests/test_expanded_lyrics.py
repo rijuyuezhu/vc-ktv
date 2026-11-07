@@ -4,8 +4,8 @@ import asyncio
 
 import httpx
 
+import vc_ktv.lyrics.lyric_selection as lyrics
 from ktv_app.lyric_names import title_variants
-from vc_ktv import lyric_selection as lyrics
 
 
 def track(title, source, text, artist="初音ミク", identifier="123"):

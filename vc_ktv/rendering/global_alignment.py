@@ -9,9 +9,16 @@ import os
 import subprocess
 from pathlib import Path
 
-from .karaoke import parse_lrc
-from .pipeline import UNKNOWN_LATIN, Line, Timeline, Unit, pronunciation_lyrics, run
-from .textgrid_import import chars, convert_textgrid
+from vc_ktv.pipeline import (
+    UNKNOWN_LATIN,
+    Line,
+    Timeline,
+    Unit,
+    pronunciation_lyrics,
+    run,
+)
+from vc_ktv.rendering.karaoke import parse_lrc
+from vc_ktv.rendering.textgrid_import import chars, convert_textgrid
 
 
 def timeline_from_lrc(
@@ -155,7 +162,7 @@ def align_full_song(
     grid = out / "audio.TextGrid"
     if not grid.is_file():
         raise RuntimeError("整首 TIFA 未生成 TextGrid")
-    from .auto_textgrid_repair import reconcile_lyrics
+    from vc_ktv.rendering.auto_textgrid_repair import reconcile_lyrics
 
     repaired = None
     try:

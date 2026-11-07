@@ -10,10 +10,10 @@ from textgrid import IntervalTier, TextGrid
 from ktv_app.config import Settings
 from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Style
-from vc_ktv.auto_textgrid_repair import reconcile_lyrics
-from vc_ktv.global_alignment import align_full_song
-from vc_ktv.karaoke import parse_lrc
-from vc_ktv.textgrid_import import convert_textgrid
+from vc_ktv.rendering.auto_textgrid_repair import reconcile_lyrics
+from vc_ktv.rendering.global_alignment import align_full_song
+from vc_ktv.rendering.karaoke import parse_lrc
+from vc_ktv.rendering.textgrid_import import convert_textgrid
 
 
 def model_grid(path: Path, tokens):
@@ -55,7 +55,7 @@ def test_repair_only_missing_words_preserves_model_intervals(
 
 
 def test_best_effort_on_actual_pipeline_marks_one_word_estimated(tmp_path, monkeypatch):
-    from vc_ktv import global_alignment
+    import vc_ktv.rendering.global_alignment as global_alignment
 
     source = tmp_path / "in.mp4"
     source.write_bytes(b"no-media-needed")
@@ -107,7 +107,7 @@ def test_best_effort_on_actual_pipeline_marks_one_word_estimated(tmp_path, monke
 
 
 def test_automatic_millisecond_stamp_preserves_tifa_1ms_intervals(tmp_path):
-    from vc_ktv.global_alignment import timeline_from_lrc
+    from vc_ktv.rendering.global_alignment import timeline_from_lrc
 
     raw = model_grid(
         tmp_path / "subcentisecond.TextGrid",
@@ -129,8 +129,11 @@ def test_manual_strict_import_remains_strict(tmp_path):
 @pytest.mark.parametrize("drop_index", [None, 0, 2, 7, 13, 20])
 def test_repeated_scat_lyrics_roundtrip_best_effort(tmp_path, drop_index):
     """BV1yVQFBNEPn: DUDUDU, DUDUDUDU and DaLaDa must survive to output."""
-    from vc_ktv.global_alignment import pronunciation_lyrics, timeline_from_lrc
-    from vc_ktv.textgrid_import import chars
+    from vc_ktv.rendering.global_alignment import (
+        pronunciation_lyrics,
+        timeline_from_lrc,
+    )
+    from vc_ktv.rendering.textgrid_import import chars
 
     lyrics = (
         "太阳该是什么颜色\n"

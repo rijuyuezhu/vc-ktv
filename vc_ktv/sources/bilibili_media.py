@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .disk_budget import check_current_budget
+from vc_ktv.infra.disk_budget import check_current_budget
 
 log = logging.getLogger(__name__)
 BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")

@@ -2,7 +2,7 @@
 
 import pytest
 
-from vc_ktv.netease_source import parse_netease_song_id
+from vc_ktv.sources.netease_reference import parse_netease_song_id
 
 
 @pytest.mark.parametrize(

@@ -8,13 +8,13 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
 from vc_ktv.application.factory import create_app
-from vc_ktv.lyric_selection import search_lyric_candidates
+from vc_ktv.lyrics.lyric_selection import search_lyric_candidates
 
 api_module = importlib.import_module("vc_ktv.api.lyrics")
 
 
 def test_fast_provider_never_waits_for_slow_external_sources(monkeypatch):
-    from vc_ktv import lyric_selection as source
+    import vc_ktv.lyrics.lyric_selection as source
 
     async def fast_lrclib(query):
         return [dict(title=query, text="第一句歌词\n第二句歌词", source="LRCLIB")]
@@ -37,7 +37,7 @@ def test_fast_provider_never_waits_for_slow_external_sources(monkeypatch):
 
 
 def test_optional_more_sources_are_not_in_fast_vcpedia_search(monkeypatch):
-    from vc_ktv import lyric_selection as source
+    import vc_ktv.lyrics.lyric_selection as source
 
     async def fast(query):
         return [dict(title=query, text="第一句\n第二句", source="VCPedia")]
