@@ -15,6 +15,7 @@ from vc_ktv.application.common import MEDIA_MIMES
 from vc_ktv.application.schemas import Lyrics, RenderRequest
 from vc_ktv.core.store import Store, time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
+from vc_ktv.processing.media_preparation import normalize_hevc_source
 from vc_ktv.rendering.karaoke import render_video, write_ass
 from vc_ktv.rendering.textgrid_import import convert_textgrid
 
@@ -175,6 +176,12 @@ def create_preparation_admin_router(
                 bail(507, str(error))
             if not size:
                 bail(400, "视频为空")
+            target = await run_in_threadpool(
+                normalize_hevc_source,
+                target,
+                force_h264=store.settings()["force_h264_originals"],
+            )
+            store.disk_budget.check()
             try:
                 actual_duration = await run_in_threadpool(app.state.probe, target)
             except ValueError as error:
