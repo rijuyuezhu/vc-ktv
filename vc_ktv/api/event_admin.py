@@ -27,6 +27,7 @@ class PlaybackSettings(BaseModel):
     max_bandwidth_mbps: float | None = Field(default=None, ge=1)
     orders_paused: bool | None = None
     tv_html_overlay: bool | None = None
+    force_h264_originals: bool | None = None
 
 
 def create_event_admin_router(
@@ -70,6 +71,7 @@ def create_event_admin_router(
                 body.max_bandwidth_mbps,
                 body.orders_paused,
                 body.tv_html_overlay,
+                body.force_h264_originals,
             )
 
     @router.post("/api/admin/events/{event_id}/release-media")

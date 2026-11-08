@@ -21,6 +21,7 @@ from vc_ktv.infra.disk_budget import (
 from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.processing.media_preparation import (
     media_download,
+    normalize_hevc_source,
     prepare_tv_source,
     render_provider_video,
     render_upstream_video,
@@ -262,6 +263,7 @@ class AutoPrep:
                 settings = self.store.settings()
                 if row["status"] == "waiting":
                     claimed["video_quality"] = settings["video_quality"]
+                    claimed["force_h264_originals"] = settings["force_h264_originals"]
                 else:
                     claimed["style_preset"] = settings["subtitle_style"]
                     claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
@@ -445,6 +447,10 @@ class AutoPrep:
                     cookies=self.netease_cookies,
                     video_quality_keyword=self.download is media_download,
                 ),
+            )
+            check_current_budget()
+            path = normalize_hevc_source(
+                path, force_h264=row.get("force_h264_originals", False)
             )
             check_current_budget()
             actual_duration = self.probe(path)

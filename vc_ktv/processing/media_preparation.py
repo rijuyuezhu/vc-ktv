@@ -97,6 +97,80 @@ def media_download(
     return public_media_download(bvid, page, directory, max_height=max_height)
 
 
+def normalize_hevc_source(path: Path, *, force_h264: bool = False) -> Path:
+    """Normalize incompatible video codecs before the original is published."""
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    # The existing media probe validates malformed inputs before publication.
+    if result.returncode:
+        return path
+    codec = result.stdout.strip()
+    if codec != "hevc" and not (force_h264 and codec not in ("", "h264")):
+        return path
+
+    output = path.with_name(path.stem + "-h264.mp4")
+    converted = False
+    try:
+        subprocess.run(
+            [
+                os.environ.get("KTV_FFMPEG", "ffmpeg"),
+                "-nostdin",
+                "-v",
+                "error",
+                "-y",
+                "-i",
+                str(path),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-map_metadata",
+                "0",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "23",
+                "-preset",
+                "fast",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(output),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        if output.stat().st_size < 1024:
+            raise ValueError("H.264 conversion yielded an empty video")
+        if path.suffix.lower() == ".mp4":
+            output.replace(path)
+            converted = True
+            return path
+        path.unlink()
+        converted = True
+        return output
+    finally:
+        if not converted:
+            output.unlink(missing_ok=True)
+
+
 def prepare_tv_source(
     source: Path, archive: Path, duration: float, bandwidth_mbps: float
 ) -> None:
