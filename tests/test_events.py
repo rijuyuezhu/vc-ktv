@@ -285,7 +285,7 @@ def test_manual_render_worker_stays_with_own_event(tmp_path, monkeypatch):
         assert release.wait(5)
         destination.write_bytes(b"rendered")
 
-    monkeypatch.setattr("vc_ktv.api.preparation_admin.render_video", delayed_render)
+    monkeypatch.setattr("vc_ktv.processing.manual_render.render_video", delayed_render)
     with TestClient(app) as admin, TestClient(app) as guest:
         admin_login(admin)
         old = admin.post("/api/admin/events", json={"name": "Old"}).json()

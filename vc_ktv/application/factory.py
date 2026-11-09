@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import os
-import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -45,8 +44,8 @@ from vc_ktv.application.playback import PlaybackService
 from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store, time_now
 from vc_ktv.infra.media_pins import MediaPins
-from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.lyrics.lyric_selection import netease_song_lyrics, search_lyric_candidates
+from vc_ktv.processing.manual_render import ManualRenderManager
 from vc_ktv.processing.worker import AutoPrep
 from vc_ktv.sources.netease_catalog import lookup_netease_song
 from vc_ktv.sources.netease_discovery import (
@@ -91,6 +90,7 @@ def create_app(
     media = MediaService(store, events, auth, media_pins)
     orders = OrderService(store, events)
     playback = PlaybackService(store, orders)
+    manual = ManualRenderManager(store, events)
     netease_login = NeteaseLogin(
         storage_path=root / ".private" / "netease-session.json"
     )
@@ -148,6 +148,7 @@ def create_app(
     app.state.auth = auth
     app.state.orders = orders
     app.state.playback = playback
+    app.state.manual_render = manual
     app.state.autoprep = worker
     app.state.media_pins = media_pins
     app.state.media = media
@@ -164,23 +165,11 @@ def create_app(
     lyric_search_times = {}
 
     app.state.probe = probe_media
-    render_slot = threading.BoundedSemaphore(1)
-    rendering = threading.Event()
-    manual_render_threads: dict[int, int] = {}
-    manual_render_lock = threading.RLock()
-
-    def stop_manual_renders() -> None:
-        with manual_render_lock:
-            for tid in list(manual_render_threads.values()):
-                terminate_thread_children(tid)
-
-    worker.cancel_external_tasks = stop_manual_renders
+    worker.cancel_external_tasks = manual.stop_all
 
     def stop_song_processing(song_id: int) -> None:
         worker.cancel_song(song_id)
-        with manual_render_lock:
-            if tid := manual_render_threads.get(song_id):
-                terminate_thread_children(tid)
+        manual.stop_song(song_id)
 
     @app.middleware("http")
     async def origin_check(request: Request, call_next):
@@ -247,10 +236,10 @@ def create_app(
             publish_worker=publish_worker,
             probe_media=probe_media,
             netease_login=netease_login,
-            stop_manual_renders=stop_manual_renders,
+            stop_manual_renders=manual.stop_all,
             is_running=lambda: running,
             auto_prepare=auto_prepare,
-            rendering=rendering,
+            rendering=manual.rendering,
         )
     )
 
@@ -336,10 +325,7 @@ def create_app(
             require_admin=auth.require_admin,
             check_room_capacity=orders.check_room_capacity,
             check_guest_capacity=orders.check_guest_capacity,
-            render_slot=render_slot,
-            rendering=rendering,
-            manual_render_threads=manual_render_threads,
-            manual_render_lock=manual_render_lock,
+            manual=manual,
         )
     )
 

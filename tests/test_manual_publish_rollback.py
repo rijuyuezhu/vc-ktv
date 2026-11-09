@@ -66,7 +66,7 @@ def test_manual_render_publication_failure_keeps_previous_video(
         worker_started.set()
         destination.write_bytes(b"new-video")
 
-    monkeypatch.setattr("vc_ktv.api.preparation_admin.render_video", fake_render)
+    monkeypatch.setattr("vc_ktv.processing.manual_render.render_video", fake_render)
 
     with TestClient(app) as admin:
         assert (
