@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import heapq
 import sqlite3
 import threading
 import time
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Literal
 
@@ -321,24 +323,35 @@ class Store:
         previous = last[0] if last else ""
         if current and not current["fair_exempt"]:
             previous = current["requester"]
+        # Each singer's oldest request is the only eligible candidate.
+        # A heap avoids repeatedly scanning/removing the entire song list.
+        songs_by_user = defaultdict(deque)
+        for song in ready:
+            songs_by_user[song["requester_id"]].append(song)
+
+        def candidate(user):
+            song = songs_by_user[user][0]
+            return (tally[user], song["requested_at"], song["id"], user)
+
+        heads = [candidate(user) for user in songs_by_user]
+        heapq.heapify(heads)
         output = []
-        while ready:
-            head = {}
-            for s in ready:
-                head.setdefault(s["requester_id"], s)
-            chosen = min(
-                head.values(),
-                key=lambda s: (
-                    tally[s["requester_id"]],
-                    s["requester_id"] == previous,
-                    s["requested_at"],
-                    s["id"],
-                ),
-            )
+        while heads:
+            first = heapq.heappop(heads)
+            # The previous singer loses ties at the same accumulated count.
+            # The heap orders by timestamp; only this one tie needs adjusting.
+            if first[3] == previous and heads and heads[0][0] == first[0]:
+                chosen_head = heapq.heappop(heads)
+                heapq.heappush(heads, first)
+            else:
+                chosen_head = first
+            user = chosen_head[3]
+            chosen = songs_by_user[user].popleft()
             output.append(chosen)
-            tally[chosen["requester_id"]] += 1
-            previous = chosen["requester_id"]
-            ready.remove(chosen)
+            tally[user] += 1
+            previous = user
+            if songs_by_user[user]:
+                heapq.heappush(heads, candidate(user))
         return priority + output
 
     @staticmethod
