@@ -304,7 +304,7 @@ def create_app(
 
     app.include_router(
         create_cancellation_router(
-            store=store,
+            playback=playback,
             require_admin=auth.require_admin,
             require_user=auth.require_user,
             stop_song_processing=lifecycle.stop_song,

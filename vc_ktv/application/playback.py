@@ -12,6 +12,37 @@ class PlaybackService:
         self.store = store
         self.orders = orders
 
+    def cancel_song(self, song_id: int, *, guest_id: str | None = None) -> dict:
+        """Cancel an unstarted song in one transaction before stopping its worker."""
+        with self.store.lock:
+            if guest_id is not None:
+                row = self.store.db.execute(
+                    "SELECT requester FROM songs WHERE id=?", (song_id,)
+                ).fetchone()
+                if not row:
+                    bail(404, "歌曲不存在")
+                if row["requester"] != guest_id:
+                    bail(403, "只能取消自己点的歌曲")
+            try:
+                updated = self.store.db.execute(
+                    "UPDATE songs SET status='cancelled' WHERE id=? "
+                    "AND status IN ('waiting','ready','rendering')",
+                    (song_id,),
+                )
+                if not updated.rowcount:
+                    self.store.db.rollback()
+                    bail(
+                        409,
+                        "歌曲已经开始播放，无法取消"
+                        if guest_id is not None
+                        else "只能取消尚未播放的歌曲",
+                    )
+                self.store.db.commit()
+            except sqlite3.Error:
+                self.store.db.rollback()
+                raise
+        return {"ok": True}
+
     def claim_next(self) -> None:
         """Claim without interrupting a player; caller keeps lock through its view."""
         with self.store.lock:
