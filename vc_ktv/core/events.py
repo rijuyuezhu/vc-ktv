@@ -331,15 +331,20 @@ class CurrentStore:
 
     @contextmanager
     def _locked(self):
-        # Lock order is Events -> Store; AutoPrep takes only Store.lock.
-        # HTTP and workers must never commit each other's SQLite writes.
+        # Pin the selected event for the entire Store transaction. Closing a
+        # session waits for these pins, so Events.lock need not be held while
+        # waiting for or using the worker-shared SQLite mutex.
         with self.events.lock:
             current = self.events.current_store
             if current is None:
                 yield
-            else:
-                with current.lock:
-                    yield
+                return
+            self.events.inflight += 1
+        try:
+            with current.lock:
+                yield
+        finally:
+            self.events.end_request()
 
     def __getattr__(self, name):
         return getattr(self.events.active(), name)
