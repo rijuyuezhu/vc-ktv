@@ -1,5 +1,6 @@
+import {$, api, guarded, toast, appendText} from "./ui-common.js";
 // Global administrator's event-specific admin-account controls.
-export function setupAdminAccounts({$, api, guarded, toast, appendText}) {
+export function setupAdminAccounts() {
 async function refreshAdminAccounts(){
   const target=$("admin-account-list");
   const data=await api("/api/admin/accounts");

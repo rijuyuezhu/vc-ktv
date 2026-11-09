@@ -1,6 +1,7 @@
+import {$, api, toast, guarded} from "./ui-common.js";
 // Primary-screen lifecycle and status polling for the administrator page.
 // Backend owns the actual single-primary and administrator permission rules.
-export function setupTVPrimary({$, api, toast, guarded, isAdminPath, getPlayback, updateRemoteControls}) {
+export function setupTVPrimary({isAdminPath, getPlayback, updateRemoteControls}) {
 let tvPrimaryState=null;
 let tvRemoteState=null;
 let remoteStatusInFlight=null;

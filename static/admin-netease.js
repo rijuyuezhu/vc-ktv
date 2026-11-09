@@ -1,5 +1,6 @@
+import {$, api, guarded, toast} from "./ui-common.js";
 // NetEase login connection UI; only this module owns its QR polling timers.
-export function setupNeteaseConnection({$, api, guarded, toast}) {
+export function setupNeteaseConnection() {
 let neteaseLoginPolling=null;
 let neteaseLoginChecking=false;
 function stopNeteaseLoginPolling(){

@@ -1,5 +1,6 @@
+import {$, api, guarded, toast} from "./ui-common.js";
 // Event playback, queue and media configuration forms.
-export function setupAdminSettings({$, api, guarded, toast, refresh, invalidateQueueState}) {
+export function setupAdminSettings({refresh, invalidateQueueState}) {
   let settingsEventId=null;
   async function refreshAdminSettings(activeId){
   if(!activeId){settingsEventId=null;return;}
