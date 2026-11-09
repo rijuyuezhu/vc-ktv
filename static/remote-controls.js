@@ -1,6 +1,6 @@
 import {$, api, error, toast} from "./ui-common.js";
 // Administrator volume, song transport and TV remote presentation.
-// Ownership and playback lifecycle remain in app.js.
+// Playback lifecycle is owned by admin-playback.js.
 export function setupRemoteControls({refresh, finishActive, getState, player}) {
 function clock(seconds){
   return Number.isFinite(seconds)?Math.floor(seconds/60)+":"+

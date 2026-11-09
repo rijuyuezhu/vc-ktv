@@ -26,6 +26,7 @@ def app_scripts(root):
             "lyrics.js",
             "song-requests.js",
             "remote-controls.js",
+            "admin-playback.js",
             "tv-primary.js",
             "admin-events.js",
             "admin-settings.js",
@@ -77,30 +78,64 @@ def test_song_request_actions_are_loaded_from_a_module():
 def test_admin_remote_controller_is_loaded_from_module():
     root = Path(__file__).resolve().parents[1] / "static"
     main = (root / "app.js").read_text()
+    playback = (root / "admin-playback.js").read_text()
     remote = (root / "remote-controls.js").read_text()
-    assert 'import {setupRemoteControls} from "./remote-controls.js";' in main
+    assert 'import {setupAdminPlayback} from "./admin-playback.js";' in main
+    assert 'import {setupRemoteControls} from "./remote-controls.js";' in playback
     assert "export function setupRemoteControls(" in remote
     assert (
         "getState:()=>({playbackMode,currentAdminSong,nextAdminSong,currentMediaId,"
-        in main
+        in playback
     )
-    assert "...primaryTV.state()" in main
-    assert "const {updateRemoteControls} = setupRemoteControls({" in main
+    assert "...primaryTV.state()" in playback
+    assert "const {updateRemoteControls} = setupRemoteControls({" in playback
     assert '$("remote-pause").onclick=' in remote
-    assert "function updatePlaybackUI()" in main
+    assert "function updatePlaybackUI()" in playback
+    assert "await adminPlayback.syncFromAdminState(adm,changed);" in main
 
 
 def test_primary_tv_management_lives_in_its_own_module():
     root = Path(__file__).resolve().parents[1] / "static"
     main = (root / "app.js").read_text()
+    playback = (root / "admin-playback.js").read_text()
     primary = (root / "tv-primary.js").read_text()
-    assert 'import {setupTVPrimary} from "./tv-primary.js";' in main
+    assert 'import {setupAdminPlayback} from "./admin-playback.js";' in main
+    assert 'import {setupTVPrimary} from "./tv-primary.js";' in playback
     assert "export function setupTVPrimary(" in primary
-    assert "const primaryTV=setupTVPrimary({" in main
+    assert "const primaryTV=setupTVPrimary({" in playback
     assert "state:()=>({tvPrimaryState,tvRemoteState})" in primary
-    assert "...primaryTV.state()" in main
+    assert "...primaryTV.state()" in playback
     for action in ("tv-link-btn", "tv-copy-btn", "tv-revoke-btn"):
         assert f'$("{action}").onclick=' in primary
+
+
+def test_admin_playback_state_and_browser_media_have_one_owner():
+    root = Path(__file__).resolve().parents[1] / "static"
+    main = (root / "app.js").read_text()
+    playback = (root / "admin-playback.js").read_text()
+    assert "export function setupAdminPlayback({" in playback
+    assert "const adminPlayback=setupAdminPlayback({" in main
+    assert "await adminPlayback.syncFromAdminState(adm,changed)" in main
+    assert "setInterval(adminPlayback.pollTVRemoteStatus,1000)" in main
+    assert "if(!await adminPlayback.prepareLogout())return;" in main
+    assert "adminPlayback.resetPlayer();" in main
+    for state in (
+        "currentMediaId",
+        "currentAdminSong",
+        "nextAdminSong",
+        "manualMode",
+        "playbackMode",
+    ):
+        assert f"let {state}" in playback
+        assert f"let {state}" not in main
+    for method in (
+        "async function playNext()",
+        "async function finishActive(",
+        "async function assignPlayer(",
+        "function updatePlaybackUI()",
+    ):
+        assert method in playback
+        assert method not in main
 
 
 def test_admin_account_and_netease_connection_modules():
@@ -155,6 +190,7 @@ def test_shared_ui_helpers_have_explicit_es_module_imports():
         "lyrics.js",
         "song-requests.js",
         "remote-controls.js",
+        "admin-playback.js",
         "tv-primary.js",
         "admin-events.js",
         "admin-settings.js",
@@ -189,6 +225,7 @@ def test_app_ui_omits_middle_dot_separator():
         "lyrics.js",
         "song-requests.js",
         "remote-controls.js",
+        "admin-playback.js",
         "tv-primary.js",
         "admin-events.js",
         "admin-settings.js",
