@@ -22,6 +22,7 @@ def app_scripts(root):
         (root / name).read_text()
         for name in (
             "app.js",
+            "song-detail.js",
             "lyrics.js",
             "song-requests.js",
             "remote-controls.js",
@@ -45,6 +46,21 @@ def test_lyric_picker_is_loaded_as_a_module():
     assert "export function createLyricPicker(" in lyrics
     assert "const {openLyricPicker} = lyricPicker;" in main
     assert "selectedSongId:()=>selectingSongId" in lyrics
+
+
+def test_song_detail_and_manual_lyric_editor_have_one_owner():
+    root = Path(__file__).resolve().parents[1] / "static"
+    main = (root / "app.js").read_text()
+    detail = (root / "song-detail.js").read_text()
+    assert 'import {setupSongDetail} from "./song-detail.js";' in main
+    assert "export function setupSongDetail({" in detail
+    assert "const {refreshSongDetail,invalidateSongDetail}=setupSongDetail({" in main
+    assert "invalidateSongDetail();playedKey=null;" in main
+    assert "async function refreshSongDetail()" in detail
+    assert "async function editLyrics(songId, songTitle)" in detail
+    assert "const key=JSON.stringify([song,isAdminPath()])" in detail
+    assert "return {refreshSongDetail,invalidateSongDetail};" in detail
+    assert "popupSongId" not in main and "detailKey" not in main
 
 
 def test_song_request_actions_are_loaded_from_a_module():
@@ -135,6 +151,7 @@ def test_shared_ui_helpers_have_explicit_es_module_imports():
     common = (root / "ui-common.js").read_text()
     for feature in (
         "app.js",
+        "song-detail.js",
         "lyrics.js",
         "song-requests.js",
         "remote-controls.js",
@@ -168,6 +185,7 @@ def test_app_ui_omits_middle_dot_separator():
     for file in (
         "index.html",
         "app.js",
+        "song-detail.js",
         "lyrics.js",
         "song-requests.js",
         "remote-controls.js",
