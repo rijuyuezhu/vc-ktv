@@ -1,13 +1,9 @@
 """FastAPI composition root: assemble stores, workers, auth and domain routers."""
 
 import asyncio
-import hashlib
-import hmac
-import ipaddress
 import json
 import logging
 import os
-import sqlite3
 import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -37,6 +33,7 @@ from vc_ktv.api.playback import create_playback_router
 from vc_ktv.api.preparation_admin import create_preparation_admin_router
 from vc_ktv.api.song_sources import create_song_source_router
 from vc_ktv.api.tv import create_tv_router
+from vc_ktv.application.auth import AuthService
 from vc_ktv.application.common import (
     MAX_ACTIVE_SONGS,
     MAX_USER_SONGS,
@@ -94,6 +91,7 @@ def create_app(
         probe_media,
         gpu_alignment=gpu_alignment,
     )
+    auth = AuthService(events, store, password, secret)
     netease_login = NeteaseLogin(
         storage_path=root / ".private" / "netease-session.json"
     )
@@ -148,6 +146,7 @@ def create_app(
             netease_login.close()
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
+    app.state.auth = auth
     app.state.autoprep = worker
     app.state.media_pins = media_pins
     app.state.store = store
@@ -161,26 +160,6 @@ def create_app(
     app.state.candidate_search = search_lyric_candidates
     app.state.netease_lyrics = netease_song_lyrics
     lyric_search_times = {}
-    failed_login = {}
-    failed_invites = {}
-    failed_users = {}
-    trusted_proxy_ips = {
-        str(ipaddress.ip_address(value.strip()))
-        for value in os.getenv("VC_KTV_TRUSTED_PROXY_IPS", "").split(",")
-        if value.strip()
-    }
-
-    def client_ip(request: Request) -> str:
-        peer = request.client.host if request.client else "unknown"
-        if peer in trusted_proxy_ips:
-            # The trusted proxy MUST overwrite X-Real-IP, not forward a user
-            # supplied value. Never trust forwarding headers from other peers.
-            forwarded = request.headers.get("x-real-ip", "")
-            try:
-                return str(ipaddress.ip_address(forwarded))
-            except ValueError:
-                pass
-        return peer
 
     def pinned_media_response(path: Path, **kwargs) -> PinnedFileResponse:
         # Caller holds store.lock while choosing the path and making this hard
@@ -237,106 +216,8 @@ def create_app(
             if tid := manual_render_threads.get(song_id):
                 terminate_thread_children(tid)
 
-    def sign(kind: str, value: str, ttl: int) -> str:
-        expiry = str(time_now() + ttl)
-        payload = f"{kind}.{value}.{expiry}"
-        sig = hmac.new(secret, payload.encode(), hashlib.sha256).hexdigest()
-        return payload + "." + sig
-
-    def read_signed(token: str | None, kind: str) -> str | None:
-        if not token:
-            return None
-        try:
-            k, value, exp, mac = token.split(".")
-            msg = f"{k}.{value}.{exp}"
-            correct = hmac.new(secret, msg.encode(), hashlib.sha256).hexdigest()
-            if (
-                k == kind
-                and int(exp) >= time_now()
-                and hmac.compare_digest(mac, correct)
-            ):
-                return value
-        except (ValueError, TypeError):
-            pass
-        return None
-
-    def require_guest(token):
-        raw = read_signed(token, "guest")
-        prefix = events.active_id + ":" if events.active_id else ""
-        return raw[len(prefix) :] if raw and prefix and raw.startswith(prefix) else None
-
-    def current_user(token):
-        guest = require_guest(token)
-        if not guest or not events.active_id:
-            return None
-        with store.lock:
-            row = store.db.execute(
-                "SELECT g.id,g.name FROM users u JOIN guests g ON g.id=u.id WHERE u.id=?",
-                (guest,),
-            ).fetchone()
-        return dict(row) if row else None
-
-    def require_user(token):
-        user = current_user(token)
-        if not user:
-            bail(401, "请先加入本场 KTV 并登录")
-        return user
-
-    def require_entry(token):
-        if not events.active_id or read_signed(token, "entry") != events.active_id:
-            bail(401, "请先输入本场六位加入码")
-
-    def user_cookie(response, user_id, event_id):
-        ttl = 7 * 86400
-        response.set_cookie(
-            "vc_guest",
-            sign("guest", f"{event_id}:{user_id}", ttl),
-            max_age=ttl,
-            httponly=True,
-            samesite="strict",
-            path="/",
-        )
-
-    def admin_principal(token):
-        """Validate scope and current account revision on every request."""
-        identity = read_signed(token, "admin")
-        if identity == "yes":
-            return {"role": "global"}
-        if not identity or not events.active_id:
-            return None
-        parts = identity.split(":")
-        if len(parts) != 3 or parts[0] != events.active_id:
-            return None
-        event_id, account_id, revision = parts
-        with store.lock:
-            row = store.db.execute(
-                "SELECT id,username,revision FROM event_admins WHERE id=?",
-                (account_id,),
-            ).fetchone()
-        if row is None or str(row["revision"]) != revision:
-            return None
-        return {
-            "role": "event",
-            "event_id": event_id,
-            "id": account_id,
-            "username": row["username"],
-            "revision": row["revision"],
-        }
-
-    def require_admin(token):
-        principal = admin_principal(token)
-        if principal is None:
-            bail(401, "需要管理员登录")
-        return principal
-
-    def require_global_admin(token):
-        principal = require_admin(token)
-        if principal["role"] != "global":
-            bail(403, "仅全局管理员可操作")
-        return principal
-
     def signed_media(song: dict) -> str:
-        return f"/media/{song['id']}?token={quote(sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
+        return f"/media/{song['id']}?token={quote(auth.sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
 
     def overlay_bundle(song: dict):
         """Use the nearest matching subtitle archive along replay_of lineage."""
@@ -416,8 +297,12 @@ def create_app(
                     return None
             except (OSError, ValueError, TypeError):
                 return None
-        media_token = quote(sign("media", f"{events.active_id}:{song['id']}", 8 * 3600))
-        tv_token = quote(sign("overlay", f"{events.active_id}:{song['id']}", 8 * 3600))
+        media_token = quote(
+            auth.sign("media", f"{events.active_id}:{song['id']}", 8 * 3600)
+        )
+        tv_token = quote(
+            auth.sign("overlay", f"{events.active_id}:{song['id']}", 8 * 3600)
+        )
         return {
             "source_url": f"/media/{song['id']}/source?token={media_token}",
             "timeline_url": f"/api/tv/subtitles/{song['id']}?token={tv_token}",
@@ -481,60 +366,14 @@ def create_app(
         meta = events.metadata()
         return {"event": {"id": meta["id"], "name": meta["name"]} if meta else None}
 
-    def archived_guest_event(token: str | None):
-        identity = read_signed(token, "guest")
-        if not identity or ":" not in identity:
-            return None
-        event_id, user_id = identity.split(":", 1)
-        if event_id == events.active_id:
-            return None
-        with events.lock:
-            event = next(
-                (
-                    e
-                    for e in events.list()
-                    if e["id"] == event_id and e["status"] == "closed"
-                ),
-                None,
-            )
-            if not event:
-                return None
-            try:
-                path = events.database_path(event_id)
-                with sqlite3.connect(
-                    f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
-                ) as db:
-                    row = db.execute(
-                        "SELECT username FROM users WHERE id=?", (user_id,)
-                    ).fetchone()
-            except sqlite3.Error:
-                return None
-            return (
-                {"id": event_id, "name": event["name"], "username": row[0]}
-                if row
-                else None
-            )
+    app.include_router(create_guest_auth_router(auth=auth, store=store, events=events))
 
     app.include_router(
-        create_guest_auth_router(
-            events=events,
-            store=store,
-            current_user=current_user,
-            read_signed=read_signed,
-            archived_guest_event=archived_guest_event,
-            require_entry=require_entry,
-            client_ip=client_ip,
-            sign=sign,
-            user_cookie=user_cookie,
-            failed_invites=failed_invites,
-            failed_users=failed_users,
-        )
+        create_netease_admin_router(netease_login, auth.require_global_admin)
     )
 
-    app.include_router(create_netease_admin_router(netease_login, require_global_admin))
-
     event_history_router, export_event_songs = create_event_history_router(
-        events, require_admin
+        events, auth.require_admin
     )
     app.include_router(event_history_router)
 
@@ -547,8 +386,8 @@ def create_app(
         create_event_admin_router(
             store=store,
             events=events,
-            require_admin=require_admin,
-            require_global_admin=require_global_admin,
+            require_admin=auth.require_admin,
+            require_global_admin=auth.require_global_admin,
             export_event_songs=export_event_songs,
             get_worker=lambda: worker,
             publish_worker=publish_worker,
@@ -591,9 +430,9 @@ def create_app(
                 "guests": [],
                 "server_time": time_now(),
             }
-        user = current_user(vc_guest)
-        if user is None and admin_principal(vc_admin) is None:
-            require_user(vc_guest)
+        user = auth.current_user(vc_guest)
+        if user is None and auth.admin_principal(vc_admin) is None:
+            auth.require_user(vc_guest)
         guest = user["id"] if user else None
         snapshot = store.state()
         for song in [*snapshot["queue"], *snapshot["waiting"]]:
@@ -608,9 +447,9 @@ def create_app(
         create_song_source_router(
             app,
             get_bvid=get_bvid,
-            current_user=current_user,
-            admin_principal=admin_principal,
-            require_user=require_user,
+            current_user=auth.current_user,
+            admin_principal=auth.admin_principal,
+            require_user=auth.require_user,
             check_new_order=check_new_order,
         )
     )
@@ -620,27 +459,20 @@ def create_app(
             app=app,
             store=store,
             events=events,
-            require_user=require_user,
-            require_admin=require_admin,
+            require_user=auth.require_user,
+            require_admin=auth.require_admin,
             gpu_alignment=gpu_alignment,
-            sign=sign,
-            read_signed=read_signed,
+            sign=auth.sign,
+            read_signed=auth.read_signed,
             lyric_search_times=lyric_search_times,
         )
     )
 
-    app.include_router(create_admin_accounts_router(app, require_global_admin))
+    app.include_router(create_admin_accounts_router(app, auth.require_global_admin))
 
     app.include_router(
         create_admin_session_router(
-            store=store,
-            events=events,
-            password=password,
-            client_ip=client_ip,
-            sign=sign,
-            require_admin=require_admin,
-            state_with_active=state_with_active,
-            failed_login=failed_login,
+            auth=auth, events=events, state_with_active=state_with_active
         )
     )
 
@@ -649,7 +481,7 @@ def create_app(
             app=app,
             store=store,
             events=events,
-            require_admin=require_admin,
+            require_admin=auth.require_admin,
             check_room_capacity=check_room_capacity,
             check_guest_capacity=check_guest_capacity,
             render_slot=render_slot,
@@ -661,8 +493,8 @@ def create_app(
 
     playback_router, next_impl, finish_impl, schedule_replay = create_playback_router(
         store=store,
-        require_admin=require_admin,
-        require_user=require_user,
+        require_admin=auth.require_admin,
+        require_user=auth.require_user,
         active_view=active_view,
         check_new_order=check_new_order,
         check_room_capacity=check_room_capacity,
@@ -673,9 +505,9 @@ def create_app(
         create_tv_router(
             store=store,
             events=events,
-            require_admin=require_admin,
-            read_signed=read_signed,
-            sign=sign,
+            require_admin=auth.require_admin,
+            read_signed=auth.read_signed,
+            sign=auth.sign,
             state_with_active=state_with_active,
             schedule_replay=schedule_replay,
             signed_media=signed_media,
@@ -688,18 +520,18 @@ def create_app(
     app.include_router(
         create_history_router(
             app,
-            current_user=current_user,
-            admin_principal=admin_principal,
-            require_user=require_user,
-            archived_guest_event=archived_guest_event,
+            current_user=auth.current_user,
+            admin_principal=auth.admin_principal,
+            require_user=auth.require_user,
+            archived_guest_event=auth.archived_guest_event,
         )
     )
 
     app.include_router(
         create_cancellation_router(
             store=store,
-            require_admin=require_admin,
-            require_user=require_user,
+            require_admin=auth.require_admin,
+            require_user=auth.require_user,
             stop_song_processing=stop_song_processing,
         )
     )
@@ -708,8 +540,8 @@ def create_app(
         create_download_router(
             store=store,
             events=events,
-            admin_principal=admin_principal,
-            require_user=require_user,
+            admin_principal=auth.admin_principal,
+            require_user=auth.require_user,
             pinned_media_response=pinned_media_response,
         )
     )
@@ -718,7 +550,7 @@ def create_app(
         create_media_router(
             store=store,
             events=events,
-            read_signed=read_signed,
+            read_signed=auth.read_signed,
             overlay_view=overlay_view,
             overlay_archive=overlay_archive,
             overlay_bundle=overlay_bundle,

@@ -1,68 +1,18 @@
 """Administrator login, logout and authenticated state."""
 
-import hmac
+from fastapi import APIRouter, Cookie, Request, Response
 
-from fastapi import APIRouter, Cookie, HTTPException, Request, Response
-
+from vc_ktv.application.auth import AuthService
 from vc_ktv.application.schemas import Login
-from vc_ktv.core.accounts import verify_password
-from vc_ktv.core.store import time_now
 
 
-def create_admin_session_router(
-    *,
-    store,
-    events,
-    password,
-    client_ip,
-    sign,
-    require_admin,
-    state_with_active,
-    failed_login,
-):
+def create_admin_session_router(*, auth: AuthService, events, state_with_active):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.post("/api/admin/login")
     def login(body: Login, request: Request, response: Response):
-        ip = client_ip(request)
-        key = (ip, body.username.strip() if body.username else "")
-        recent = [t for t in failed_login.get(key, []) if t > time_now() - 300]
-        if len(recent) >= 10:
-            bail(429, "登录尝试过于频繁，请稍后重试")
-        identity = None
-        if body.username is None or not body.username.strip():
-            if hmac.compare_digest(body.password, password):
-                identity = "yes"
-        elif events.active_id:
-            with store.lock:
-                account = store.db.execute(
-                    "SELECT id,password_hash,revision FROM event_admins WHERE username=?",
-                    (body.username.strip(),),
-                ).fetchone()
-                if (
-                    account
-                    and len(body.password) <= 72
-                    and verify_password(body.password, account["password_hash"])
-                ):
-                    identity = (
-                        f"{events.active_id}:{account['id']}:{account['revision']}"
-                    )
-        if identity is None:
-            recent.append(time_now())
-            failed_login[key] = recent
-            bail(401, "用户名或密码错误")
-        failed_login.pop(key, None)
-        response.set_cookie(
-            "vc_admin",
-            sign("admin", identity, 7 * 86400),
-            max_age=7 * 86400,
-            httponly=True,
-            samesite="strict",
-            path="/",
-        )
+        identity = auth.authenticate_admin(body.username, body.password, request)
+        auth.admin_cookie(response, identity)
         return {"ok": True}
 
     @router.post("/api/admin/logout")
@@ -72,7 +22,7 @@ def create_admin_session_router(
 
     @router.get("/api/admin/state")
     def admin_state(vc_admin: str | None = Cookie(default=None)):
-        require_admin(vc_admin)
+        auth.require_admin(vc_admin)
         if not events.active_id:
             return {
                 "current": None,

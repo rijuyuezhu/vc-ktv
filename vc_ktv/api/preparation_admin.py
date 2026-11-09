@@ -8,10 +8,10 @@ import threading
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, File, HTTPException, UploadFile
+from fastapi import APIRouter, Cookie, File, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from vc_ktv.application.common import MEDIA_MIMES
+from vc_ktv.application.common import MEDIA_MIMES, bail
 from vc_ktv.application.schemas import Lyrics, RenderRequest
 from vc_ktv.core.store import Store, time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
@@ -34,9 +34,6 @@ def create_preparation_admin_router(
     manual_render_lock,
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.post("/api/admin/songs/{song_id}/subtitles/retry")
     def retry_subtitles(song_id: int, vc_admin: str | None = Cookie(default=None)):

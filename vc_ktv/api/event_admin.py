@@ -5,9 +5,10 @@ import shutil
 from collections.abc import Callable
 from typing import Literal
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field
 
+from vc_ktv.application.common import bail
 from vc_ktv.processing.worker import AutoPrep
 from vc_ktv.rendering.subtitle_styles import StylePreset
 
@@ -47,9 +48,6 @@ def create_event_admin_router(
     rendering,
 ) -> APIRouter:
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/admin/settings")
     def get_playback_settings(vc_admin: str | None = Cookie(default=None)):

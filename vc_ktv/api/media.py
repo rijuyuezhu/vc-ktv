@@ -3,7 +3,9 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+
+from vc_ktv.application.common import bail
 
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
@@ -19,9 +21,6 @@ def create_media_router(
     pinned_media_response,
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/media/{song_id}/source")
     def serve_source(song_id: int, token: str = ""):

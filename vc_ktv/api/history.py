@@ -5,8 +5,9 @@ import sqlite3
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
 
+from vc_ktv.application.common import bail
 from vc_ktv.core.store import Store
 from vc_ktv.core.titles import title_key
 
@@ -22,9 +23,6 @@ def create_history_router(
     router = APIRouter()
     store = app.state.store
     events = app.state.events
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/songs/history")
     def guest_song_history(vc_guest: str | None = Cookie(default=None)):
