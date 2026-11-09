@@ -1,5 +1,6 @@
+import {$, api, guarded, toast, error, appendText, duration} from "./ui-common.js";
 // Guest Bilibili preview, NetEase lookup and song request actions.
-export function setupSongRequests({$, api, guarded, toast, error, appendText, duration, refresh, openLyricPicker}) {
+export function setupSongRequests({refresh, openLyricPicker}) {
   let preview = null;
 
 async function fetchPreview(page=1) {

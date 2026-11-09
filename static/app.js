@@ -5,8 +5,8 @@ import {setupTVPrimary} from "./tv-primary.js";
 import {setupRemoteControls} from "./remote-controls.js";
 import {setupSongRequests} from "./song-requests.js";
 import {createLyricPicker} from "./lyrics.js";
+import {$, api, toast, error, guarded, duration, appendText} from "./ui-common.js";
 "use strict";
-const $ = (id) => document.getElementById(id);
 let admin = false;
 let currentMediaId = null;
 let manualMode = false;
@@ -14,7 +14,6 @@ let playbackMode = "tv";
 let currentAdminSong = null;
 let nextAdminSong = null;
 let popupSongId = null;
-let toastTimer = null;
 let refreshing = false;
 let refreshQueued = false;
 let refreshFailed = false;
@@ -33,43 +32,6 @@ let playedKey = null;
 const player = $("player");
 
 
-function toast(message, error=false) {
-  clearTimeout(toastTimer);
-  const t = $("toast"); t.textContent = message;
-  t.className = "show" + (error ? " error" : "");
-  toastTimer = setTimeout(() => { t.className = ""; }, 4800);
-}
-async function api(url, method="GET", body=null, signal=null) {
-  let opts = {method, credentials:"same-origin", cache:"no-store", signal};
-  if (body !== null) {
-    if (body instanceof FormData) opts.body = body;
-    else { opts.headers = {"Content-Type":"application/json"}; opts.body = JSON.stringify(body); }
-  }
-  const res = await fetch(url, opts);
-  let data;
-  try { data = await res.json(); } catch { data = {}; }
-  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-  return data;
-}
-function error(e) {toast(e.message || "操作失败", true);}
-async function guarded(action, button=null) {
-  try {
-    if (button) button.disabled = true;
-    return await action();
-  } catch (e) { error(e); }
-  finally { if (button) button.disabled = false; }
-}
-function duration(n) {
-  n = Math.round(Number(n) || 0);
-  return `${Math.floor(n/60)}:${String(n%60).padStart(2,"0")}`;
-}
-function appendText(parent, tag, text, cls="") {
-  const el = document.createElement(tag);
-  el.textContent = text;
-  if (cls) el.className = cls;
-  parent.append(el);
-  return el;
-}
 function songSource(song){
   return song.source_type==="netease"?
     {label:"🎵 网易云",copyLabel:"网易云链接",ref:song.source_id?
@@ -389,14 +351,10 @@ async function refreshSongDetail(){
   }
 }
 
-const lyricPicker = createLyricPicker({
-  $, api, toast, error, guarded, appendText, refresh, cancelGuestSong
-});
+const lyricPicker = createLyricPicker({refresh, cancelGuestSong});
 const {openLyricPicker} = lyricPicker;
 
-setupSongRequests({
-  $, api, guarded, toast, error, appendText, duration, refresh, openLyricPicker
-});
+setupSongRequests({refresh, openLyricPicker});
 
 const isAdminPath=()=>window.location.pathname.replace(/\/$/, "")==="/admin";
 function currentRoute(){return window.location.hash.replace(/^#\/?/, "");}
@@ -526,7 +484,7 @@ $("account-logout").onclick=()=>guarded(async()=>{
   await refresh();
 },$("account-logout"));
 const primaryTV=setupTVPrimary({
-  $, api, toast, guarded, isAdminPath,
+  isAdminPath,
   getPlayback:()=>({admin,playbackMode}),
   updateRemoteControls:()=>updateRemoteControls()
 });
@@ -544,7 +502,7 @@ $("skip-btn").onclick=()=>guarded(async()=>{
 },$("skip-btn"));
 
 const {updateRemoteControls} = setupRemoteControls({
-  $, api, error, toast, refresh, finishActive, player,
+  refresh, finishActive, player,
   getState:()=>({playbackMode,currentAdminSong,nextAdminSong,currentMediaId,
     ...primaryTV.state()})
 });
@@ -683,12 +641,8 @@ $("lyrics-save").onclick=()=>guarded(async()=>{
   await api(`/api/admin/songs/${popupSongId}/lyrics`,"POST",{text:$("lyrics-textarea").value});
   $("lyrics-dialog").close();toast("已保存参考歌词");await refresh();
 },$("lyrics-save"));
-const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection({
-  $, api, guarded, toast
-});
-const {refreshAdminAccounts} = setupAdminAccounts({
-  $, api, guarded, toast, appendText
-});
+const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection();
+const {refreshAdminAccounts} = setupAdminAccounts();
 async function refreshEvents(){
   const data=await api("/api/admin/events");
   if(adminCurrentEvent!==data.active){
@@ -794,7 +748,7 @@ async function refreshEvents(){
   await refreshAdminSettings(active?.id||null);
 }
 const {refreshAdminSettings} = setupAdminSettings({
-  $, api, guarded, toast, refresh,
+  refresh,
   invalidateQueueState:()=>{adminStateKey=null;listKeys.clear();}
 });
 $("event-create-btn").onclick=()=>guarded(async()=>{

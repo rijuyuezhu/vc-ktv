@@ -1,5 +1,6 @@
+import {$, api, toast, error, guarded, appendText} from "./ui-common.js";
 // Lyric candidate search, review, timing selection and dialog lifecycle.
-export function createLyricPicker({$, api, toast, error, guarded, appendText, refresh, cancelGuestSong}) {
+export function createLyricPicker({refresh, cancelGuestSong}) {
   let selectingSongId = null;
   let selectionRequest = 0;
   let lyricControllers = [];

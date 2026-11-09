@@ -1,6 +1,7 @@
+import {$, api, error, toast} from "./ui-common.js";
 // Administrator volume, song transport and TV remote presentation.
 // Ownership and playback lifecycle remain in app.js.
-export function setupRemoteControls({$, api, error, toast, refresh, finishActive, getState, player}) {
+export function setupRemoteControls({refresh, finishActive, getState, player}) {
 function clock(seconds){
   return Number.isFinite(seconds)?Math.floor(seconds/60)+":"+
     String(Math.floor(seconds%60)).padStart(2,"0"):"0:00";

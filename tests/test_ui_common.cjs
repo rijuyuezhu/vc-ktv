@@ -1,0 +1,65 @@
+"use strict";
+
+const {test} = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+async function loadUI() {
+  // Common UI primitives are native browser ES modules; test without a bundler.
+  const source = fs.readFileSync(path.join(__dirname, "../static/ui-common.js"));
+  return import("data:text/javascript;base64," + source.toString("base64"));
+}
+
+test("shared UI helpers preserve API, button and DOM semantics", async () => {
+  const {api, guarded, duration, appendText, toast, error} = await loadUI();
+  const before = {fetch: global.fetch, document: global.document,
+    setTimeout: global.setTimeout, clearTimeout: global.clearTimeout};
+  const calls = [];
+  const toastElement = {textContent: "", className: ""};
+  const created = [];
+  global.fetch = async (url, options) => {
+    calls.push([url, options]);
+    if (url === "/error") return {ok: false, status: 409,
+      json: async () => ({detail: "歌曲已切换"})};
+    return {ok: true, json: async () => ({ok: true})};
+  };
+  global.document = {
+    getElementById: () => toastElement,
+    createElement: (tag) => {
+      const el = {tag, textContent: "", className: ""};
+      created.push(el);
+      return el;
+    }
+  };
+  global.setTimeout = (_, delay) => {assert.equal(delay, 4800); return 7;};
+  global.clearTimeout = () => {};
+  try {
+    assert.equal(duration(61.4), "1:01");
+    assert.equal(duration(0), "0:00");
+    assert.deepEqual(await api("/health"), {ok: true});
+    assert.deepEqual(await api("/api/songs", "POST", {ref: "42"}), {ok: true});
+    assert.equal(calls[0][1].credentials, "same-origin");
+    assert.equal(calls[0][1].cache, "no-store");
+    assert.deepEqual(JSON.parse(calls[1][1].body), {ref: "42"});
+    assert.equal(calls[1][1].headers["Content-Type"], "application/json");
+    await assert.rejects(api("/error"), /歌曲已切换/);
+    const parent = {children: [], append(node) {this.children.push(node);}};
+    const child = appendText(parent, "span", "歌曲", "title");
+    assert.equal(child.textContent, "歌曲");
+    assert.equal(child.className, "title");
+    assert.equal(parent.children[0], child);
+    assert.equal(created[0].tag, "span");
+    const button = {disabled: false};
+    assert.equal(await guarded(async () => "ok", button), "ok");
+    assert.equal(button.disabled, false);
+    toast("完成");
+    assert.equal(toastElement.textContent, "完成");
+    assert.equal(toastElement.className, "show");
+    error(new Error("失败"));
+    assert.equal(toastElement.className, "show error");
+    assert.equal(toastElement.textContent, "失败");
+  } finally {
+    Object.assign(global, before);
+  }
+});
