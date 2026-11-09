@@ -133,23 +133,29 @@ class AutoPrep:
                 with self.active_tasks_lock:
                     song_ids = list(self.active_tasks)
                 with self.store.lock:
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='unavailable',prep_attempts=3,"
-                        "prep_retry_at=0,prep_error=? WHERE status='waiting' "
-                        "AND prep_state='downloading'",
-                        ("本场 200 GiB 磁盘预算已用尽",),
-                    )
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='original',prep_error=? "
-                        "WHERE status='ready' AND prep_state='aligning'",
-                        ("本场 200 GiB 磁盘预算已用尽",),
-                    )
-                    self.store.db.execute(
-                        "UPDATE songs SET status='ready',render_error=? "
-                        "WHERE status='rendering'",
-                        ("本场 200 GiB 磁盘预算已用尽",),
-                    )
-                    self.store.db.commit()
+                    try:
+                        self.store.db.execute(
+                            "UPDATE songs SET prep_state='unavailable',prep_attempts=3,"
+                            "prep_retry_at=0,prep_error=? WHERE status='waiting' "
+                            "AND prep_state='downloading'",
+                            ("本场 200 GiB 磁盘预算已用尽",),
+                        )
+                        self.store.db.execute(
+                            "UPDATE songs SET prep_state='original',prep_error=? "
+                            "WHERE status='ready' AND prep_state='aligning'",
+                            ("本场 200 GiB 磁盘预算已用尽",),
+                        )
+                        self.store.db.execute(
+                            "UPDATE songs SET status='ready',render_error=? "
+                            "WHERE status='rendering'",
+                            ("本场 200 GiB 磁盘预算已用尽",),
+                        )
+                        self.store.db.commit()
+                    except sqlite3.Error:
+                        self.store.db.rollback()
+                        log.exception(
+                            "Failed to mark disk-full songs; watcher will retry"
+                        )
                 for song_id in song_ids:
                     self.cancel_song(song_id)
                 self.cancel_external_tasks()
