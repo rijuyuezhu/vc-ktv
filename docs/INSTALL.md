@@ -1,17 +1,16 @@
 # 安装与运行
 
-以 Debian/Ubuntu + Python 3.12 为例。把 `OWNER` 换成仓库所有者；需要 GitHub 仓库访问权限和 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
+以 Debian/Ubuntu + Python 3.12 为例，需要 [uv](https://docs.astral.sh/uv/getting-started/installation/)。
 
 ## 安装基础服务
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y git gh curl ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
+sudo apt-get install -y git curl ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
 # 安装 uv（已安装可跳过）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # 将 uv 加入 PATH 后：
-gh auth login
-gh repo clone OWNER/vc-ktv
+git clone https://github.com/rijuyuezhu/vc-ktv.git
 cd vc-ktv
 uv sync --locked
 ./scripts/setup.sh
@@ -46,7 +45,7 @@ VC_KTV_GPU_ALIGNMENT=0 uv run --no-sync python -m vc_ktv
 
 ```sh
 sudo apt-get install -y espeak-ng
-uv run --no-sync python -m scripts.setup_spark_assets all
+uv run --no-sync python -m scripts.setup_pipeline_assets all
 
 export VC_KTV_PIPELINE_ROOT="$HOME/.local/share/vc-ktv/pipeline"
 CUDA_VENV="$VC_KTV_PIPELINE_ROOT/runtime/cuda-torch"
@@ -55,13 +54,13 @@ uv pip install --python "$CUDA_VENV/bin/python" --torch-backend cu130 \
   'torch==2.13.0+cu130' 'torchaudio==2.11.0+cu130'
 uv run --no-sync python -m scripts.setup_tifa_runtime \
   --root "$VC_KTV_PIPELINE_ROOT" --torch-python "$CUDA_VENV/bin/python"
-uv run --no-sync python -m scripts.setup_spark_runtimes all --root "$VC_KTV_PIPELINE_ROOT"
+uv run --no-sync python -m scripts.setup_pipeline_runtimes all --root "$VC_KTV_PIPELINE_ROOT"
 uv run --no-sync python -m scripts.check_install --mode gpu
 uv run --no-sync python -m scripts.gpu_smoke
 uv run --no-sync python -m vc_ktv
 ```
 
-该 CUDA 安装组合已在 Linux ARM64 / WSL 环境使用。其他 CUDA 版本请先确认对应的 PyTorch 包可用。
+该 CUDA 安装组合已在 Linux AArch64 / CUDA 13.0 环境验证。其他架构和 CUDA 版本请先确认对应的 PyTorch 包可用。
 
 ## 常用配置
 

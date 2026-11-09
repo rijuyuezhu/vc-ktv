@@ -59,7 +59,7 @@ def test_existing_tifa_runtime_is_not_touched(tmp_path, monkeypatch):
 
 
 def test_missing_assets_or_cuda_source_never_create_runtime(tmp_path, monkeypatch):
-    with pytest.raises(FileNotFoundError, match="run setup_spark_assets"):
+    with pytest.raises(FileNotFoundError, match="run setup_pipeline_assets"):
         tifa.setup(tmp_path, tmp_path / "missing-python")
     source_tree(tmp_path)
     monkeypatch.setattr(tifa.platform, "system", lambda: "Linux")

@@ -5,8 +5,8 @@ import sys
 from pathlib import Path
 
 from ktv_app import model_runtime
-from scripts.setup_spark_assets import ASSETS, selected
-from vc_ktv.processing.upstream_pipeline import spark_settings
+from scripts.setup_pipeline_assets import ASSETS, selected
+from vc_ktv.infra.config import pipeline_settings
 
 
 def test_upstream_pin_and_manifest_consistent():
@@ -32,9 +32,9 @@ def test_upstream_pin_and_manifest_consistent():
     assert len(list(selected("qwen"))) >= 5
 
 
-def test_spark_settings_use_one_permanent_pipeline_root(tmp_path):
+def test_pipeline_settings_use_one_permanent_pipeline_root(tmp_path):
     root = tmp_path / "pipeline"
-    settings = spark_settings(root)
+    settings = pipeline_settings(root)
     assert settings.tifa_python == root / "runtime/tifa/bin/python"
     assert settings.tifa_source == root / "models/forced_alignment/sources/TIFA"
     assert (

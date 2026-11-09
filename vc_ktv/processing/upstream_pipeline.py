@@ -19,11 +19,6 @@ from ktv_app.rendering import RenderOptions, render
 from ktv_app.separation import prepare_alignment_audio
 from ktv_app.subtitles import write_bundle
 from ktv_app.timeline import Style
-from vc_ktv.infra.config import pipeline_settings
-
-# Kept as a compatibility alias for existing scripts; the runtime-specific
-# installation layout is now configured in vc_ktv.config.
-spark_settings = pipeline_settings
 
 
 @dataclass(frozen=True)
