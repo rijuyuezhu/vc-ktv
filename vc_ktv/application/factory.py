@@ -39,6 +39,7 @@ from vc_ktv.application.common import (
     vcpedia_find,
 )
 from vc_ktv.application.event_lifecycle import EventLifecycle
+from vc_ktv.application.guest_lyrics import LyricSelectionService
 from vc_ktv.application.media import MediaService
 from vc_ktv.application.orders import OrderService
 from vc_ktv.application.playback import PlaybackService
@@ -89,6 +90,7 @@ def create_app(
         gpu_alignment=gpu_alignment,
     )
     auth = AuthService(events, store, password, secret)
+    lyric_selection = LyricSelectionService(store, events, auth, gpu_alignment)
     media = MediaService(store, events, auth, media_pins)
     orders = OrderService(store, events)
     playback = PlaybackService(store, orders)
@@ -132,6 +134,7 @@ def create_app(
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.auth = auth
+    app.state.lyric_selection = lyric_selection
     app.state.orders = orders
     app.state.playback = playback
     app.state.tv_session = tv
@@ -151,7 +154,6 @@ def create_app(
     app.state.lyrics_lookup = vcpedia_find
     app.state.candidate_search = search_lyric_candidates
     app.state.netease_lyrics = netease_song_lyrics
-    lyric_search_times = {}
 
     app.state.probe = probe_media
 
@@ -271,19 +273,7 @@ def create_app(
         )
     )
 
-    app.include_router(
-        create_lyrics_router(
-            app=app,
-            store=store,
-            events=events,
-            require_user=auth.require_user,
-            require_admin=auth.require_admin,
-            gpu_alignment=gpu_alignment,
-            sign=auth.sign,
-            read_signed=auth.read_signed,
-            lyric_search_times=lyric_search_times,
-        )
-    )
+    app.include_router(create_lyrics_router(app=app, lyrics=lyric_selection))
 
     app.include_router(create_admin_accounts_router(app, auth.require_global_admin))
 
