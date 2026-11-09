@@ -47,3 +47,32 @@ def test_stage_tracker_ignores_unknown_and_duplicate_messages(tmp_path):
         assert "render" in provider.finish()
     finally:
         store.db = original
+
+
+def test_stage_tracker_zero_row_update_closes_transaction(tmp_path):
+    store, _, song_id = ready_song(tmp_path)
+    # Song is not aligning, so the guarded progress UPDATE affects no rows.
+    assert not store.db.in_transaction
+    progress = SubtitleProgress(store, song_id, {}, time.monotonic())
+    progress("读取原视频并提取音频")
+    assert not store.db.in_transaction
+    assert (
+        store.db.execute(
+            "SELECT prep_stage FROM songs WHERE id=?", (song_id,)
+        ).fetchone()[0]
+        == ""
+    )
+    # Later updates must not accidentally inherit the progress transaction.
+    with store.lock:
+        store.db.execute(
+            "UPDATE songs SET prep_state='aligning' WHERE id=?", (song_id,)
+        )
+        store.db.commit()
+    progress("Kim 分离用于推理的人声")
+    assert not store.db.in_transaction
+    assert (
+        store.db.execute(
+            "SELECT prep_stage FROM songs WHERE id=?", (song_id,)
+        ).fetchone()[0]
+        == "kim"
+    )
