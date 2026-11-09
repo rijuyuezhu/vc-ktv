@@ -26,6 +26,7 @@ def app_scripts(root):
             "song-requests.js",
             "remote-controls.js",
             "tv-primary.js",
+            "admin-events.js",
             "admin-settings.js",
             "admin-accounts.js",
             "admin-netease.js",
@@ -89,14 +90,17 @@ def test_primary_tv_management_lives_in_its_own_module():
 def test_admin_account_and_netease_connection_modules():
     root = Path(__file__).resolve().parents[1] / "static"
     main = (root / "app.js").read_text()
+    events = (root / "admin-events.js").read_text()
     accounts = (root / "admin-accounts.js").read_text()
     netease = (root / "admin-netease.js").read_text()
-    assert 'import {setupAdminAccounts} from "./admin-accounts.js";' in main
-    assert 'import {setupNeteaseConnection} from "./admin-netease.js";' in main
-    assert "const {refreshAdminAccounts} = setupAdminAccounts();" in main
+    assert 'import {setupAdminEvents} from "./admin-events.js";' in main
+    assert "const {refreshEvents,leaveNeteasePage}=setupAdminEvents({" in main
+    assert 'import {setupAdminAccounts} from "./admin-accounts.js";' in events
+    assert 'import {setupNeteaseConnection} from "./admin-netease.js";' in events
+    assert "const {refreshAdminAccounts} = setupAdminAccounts();" in events
     assert (
         "const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection();"
-        in main
+        in events
     )
     assert 'from "./ui-common.js";' in accounts
     assert 'from "./ui-common.js";' in netease
@@ -105,18 +109,21 @@ def test_admin_account_and_netease_connection_modules():
     assert "let neteaseLoginPolling=null;" in netease
     assert "async function refreshAdminAccounts()" in accounts
     assert "async function refreshNeteaseLogin()" in netease
-    assert "adminAccountsEventId" in main
-    assert "neteaseLoginPageActive" in main
+    assert "adminAccountsEventId" in events
+    assert "neteaseLoginPageActive" in events
+    assert "leaveNeteasePage();" in main
 
 
 def test_event_settings_are_owned_by_a_module():
     root = Path(__file__).resolve().parents[1] / "static"
     main = (root / "app.js").read_text()
+    events = (root / "admin-events.js").read_text()
     settings = (root / "admin-settings.js").read_text()
-    assert 'import {setupAdminSettings} from "./admin-settings.js";' in main
+    assert 'import {setupAdminEvents} from "./admin-events.js";' in main
+    assert 'import {setupAdminSettings} from "./admin-settings.js";' in events
     assert "export function setupAdminSettings(" in settings
-    assert "const {refreshAdminSettings} = setupAdminSettings({" in main
-    assert "await refreshAdminSettings(active?.id||null)" in main
+    assert "const {refreshAdminSettings} = setupAdminSettings({" in events
+    assert "await refreshAdminSettings(active?.id||null)" in events
     assert "let settingsEventId=null;" in settings
     assert "document.activeElement" in settings
     assert "invalidateQueueState();" in settings
@@ -132,6 +139,7 @@ def test_shared_ui_helpers_have_explicit_es_module_imports():
         "song-requests.js",
         "remote-controls.js",
         "tv-primary.js",
+        "admin-events.js",
         "admin-settings.js",
         "admin-accounts.js",
         "admin-netease.js",
@@ -164,6 +172,7 @@ def test_app_ui_omits_middle_dot_separator():
         "song-requests.js",
         "remote-controls.js",
         "tv-primary.js",
+        "admin-events.js",
         "admin-settings.js",
         "admin-accounts.js",
         "admin-netease.js",
