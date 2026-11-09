@@ -1,14 +1,13 @@
 """Song-source search, previews and submissions (HTTP boundaries only)."""
 
-import sqlite3
 from collections.abc import Callable
 
 import httpx
-from fastapi import APIRouter, Cookie, Response
+from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field
 
 from vc_ktv.application.common import bail
-from vc_ktv.core.store import time_now
+from vc_ktv.application.orders import OrderService
 from vc_ktv.core.titles import title_key
 from vc_ktv.sources import get_source
 
@@ -33,7 +32,7 @@ def create_song_source_router(
     current_user: Callable,
     admin_principal: Callable,
     require_user: Callable,
-    check_new_order: Callable[[str], None],
+    orders: OrderService,
 ) -> APIRouter:
     router = APIRouter()
     events = app.state.events
@@ -93,37 +92,23 @@ def create_song_source_router(
     @router.post("/api/songs")
     async def request_song(
         body: RequestSong,
-        response: Response,
         vc_guest: str | None = Cookie(default=None),
     ):
         user = require_user(vc_guest)
         guest = user["id"]
         event_id = events.active_id
         with store.lock:
-            check_new_order(guest)
+            orders.check_new_order(guest)
         info = await app.state.lookup(get_bvid(body.bvid), body.page)
         metadata = get_source("bilibili").metadata(info, ref=body.bvid, page=body.page)
-        with store.lock:
-            if events.active_id != event_id:
-                bail(409, "场次已变化，请在新场次重新点歌")
-            # Recheck under the same lock as insertion: parallel requests
-            # cannot overfill the room or bypass a newly enabled pause.
-            check_new_order(guest)
-            try:
-                cur = store.db.execute(
-                    """
-                    INSERT INTO songs(
-                        bvid,page,title,uploader,cover,duration,requester,requested_at,
-                        source_type,source_id
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    metadata.db_values(guest, time_now()),
-                )
-                store.db.commit()
-            except sqlite3.Error:
-                store.db.rollback()
-                raise
+        new_id = orders.submit(
+            guest,
+            event_id,
+            metadata,
+            changed_message="场次已变化，请在新场次重新点歌",
+        )
         return {
-            "id": cur.lastrowid,
+            "id": new_id,
             "status": "waiting",
             "title": info["title"],
             "lyric_query": title_key(info["title"]),
@@ -143,7 +128,7 @@ def create_song_source_router(
             bail(502, "网易云分享链接暂时无法解析")
         event_id = events.active_id
         with store.lock:
-            check_new_order(user["id"])
+            orders.check_new_order(user["id"])
         try:
             info = await app.state.netease_lookup(song_id)
         except LookupError:
@@ -151,24 +136,14 @@ def create_song_source_router(
         except (httpx.HTTPError, ValueError, TypeError):
             bail(502, "网易云歌曲信息暂不可用")
         metadata = get_source("netease").metadata(info, ref=str(song_id))
-        with store.lock:
-            if events.active_id != event_id:
-                bail(409, "场次已变化，请重新点歌")
-            check_new_order(user["id"])
-            try:
-                cur = store.db.execute(
-                    """INSERT INTO songs(
-                         bvid,page,title,uploader,cover,duration,requester,requested_at,
-                         source_type,source_id
-                       ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    metadata.db_values(user["id"], time_now()),
-                )
-                store.db.commit()
-            except sqlite3.Error:
-                store.db.rollback()
-                raise
+        new_id = orders.submit(
+            user["id"],
+            event_id,
+            metadata,
+            changed_message="场次已变化，请重新点歌",
+        )
         return {
-            "id": cur.lastrowid,
+            "id": new_id,
             "status": "waiting",
             "title": info["title"],
             "lyric_query": title_key(info["title"]),

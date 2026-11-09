@@ -35,19 +35,16 @@ from vc_ktv.api.song_sources import create_song_source_router
 from vc_ktv.api.tv import create_tv_router
 from vc_ktv.application.auth import AuthService
 from vc_ktv.application.common import (
-    MAX_ACTIVE_SONGS,
-    MAX_USER_SONGS,
     STATIC,
     PinnedFileResponse,
-    bail,
     bilibili_lookup,
     get_bvid,
     probe_media,
     vcpedia_find,
 )
+from vc_ktv.application.orders import OrderService
 from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store, time_now
-from vc_ktv.infra.disk_budget import DiskBudgetExceeded
 from vc_ktv.infra.media_pins import MediaPins
 from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.lyrics.lyric_selection import netease_song_lyrics, search_lyric_candidates
@@ -92,6 +89,7 @@ def create_app(
         gpu_alignment=gpu_alignment,
     )
     auth = AuthService(events, store, password, secret)
+    orders = OrderService(store, events)
     netease_login = NeteaseLogin(
         storage_path=root / ".private" / "netease-session.json"
     )
@@ -147,6 +145,7 @@ def create_app(
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.auth = auth
+    app.state.orders = orders
     app.state.autoprep = worker
     app.state.media_pins = media_pins
     app.state.store = store
@@ -166,36 +165,6 @@ def create_app(
         # link. FileResponse opens the file only after its route returns.
         pinned = media_pins.pin(path)
         return PinnedFileResponse(pinned, **kwargs)
-
-    def check_room_capacity():
-        count = store.db.execute(
-            "SELECT COUNT(*) FROM songs WHERE status IN ('rendering','ready','playing')"
-            " OR (status='waiting' AND NOT "
-            "(prep_state='unavailable' AND prep_attempts>=3))"
-        ).fetchone()[0]
-        if count >= MAX_ACTIVE_SONGS:
-            bail(409, "本场待处理歌曲已满，请稍后再点歌")
-        try:
-            store.disk_budget.check()
-        except DiskBudgetExceeded as error:
-            bail(507, str(error))
-
-    def check_guest_capacity(guest_id: str):
-        count = store.db.execute(
-            "SELECT COUNT(*) FROM songs WHERE requester=? AND "
-            "(status IN ('rendering','ready','playing') OR "
-            "(status='waiting' AND NOT "
-            "(prep_state='unavailable' AND prep_attempts>=3)))",
-            (guest_id,),
-        ).fetchone()[0]
-        if count >= MAX_USER_SONGS:
-            bail(409, "每人最多保留二十首待唱歌曲")
-
-    def check_new_order(guest_id: str):
-        if store.settings()["orders_paused"]:
-            bail(409, "本场已暂停点歌")
-        check_room_capacity()
-        check_guest_capacity(guest_id)
 
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
@@ -450,7 +419,7 @@ def create_app(
             current_user=auth.current_user,
             admin_principal=auth.admin_principal,
             require_user=auth.require_user,
-            check_new_order=check_new_order,
+            orders=orders,
         )
     )
 
@@ -482,8 +451,8 @@ def create_app(
             store=store,
             events=events,
             require_admin=auth.require_admin,
-            check_room_capacity=check_room_capacity,
-            check_guest_capacity=check_guest_capacity,
+            check_room_capacity=orders.check_room_capacity,
+            check_guest_capacity=orders.check_guest_capacity,
             render_slot=render_slot,
             rendering=rendering,
             manual_render_threads=manual_render_threads,
@@ -496,8 +465,8 @@ def create_app(
         require_admin=auth.require_admin,
         require_user=auth.require_user,
         active_view=active_view,
-        check_new_order=check_new_order,
-        check_room_capacity=check_room_capacity,
+        check_new_order=orders.check_new_order,
+        check_room_capacity=orders.check_room_capacity,
     )
     app.include_router(playback_router)
 
