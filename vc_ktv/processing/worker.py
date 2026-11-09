@@ -1,4 +1,4 @@
-"""AutoPrep worker scheduling, cancellation, and transactional publication."""
+"""AutoPrep worker lifecycle, concurrency, and media preparation."""
 
 from __future__ import annotations
 
@@ -28,9 +28,10 @@ from vc_ktv.processing.media_preparation import (
 )
 from vc_ktv.processing.publication import publish_original, publish_subtitles
 from vc_ktv.processing.subtitle_progress import SubtitleProgress
+from vc_ktv.processing.task_state import claim_next_locked, record_failure
 from vc_ktv.rendering.subtitle_styles import DEFAULT_PRESET
 from vc_ktv.sources import DownloadTools, get_source
-from vc_ktv.sources.netease_media import MusicUnavailable, download_netease_video
+from vc_ktv.sources.netease_media import download_netease_video
 
 log = logging.getLogger(__name__)
 
@@ -208,171 +209,16 @@ class AutoPrep:
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
-            try:
-                # Provider subtitles are cheap CPU work: never let downloads or
-                # GPU alignment prevent an already-downloaded song from finishing.
-                row = self.store.db.execute(
-                    """SELECT * FROM songs WHERE status='ready'
-                       AND prep_state='downloaded' AND lyric_choice != ''
-                       AND skip_subtitles=0 AND lyric_timing_mode='provider'
-                       ORDER BY requested_at,id LIMIT 1"""
-                ).fetchone()
-                if not row:
-                    download_filter = (
-                        " AND lyric_timing_mode='provider'" if lane == "fast" else ""
-                    )
-                    row = self.store.db.execute(
-                        """SELECT * FROM songs WHERE status='waiting' AND
-                           (prep_state='pending' OR
-                            (prep_state='unavailable' AND prep_attempts < 3
-                             AND prep_retry_at <= ?))"""
-                        + download_filter
-                        + """ ORDER BY CASE WHEN prep_state='pending' THEN 0 ELSE 1 END,
-                                     requested_at,id LIMIT 1""",
-                        (int(time.time()),),
-                    ).fetchone()
-                if not row and lane == "general":
-                    row = self.store.db.execute(
-                        """SELECT * FROM songs WHERE status='ready'
-                           AND prep_state='downloaded' AND lyric_choice != ''
-                           AND skip_subtitles=0
-                           ORDER BY requested_at,id LIMIT 1"""
-                    ).fetchone()
-                if row and row["status"] == "waiting":
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
-                        "prep_error='',prep_stage='download',prep_stage_at=?,"
-                        "prep_timing='{}' WHERE id=?",
-                        (int(time.time()), row["id"]),
-                    )
-                elif row:
-                    if (
-                        not self.gpu_alignment
-                        and row["lyric_timing_mode"] != "provider"
-                    ):
-                        self.store.db.execute(
-                            "UPDATE songs SET prep_state='original',"
-                            "prep_error='GPU 对齐未启用，请选择来源时间轴或使用原片' "
-                            "WHERE id=?",
-                            (row["id"],),
-                        )
-                        self.store.db.commit()
-                        return None
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='aligning',"
-                        "prep_stage='queued',prep_stage_at=? WHERE id=?",
-                        (int(time.time()), row["id"]),
-                    )
-                if not row:
-                    return None  # Idle polling has no write to commit.
-                claimed = dict(row)
-                # Snapshot settings before commit; failure must not strand a
-                # claimed task or leave active_claims/busy stuck.
-                settings = self.store.settings()
-                if row["status"] == "waiting":
-                    claimed["video_quality"] = settings["video_quality"]
-                    claimed["force_h264_originals"] = settings["force_h264_originals"]
-                else:
-                    claimed["style_preset"] = settings["subtitle_style"]
-                    claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
-                    claimed["tv_html_overlay"] = settings["tv_html_overlay"]
-                self.store.db.commit()
-            except sqlite3.Error:
-                try:
-                    self.store.db.rollback()
-                except sqlite3.Error as error:
-                    raise RuntimeError("AutoPrep claim rollback failed") from error
-                raise
+            claimed = claim_next_locked(self.store, lane, self.gpu_alignment)
+            if claimed is None:
+                return None
+            # Keep claim and in-memory accounting under the same Store lock.
             self.active_claims += 1
             self.busy.set()
             return claimed
 
     def _record_failure(self, row, error, attempt_started):
-        with self.store.lock:
-            try:
-                current = self.store.db.execute(
-                    "SELECT status,prep_state,prep_error FROM songs WHERE id=?",
-                    (row["id"],),
-                ).fetchone()
-                if (
-                    not current
-                    or current["status"] == "cancelled"
-                    or current["prep_error"].startswith("本场 200 GiB")
-                ):
-                    return
-                if isinstance(error, DiskBudgetExceeded):
-                    if row["status"] == "waiting":
-                        self.store.db.execute(
-                            "UPDATE songs SET prep_state='unavailable',prep_attempts=3,"
-                            "prep_retry_at=0,prep_error=? WHERE id=? AND status='waiting'",
-                            (str(error), row["id"]),
-                        )
-                    else:
-                        self.store.db.execute(
-                            "UPDATE songs SET prep_state='original',prep_error=? "
-                            "WHERE id=? AND status='ready'",
-                            (str(error), row["id"]),
-                        )
-                    self.store.db.commit()
-                    return
-                if row["status"] == "waiting":
-                    attempts = row["prep_attempts"] + 1
-                    retry = (
-                        int(time.time()) + (60 if attempts == 1 else 300)
-                        if attempts < 3
-                        else 0
-                    )
-                    # Only show trusted, short diagnostic text; never expose signed media URLs.
-                    reason = (
-                        str(error)[:90]
-                        if row.get("source_type") == "netease"
-                        and isinstance(error, MusicUnavailable)
-                        else "网易云音源不可用"
-                        if row.get("source_type") == "netease"
-                        else "公开媒体下载失败"
-                    )
-                    if row.get(
-                        "source_type"
-                    ) == "bilibili" and "Unable to extract initial state" in str(error):
-                        reason = "B站页面结构变化"
-                    elif row.get("source_type") == "bilibili" and "接口" in str(error):
-                        reason = "B站公开播放接口暂不可用"
-                    elif row.get("source_type") == "bilibili" and "CDN" in str(error):
-                        reason = "B站媒体 CDN 暂不可用"
-                    message = f"{reason}（已尝试 {attempts}/3 次）"
-                    if retry:
-                        message += "，稍后自动重试"
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='unavailable',prep_error=?,"
-                        "prep_retry_at=?,prep_timing=? WHERE id=? AND status='waiting'",
-                        (
-                            message,
-                            retry,
-                            json.dumps(
-                                {
-                                    "download": round(
-                                        time.monotonic() - attempt_started, 2
-                                    )
-                                }
-                            ),
-                            row["id"],
-                        ),
-                    )
-                else:
-                    self.store.db.execute(
-                        "UPDATE songs SET prep_state='original',"
-                        "prep_error='字幕制作失败' WHERE id=? AND status='ready'",
-                        (row["id"],),
-                    )
-                self.store.db.commit()
-            except sqlite3.Error:
-                try:
-                    self.store.db.rollback()
-                except sqlite3.Error as failure:
-                    raise RuntimeError(
-                        "AutoPrep failure writeback rollback failed"
-                    ) from failure
-                raise
+        record_failure(self.store, row, error, attempt_started)
 
     def loop(self, lane="general"):
         while not self.stop_signal.is_set():
