@@ -6,7 +6,7 @@
 - 来源记录：[UPSTREAM.json](UPSTREAM.json)
 - 模型资源版本：[assets.lock.json](assets.lock.json)
 
-VC-KTV 将上游音频分离、对齐和字幕生成模块适配到 `ktv_app/`，由 `vc_ktv/processing/upstream_pipeline.py` 调用。`vc_ktv/` 实现场次、队列、媒体及网页服务。部分模型与字幕模块为适配 Linux/CUDA 和并行处理进行了修改。
+VC-KTV 将上游音频分离、对齐和字幕生成模块适配到 `ktv_app/`，由 `vc_ktv/pipeline/adapter.py` 调用。`vc_ktv/` 实现场次、队列、媒体及网页服务。部分模型与字幕模块为适配 Linux/CUDA 和并行处理进行了修改。
 
 上游代码、VC-KTV 适配代码以及模型权重分别遵循各自许可。升级上游时，同步审查 `UPSTREAM.json`、本地适配和模型资源锁文件。
 
