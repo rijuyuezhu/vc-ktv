@@ -96,6 +96,13 @@ def test_retry_only_subtitles_preserves_download_and_previous_logs(tmp_path):
                 break
             time.sleep(0.025)
         assert state["queue"][0]["prep_state"] == "done", state
+        # Publication precedes best-effort attempt.json writing. The worker's
+        # busy flag clears only after the diagnostic finally block completes.
+        for _ in range(120):
+            if not app.state.autoprep.busy.is_set():
+                break
+            time.sleep(0.025)
+        assert not app.state.autoprep.busy.is_set()
         assert len(downloads) == 1
         assert len(attempts) == 2
         assert attempts[0] != attempts[1]
