@@ -6,7 +6,7 @@ from vc_ktv.application.auth import AuthService
 from vc_ktv.application.schemas import Login
 
 
-def create_admin_session_router(*, auth: AuthService, events, state_with_active):
+def create_admin_session_router(*, auth: AuthService, events, media):
     router = APIRouter()
 
     @router.post("/api/admin/login")
@@ -31,6 +31,6 @@ def create_admin_session_router(*, auth: AuthService, events, state_with_active)
                 "guests": [],
                 "active": None,
             }
-        return state_with_active()
+        return media.state_with_active()
 
     return router

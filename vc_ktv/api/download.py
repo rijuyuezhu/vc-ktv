@@ -5,16 +5,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, Cookie
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.common import MEDIA_MIMES, bail
 from vc_ktv.core.store import Store
 from vc_ktv.core.titles import title_key
 
-MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
-
-def create_download_router(
-    *, store, events, admin_principal, require_user, pinned_media_response
-):
+def create_download_router(*, store, events, admin_principal, require_user, media):
     router = APIRouter()
 
     @router.get("/api/songs/{song_id}/download")
@@ -41,7 +37,7 @@ def create_download_router(
                 bail(404, "媒体文件缺失")
             title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
             title = title.strip(" ._")[:48] or "video"
-            return pinned_media_response(
+            return media.pinned_response(
                 file,
                 media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
                 filename=f"vc-ktv-{song_id}-{title}{file.suffix}",
@@ -78,7 +74,7 @@ def create_download_router(
                 bail(404, "原片文件缺失")
             title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
             title = title.strip(" ._")[:48] or "video"
-            return pinned_media_response(
+            return media.pinned_response(
                 file,
                 media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
                 filename=f"vc-ktv-{song_id}-{title}-original{file.suffix}",

@@ -5,22 +5,14 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from vc_ktv.application.common import bail
-
-MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
+from vc_ktv.application.common import MEDIA_MIMES, bail
 
 
-def create_media_router(
-    *,
-    store,
-    events,
-    read_signed,
-    overlay_view,
-    overlay_archive,
-    overlay_bundle,
-    pinned_media_response,
-):
+def create_media_router(*, media, auth):
     router = APIRouter()
+    store = media.store
+    events = media.events
+    read_signed = auth.read_signed
 
     @router.get("/media/{song_id}/source")
     def serve_source(song_id: int, token: str = ""):
@@ -38,20 +30,12 @@ def create_media_router(
             song = store.replay_assets(row)
             if not song.get("source_file"):
                 bail(404, "原视频不存在")
-            # Refuse source if it would exceed the admin's selected budget.
-            if not overlay_view(song):
+            path = media.overlay_source(song)
+            if path is None:
                 bail(409, "原片模式不可用，请使用烧录版")
-            path = store.media / Path(song["source_file"]).name
-            if (
-                path.stat().st_size * 8
-                > float(song["duration"] or 0)
-                * store.settings()["max_bandwidth_mbps"]
-                * 800_000
-            ):
-                path = overlay_archive(overlay_bundle(song)) / "tv-source.mp4"
             if not path.is_file():
                 bail(404, "原视频文件缺失")
-            return pinned_media_response(
+            return media.pinned_response(
                 path,
                 media_type=MEDIA_MIMES.get(path.suffix, "video/mp4"),
                 content_disposition_type="inline",
@@ -70,7 +54,7 @@ def create_media_router(
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
-            folder = overlay_bundle(dict(row))
+            folder = media.overlay_bundle(dict(row))
         if folder is None:
             bail(404, "当前歌曲没有可用的逐字字幕")
         try:
@@ -109,7 +93,7 @@ def create_media_router(
             file = store.media / name
             if not file.is_file():
                 bail(404, "媒体文件缺失")
-            return pinned_media_response(
+            return media.pinned_response(
                 file,
                 media_type=MEDIA_MIMES.get(file.suffix, "application/octet-stream"),
                 filename=name,

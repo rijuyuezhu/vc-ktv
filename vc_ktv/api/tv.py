@@ -20,11 +20,8 @@ def create_tv_router(
     require_admin,
     read_signed,
     sign,
-    state_with_active,
+    media,
     playback,
-    signed_media,
-    overlay_view,
-    active_view,
 ):
     router = APIRouter()
 
@@ -285,7 +282,7 @@ def create_tv_router(
     def tv_state(token: str):
         require_tv(token)
         with store.lock:
-            snapshot = state_with_active()
+            snapshot = media.state_with_active()
             remote = tv_remote_record()
             snapshot["remote_command"] = (
                 remote["command"]
@@ -313,17 +310,17 @@ def create_tv_router(
             if not queue:
                 return {"candidate": None}
             song = queue[0]
-            media = store.db.execute(
+            media_row = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song["id"],)
             ).fetchone()
-            assets = store.replay_assets(media)
+            assets = store.replay_assets(media_row)
             return {
                 "candidate": {
                     "id": song["id"],
                     "media_file": assets["media_file"],
                     "source_file": assets["source_file"],
-                    "media_url": signed_media(song),
-                    "html_overlay": overlay_view(dict(media)),
+                    "media_url": media.signed_media(song),
+                    "html_overlay": media.overlay_view(dict(media_row)),
                 }
             }
 
@@ -334,7 +331,7 @@ def create_tv_router(
             if store.playback_mode() != "tv":
                 bail(409, "当前不是电视播放模式")
             playback.claim_next()
-            return {"active": active_view()}
+            return {"active": media.active_view()}
 
     @router.post("/api/tv/finish")
     def tv_finish(body: Finish, token: str):

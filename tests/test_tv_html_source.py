@@ -178,7 +178,14 @@ def test_large_original_requires_matching_bitrate_cache(tmp_path):
         enable(admin)
         first = guest.post("/api/tv/next", params={"token": token}).json()["active"]
         assert first["html_overlay"] is None
+        song = dict(
+            app.state.store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+        )
+        assert app.state.media.overlay_source(song) is None
         (archive / "tv-source.mp4").write_bytes(b"COMPRESSED")
+        assert app.state.media.overlay_source(song) == archive / "tv-source.mp4"
         active = guest.get("/api/tv/state", params={"token": token}).json()["active"]
         assert active["html_overlay"] is not None
         assert guest.get(active["html_overlay"]["source_url"]).content == b"COMPRESSED"
@@ -191,6 +198,7 @@ def test_large_original_requires_matching_bitrate_cache(tmp_path):
             },
         )
         assert res.status_code == 200
+        assert app.state.media.overlay_source(song) is None
         assert (
             guest.get("/api/tv/state", params={"token": token}).json()["active"][
                 "html_overlay"
