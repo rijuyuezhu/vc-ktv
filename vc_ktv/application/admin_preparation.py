@@ -7,8 +7,6 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from starlette.concurrency import run_in_threadpool
-
 from vc_ktv.application.errors import bail
 from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
@@ -121,7 +119,7 @@ class AdminPreparationService:
                 raise
         return {"ok": True, "id": song_id, "status": "ready", "source": "original"}
 
-    async def upload_media(self, song_id: int, suffix: str, read_chunk):
+    def upload_media(self, song_id: int, suffix: str, read_chunk):
         store = self.store
         with store.lock:
             row = store.db.execute(
@@ -135,7 +133,7 @@ class AdminPreparationService:
         size = 0
         try:
             with target.open("wb") as out:
-                while block := await read_chunk(1024 * 1024):
+                while block := read_chunk(1024 * 1024):
                     size += len(block)
                     out.write(block)
                     # Include this file and all existing room artifacts in
@@ -151,14 +149,12 @@ class AdminPreparationService:
                 bail(507, str(error))
             if not size:
                 bail(400, "视频为空")
-            target = await run_in_threadpool(
-                normalize_hevc_source,
-                target,
-                force_h264=store.settings()["force_h264_originals"],
+            target = normalize_hevc_source(
+                target, force_h264=store.settings()["force_h264_originals"]
             )
             store.disk_budget.check()
             try:
-                actual_duration = await run_in_threadpool(self.probe, target)
+                actual_duration = self.probe(target)
             except ValueError as error:
                 bail(400, str(error))
             with store.lock:

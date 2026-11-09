@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, File, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from vc_ktv.application.errors import bail
 from vc_ktv.application.media import MEDIA_MIMES
@@ -39,7 +40,11 @@ def create_preparation_admin_router(*, preparation, require_admin, manual):
             suffix = Path(file.filename or "").suffix.lower()
             if suffix not in MEDIA_MIMES:
                 bail(400, "仅支持 MP4、M4V、WebM 文件")
-            return await preparation.upload_media(song_id, suffix, file.read)
+            # The whole disk/probe/publish lifecycle is synchronous. Keep it in
+            # one worker-thread operation, not partly on the asyncio loop.
+            return await run_in_threadpool(
+                preparation.upload_media, song_id, suffix, file.file.read
+            )
         finally:
             await file.close()
 
@@ -69,7 +74,9 @@ def create_preparation_admin_router(*, preparation, require_admin, manual):
             content = await file.read()
         finally:
             await file.close()
-        return preparation.import_textgrid(song_id, content, offset)
+        return await run_in_threadpool(
+            preparation.import_textgrid, song_id, content, offset
+        )
 
     @router.post("/api/admin/songs/{song_id}/render")
     def render_song(
