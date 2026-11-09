@@ -5,6 +5,7 @@ import logging
 import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import Cookie, FastAPI, Request, Response
 from fastapi.responses import FileResponse
@@ -14,13 +15,8 @@ from vc_ktv.api.admin_accounts import create_admin_accounts_router
 from vc_ktv.api.admin_session import create_admin_session_router
 from vc_ktv.api.cancellation import create_cancellation_router
 from vc_ktv.api.download import create_download_router
-from vc_ktv.api.event_admin import EventCreate as EventCreate
-from vc_ktv.api.event_admin import PlaybackSettings as PlaybackSettings
 from vc_ktv.api.event_admin import create_event_admin_router
 from vc_ktv.api.event_history import create_event_history_router
-from vc_ktv.api.guest_auth import JoinEvent as JoinEvent
-from vc_ktv.api.guest_auth import RegisterUser as RegisterUser
-from vc_ktv.api.guest_auth import UserLogin as UserLogin
 from vc_ktv.api.guest_auth import create_guest_auth_router
 from vc_ktv.api.history import create_history_router
 from vc_ktv.api.lyrics import create_lyrics_router
@@ -134,7 +130,7 @@ def create_app(
                 lifecycle.worker.stop()
             netease_login.close()
 
-    app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="VC KTV", version="0.5.0", lifespan=lifespan)
     app.state.auth = auth
     app.state.archive = archive
     app.state.lyric_selection = lyric_selection
@@ -165,8 +161,6 @@ def create_app(
         if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             origin = request.headers.get("origin")
             if origin:
-                from urllib.parse import urlparse
-
                 parsed = urlparse(origin)
                 if parsed.netloc != request.headers.get(
                     "host"
@@ -181,10 +175,7 @@ def create_app(
             "/api/admin/events",
             "/api/admin/events/close",
         }
-        if (
-            not (path.startswith("/api/") or path.startswith("/media/"))
-            or lifecycle_writer
-        ):
+        if not path.startswith(("/api/", "/media/")) or lifecycle_writer:
             return await call_next(request)
         if not events.begin_request():
             return Response("场次正在切换，请重试", status_code=409)

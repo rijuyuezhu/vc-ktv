@@ -1,4 +1,4 @@
-"""Self-hosted BV-first karaoke with optional local subtitle generation."""
+"""Shared HTTP and media helpers for VC KTV."""
 
 from __future__ import annotations
 
