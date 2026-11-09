@@ -32,10 +32,18 @@ def test_vendor_imports_only_through_pipeline_adapter():
     allowed = {
         "pipeline/__init__.py",
         "infra/config.py",
-        "processing/upstream_pipeline.py",
+        "pipeline/adapter.py",
     }
     for path in root.rglob("*.py"):
         name = path.relative_to(root).as_posix()
         if name in allowed:
             continue
         assert "from ktv_app." not in path.read_text(encoding="utf-8"), name
+
+
+def test_pipeline_bridge_has_no_processing_dependency():
+    """Subtitle engine integration must not depend on task scheduling modules."""
+    root = Path(__file__).resolve().parents[1] / "vc_ktv" / "pipeline"
+    for path in root.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        assert "vc_ktv.processing" not in source, path.name

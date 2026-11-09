@@ -76,7 +76,7 @@ def _small_video(path):
 def test_unknown_vocable_preprocessing_produces_video_on_first_tifa_attempt(
     tmp_path, monkeypatch
 ):
-    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.pipeline.adapter as upstream_pipeline
     import vc_ktv.rendering.global_alignment as global_alignment
 
     video = tmp_path / "source.mp4"
@@ -124,7 +124,7 @@ def test_unknown_vocable_preprocessing_produces_video_on_first_tifa_attempt(
 
 
 def test_no_models_at_all_still_makes_karaoke_mp4(tmp_path, monkeypatch):
-    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.pipeline.adapter as upstream_pipeline
     import vc_ktv.rendering.global_alignment as global_alignment
 
     video = tmp_path / "source.mp4"
@@ -172,7 +172,7 @@ def test_no_models_at_all_still_makes_karaoke_mp4(tmp_path, monkeypatch):
 def test_kim_tifa_failure_tries_whole_song_original_mix_before_rough(
     tmp_path, monkeypatch
 ):
-    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.pipeline.adapter as upstream_pipeline
     import vc_ktv.rendering.global_alignment as global_alignment
 
     video = tmp_path / "source.mp4"

@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+import vc_ktv.pipeline.adapter as upstream_pipeline
 from ktv_app.aligners import fast
 from ktv_app.timeline import Line, Timeline
 

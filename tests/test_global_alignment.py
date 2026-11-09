@@ -106,7 +106,7 @@ def test_kim_full_song_adapter_keeps_native_times_and_original_audio(
     tmp_path, monkeypatch
 ):
     """Explicit legacy global-kim mode must not invoke ASR or split songs."""
-    import vc_ktv.processing.upstream_pipeline as upstream_pipeline
+    import vc_ktv.pipeline.adapter as upstream_pipeline
     import vc_ktv.rendering.global_alignment as global_alignment
     from ktv_app.timeline import Line, Timeline, Unit
 
