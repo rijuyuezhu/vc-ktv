@@ -30,6 +30,7 @@ from vc_ktv.api.playback import create_playback_router
 from vc_ktv.api.preparation_admin import create_preparation_admin_router
 from vc_ktv.api.song_sources import create_song_source_router
 from vc_ktv.api.tv import create_tv_router
+from vc_ktv.application.archive import EventArchiveService
 from vc_ktv.application.auth import AuthService
 from vc_ktv.application.common import (
     STATIC,
@@ -90,6 +91,7 @@ def create_app(
         gpu_alignment=gpu_alignment,
     )
     auth = AuthService(events, store, password, secret)
+    archive = EventArchiveService(events, auth)
     lyric_selection = LyricSelectionService(store, events, auth, gpu_alignment)
     media = MediaService(store, events, auth, media_pins)
     orders = OrderService(store, events)
@@ -134,6 +136,7 @@ def create_app(
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.auth = auth
+    app.state.archive = archive
     app.state.lyric_selection = lyric_selection
     app.state.orders = orders
     app.state.playback = playback
@@ -201,10 +204,7 @@ def create_app(
         create_netease_admin_router(netease_login, auth.require_global_admin)
     )
 
-    event_history_router, export_event_songs = create_event_history_router(
-        events, auth.require_admin
-    )
-    app.include_router(event_history_router)
+    app.include_router(create_event_history_router(archive))
 
     app.include_router(
         create_event_admin_router(
@@ -212,7 +212,7 @@ def create_app(
             events=events,
             require_admin=auth.require_admin,
             require_global_admin=auth.require_global_admin,
-            export_event_songs=export_event_songs,
+            archive=archive,
             lifecycle=lifecycle,
         )
     )
