@@ -3,8 +3,9 @@
 import sqlite3
 from pathlib import Path
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
 
+from vc_ktv.application.common import bail
 from vc_ktv.application.schemas import Finish, PlaybackMode
 from vc_ktv.core.store import time_now
 
@@ -19,9 +20,6 @@ def create_playback_router(
     check_room_capacity,
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     def next_impl():
         with store.lock:

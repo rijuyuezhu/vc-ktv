@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 import httpx
-from fastapi import APIRouter, Cookie, File, HTTPException, UploadFile
+from fastapi import APIRouter, Cookie, File, UploadFile
 
-from vc_ktv.application.common import LRC_LINE, LRC_WORD_TIME
+from vc_ktv.application.common import LRC_LINE, LRC_WORD_TIME, bail
 from vc_ktv.application.schemas import GuestLyricChoice
 from vc_ktv.core.store import time_now
 from vc_ktv.core.titles import title_key
@@ -35,9 +35,6 @@ def create_lyrics_router(
     lyric_search_times,
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/lyrics/search")
     async def lyrics_search(query: str, vc_guest: str | None = Cookie(default=None)):

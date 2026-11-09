@@ -6,8 +6,9 @@ import json
 import secrets
 from urllib.parse import quote
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
 
+from vc_ktv.application.common import bail
 from vc_ktv.application.schemas import Finish, TVPair, TVRemoteCommand, TVRemoteReport
 from vc_ktv.core.store import time_now
 
@@ -27,9 +28,6 @@ def create_tv_router(
     finish_impl,
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     def tv_record(name: str) -> dict | None:
         row = store.db.execute(

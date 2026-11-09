@@ -3,9 +3,10 @@
 import secrets
 import sqlite3
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field
 
+from vc_ktv.application.common import bail
 from vc_ktv.core.accounts import password_hash
 
 
@@ -21,9 +22,6 @@ class EventAdminPassword(BaseModel):
 def create_admin_accounts_router(app, require_global_admin) -> APIRouter:
     router = APIRouter()
     store = app.state.store
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/admin/accounts")
     def list_event_admins(vc_admin: str | None = Cookie(default=None)):

@@ -5,14 +5,13 @@ import io
 import sqlite3
 from urllib.parse import quote
 
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, Response
+
+from vc_ktv.application.common import bail
 
 
 def create_event_history_router(events, require_admin):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/admin/events")
     def list_events(vc_admin: str | None = Cookie(default=None)):

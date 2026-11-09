@@ -4,9 +4,11 @@ import hmac
 import secrets
 import sqlite3
 
-from fastapi import APIRouter, Cookie, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Request, Response
 from pydantic import BaseModel, Field
 
+from vc_ktv.application.auth import AuthService
+from vc_ktv.application.common import bail
 from vc_ktv.core.accounts import password_hash, verify_password
 from vc_ktv.core.store import time_now
 
@@ -26,24 +28,8 @@ class UserLogin(BaseModel):
     password: str = Field(min_length=1, max_length=72)
 
 
-def create_guest_auth_router(
-    *,
-    events,
-    store,
-    current_user,
-    read_signed,
-    archived_guest_event,
-    require_entry,
-    client_ip,
-    sign,
-    user_cookie,
-    failed_invites,
-    failed_users,
-) -> APIRouter:
+def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/entry")
     def entry(
@@ -51,7 +37,7 @@ def create_guest_auth_router(
         vc_guest: str | None = Cookie(default=None),
     ):
         event = events.metadata()
-        archive = archived_guest_event(vc_guest)
+        archive = auth.archived_guest_event(vc_guest)
         if not event:
             return {
                 "event": None,
@@ -60,8 +46,8 @@ def create_guest_auth_router(
                 "username": None,
                 "archived_event": archive,
             }
-        user = current_user(vc_guest)
-        joined = bool(user or read_signed(vc_join, "entry") == events.active_id)
+        user = auth.current_user(vc_guest)
+        joined = bool(user or auth.read_signed(vc_join, "entry") == events.active_id)
         return {
             "event": {"id": event["id"], "name": event["name"]},
             "joined": joined,
@@ -75,8 +61,8 @@ def create_guest_auth_router(
         info = events.metadata()
         if not info or info.get("legacy") or not info.get("code"):
             bail(409, "请等待管理员创建新 KTV 场次")
-        ip = client_ip(request)
-        recent = [t for t in failed_invites.get(ip, []) if t > time_now() - 300]
+        ip = auth.client_ip(request)
+        recent = [t for t in auth.failed_invites.get(ip, []) if t > time_now() - 300]
         if len(recent) >= 10:
             bail(429, "尝试过于频繁，请稍后重试")
         if (
@@ -85,15 +71,15 @@ def create_guest_auth_router(
             or not hmac.compare_digest(body.code, info["code"])
         ):
             recent.append(time_now())
-            failed_invites[ip] = recent
+            auth.failed_invites[ip] = recent
             bail(401, "加入码错误")
-        failed_invites.pop(ip, None)
+        auth.failed_invites.pop(ip, None)
         event_id = info["id"]
         if events.active_id != event_id:
             bail(409, "场次已变化，请重新输入加入码")
         response.set_cookie(
             "vc_join",
-            sign("entry", event_id, 3600),
+            auth.sign("entry", event_id, 3600),
             max_age=3600,
             httponly=True,
             samesite="strict",
@@ -107,7 +93,7 @@ def create_guest_auth_router(
         response: Response,
         vc_join: str | None = Cookie(default=None),
     ):
-        require_entry(vc_join)
+        auth.require_entry(vc_join)
         name = body.username.strip()
         if not 1 <= len(name) <= 24:
             bail(400, "用户名长度须为 1–24 字")
@@ -119,7 +105,7 @@ def create_guest_auth_router(
             bail(400, str(error))
         user_id = secrets.token_hex(12)
         with store.lock:
-            require_entry(vc_join)
+            auth.require_entry(vc_join)
             event_id = events.active_id
             try:
                 # Registration itself earns nothing. A user gets bounded
@@ -138,7 +124,7 @@ def create_guest_auth_router(
             except sqlite3.Error:
                 store.db.rollback()
                 raise
-        user_cookie(response, user_id, event_id)
+        auth.user_cookie(response, user_id, event_id)
         return {"ok": True, "username": name}
 
     @router.post("/api/users/login")
@@ -148,14 +134,14 @@ def create_guest_auth_router(
         response: Response,
         vc_join: str | None = Cookie(default=None),
     ):
-        require_entry(vc_join)
-        ip = client_ip(request)
+        auth.require_entry(vc_join)
+        ip = auth.client_ip(request)
         key = (events.active_id, ip, body.username.strip())
-        recent = [t for t in failed_users.get(key, []) if t > time_now() - 300]
+        recent = [t for t in auth.failed_users.get(key, []) if t > time_now() - 300]
         if len(recent) >= 10:
             bail(429, "尝试过于频繁，请稍后重试")
         with store.lock:
-            require_entry(vc_join)
+            auth.require_entry(vc_join)
             event_id = events.active_id
             row = store.db.execute(
                 "SELECT id,username,password_hash FROM users WHERE username=?",
@@ -163,10 +149,10 @@ def create_guest_auth_router(
             ).fetchone()
         if not row or not verify_password(body.password, row["password_hash"]):
             recent.append(time_now())
-            failed_users[key] = recent
+            auth.failed_users[key] = recent
             bail(401, "用户名或密码错误")
-        failed_users.pop(key, None)
-        user_cookie(response, row["id"], event_id)
+        auth.failed_users.pop(key, None)
+        auth.user_cookie(response, row["id"], event_id)
         return {"ok": True, "username": row["username"]}
 
     @router.post("/api/users/logout")

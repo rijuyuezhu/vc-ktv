@@ -3,9 +3,10 @@
 from collections.abc import Callable
 
 import httpx
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, Response
 from pydantic import BaseModel, Field
 
+from vc_ktv.application.common import bail
 from vc_ktv.sources.netease_login import NeteaseLogin, NeteaseLoginError
 
 
@@ -18,9 +19,6 @@ def create_netease_admin_router(
     require_global_admin: Callable[[str | None], object],
 ) -> APIRouter:
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/admin/netease/status")
     def netease_session_status(

@@ -2,16 +2,15 @@
 
 import sqlite3
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
+
+from vc_ktv.application.common import bail
 
 
 def create_cancellation_router(
     *, store, require_admin, require_user, stop_song_processing
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.post("/api/songs/{song_id}/cancel")
     def cancel_own_song(song_id: int, vc_guest: str | None = Cookie(default=None)):

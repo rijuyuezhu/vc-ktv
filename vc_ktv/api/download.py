@@ -3,8 +3,9 @@
 import re
 from pathlib import Path
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie
 
+from vc_ktv.application.common import bail
 from vc_ktv.core.store import Store
 from vc_ktv.core.titles import title_key
 
@@ -15,9 +16,6 @@ def create_download_router(
     *, store, events, admin_principal, require_user, pinned_media_response
 ):
     router = APIRouter()
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/songs/{song_id}/download")
     def download_song(

@@ -4,9 +4,10 @@ import sqlite3
 from collections.abc import Callable
 
 import httpx
-from fastapi import APIRouter, Cookie, HTTPException, Response
+from fastapi import APIRouter, Cookie, Response
 from pydantic import BaseModel, Field
 
+from vc_ktv.application.common import bail
 from vc_ktv.core.store import time_now
 from vc_ktv.core.titles import title_key
 from vc_ktv.sources import get_source
@@ -37,9 +38,6 @@ def create_song_source_router(
     router = APIRouter()
     events = app.state.events
     store = app.state.store
-
-    def bail(status: int, message: str):
-        raise HTTPException(status_code=status, detail=message)
 
     @router.get("/api/preview")
     async def preview(
