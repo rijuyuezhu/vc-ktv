@@ -48,6 +48,11 @@ class OrderService:
         self.check_room_capacity()
         self.check_guest_capacity(guest_id)
 
+    def precheck_new_order(self, guest_id: str) -> None:
+        """Reject full or paused rooms before waiting on source metadata."""
+        with self.store.lock:
+            self.check_new_order(guest_id)
+
     def submit(
         self,
         guest_id: str,

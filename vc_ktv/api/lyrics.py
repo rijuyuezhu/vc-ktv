@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 
 import httpx
 from fastapi import APIRouter, Cookie, File, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from vc_ktv.application.errors import bail
 from vc_ktv.application.guest_lyrics import LyricSelectionService
@@ -30,14 +31,14 @@ def create_lyrics_router(*, app, lyrics: LyricSelectionService):
 
     @router.get("/api/lyrics/search")
     async def lyrics_search(query: str, vc_guest: str | None = Cookie(default=None)):
-        auth.require_user(vc_guest)
+        await run_in_threadpool(auth.require_user, vc_guest)
         return {"candidates": await app.state.lyrics_lookup(query)}
 
     @router.get("/api/admin/lyrics/vcpedia")
     async def fetch_vcpedia_lyrics(
         title: str, vc_admin: str | None = Cookie(default=None)
     ):
-        auth.require_admin(vc_admin)
+        await run_in_threadpool(auth.require_admin, vc_admin)
         try:
             variants = await vcpedia_lyric_candidates(title)
         except (httpx.HTTPError, ValueError) as error:
@@ -58,7 +59,7 @@ def create_lyrics_router(*, app, lyrics: LyricSelectionService):
         phase: Literal["all", "vcpedia", "wiki", "lrclib", "netease", "more"] = "all",
         vc_guest: str | None = Cookie(default=None),
     ):
-        song = lyrics.own_song(song_id, vc_guest)
+        song = await run_in_threadpool(lyrics.own_song, song_id, vc_guest)
         if song["status"] not in ("waiting", "ready"):
             bail(409, "这首歌已经开始播放或结束")
         term = query.strip() if query else title_key(song["title"]).strip()
@@ -101,7 +102,7 @@ def create_lyrics_router(*, app, lyrics: LyricSelectionService):
         file: Annotated[UploadFile, File()],
         vc_guest: str | None = Cookie(default=None),
     ):
-        song = lyrics.own_song(song_id, vc_guest)
+        song = await run_in_threadpool(lyrics.own_song, song_id, vc_guest)
         if not lyrics.gpu_alignment:
             bail(409, "CPU 模式暂不支持上传歌词重新对齐，请选择来源逐句时间轴")
         if not (file.filename or "").lower().endswith(".lrc"):
@@ -109,8 +110,9 @@ def create_lyrics_router(*, app, lyrics: LyricSelectionService):
         raw = await file.read()
         await file.close()
         # Uploaded timing is untrusted; the quality pipeline realigns text.
-        return lyrics.save_guest_lyrics(
-            song_id, song["requester"], lyrics.parse_lrc(raw), "上传 LRC"
+        text = await run_in_threadpool(lyrics.parse_lrc, raw)
+        return await run_in_threadpool(
+            lyrics.save_guest_lyrics, song_id, song["requester"], text, "上传 LRC"
         )
 
     return router
