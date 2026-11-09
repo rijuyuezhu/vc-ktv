@@ -1,7 +1,8 @@
 """Thin TV HTTP adapters; session authority is owned by TVSessionService."""
 
-from fastapi import APIRouter, Cookie
+from fastapi import APIRouter, Cookie, Request
 
+from vc_ktv.api.state_response import state_response
 from vc_ktv.application.schemas import Finish, TVPair, TVRemoteCommand, TVRemoteReport
 from vc_ktv.application.tv import TVSessionService
 
@@ -43,9 +44,9 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
         return tv.revoke(tv.auth.require_admin(vc_admin))
 
     @router.get("/api/tv/state")
-    def tv_state(token: str):
+    def tv_state(token: str, request: Request):
         tv.require_tv(token)
-        return tv.state(media)
+        return state_response(request, tv.state(media))
 
     @router.post("/api/tv/replay-next")
     def tv_replay_next(body: Finish, token: str):

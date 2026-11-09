@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Cookie, Request, Response
 
+from vc_ktv.api.state_response import state_response
 from vc_ktv.application.auth import AuthService
 from vc_ktv.application.schemas import Login
 
@@ -21,7 +22,7 @@ def create_admin_session_router(*, auth: AuthService, events, media):
         return {"ok": True}
 
     @router.get("/api/admin/state")
-    def admin_state(vc_admin: str | None = Cookie(default=None)):
+    def admin_state(request: Request, vc_admin: str | None = Cookie(default=None)):
         auth.require_admin(vc_admin)
         if not events.active_id:
             return {
@@ -31,6 +32,6 @@ def create_admin_session_router(*, auth: AuthService, events, media):
                 "guests": [],
                 "active": None,
             }
-        return media.state_with_active()
+        return state_response(request, media.state_with_active())
 
     return router

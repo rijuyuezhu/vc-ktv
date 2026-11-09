@@ -26,6 +26,7 @@ from vc_ktv.api.netease_admin import create_netease_admin_router
 from vc_ktv.api.playback import create_playback_router
 from vc_ktv.api.preparation_admin import create_preparation_admin_router
 from vc_ktv.api.song_sources import create_song_source_router
+from vc_ktv.api.state_response import state_response
 from vc_ktv.api.tv import create_tv_router
 from vc_ktv.application.admin_preparation import AdminPreparationService
 from vc_ktv.application.archive import EventArchiveService
@@ -234,6 +235,7 @@ def create_app(
 
     @app.get("/api/state")
     def state(
+        request: Request,
         vc_guest: str | None = Cookie(default=None),
         vc_admin: str | None = Cookie(default=None),
     ):
@@ -256,7 +258,7 @@ def create_app(
             snapshot["current"]["mine"] = bool(
                 guest and snapshot["current"]["requester_id"] == guest
             )
-        return snapshot
+        return state_response(request, snapshot)
 
     app.include_router(
         create_song_source_router(
