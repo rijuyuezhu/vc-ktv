@@ -29,6 +29,7 @@ def app_scripts(root):
             "admin-settings.js",
             "admin-accounts.js",
             "admin-netease.js",
+            "ui-common.js",
         )
     )
 
@@ -92,11 +93,13 @@ def test_admin_account_and_netease_connection_modules():
     netease = (root / "admin-netease.js").read_text()
     assert 'import {setupAdminAccounts} from "./admin-accounts.js";' in main
     assert 'import {setupNeteaseConnection} from "./admin-netease.js";' in main
-    assert "const {refreshAdminAccounts} = setupAdminAccounts({" in main
+    assert "const {refreshAdminAccounts} = setupAdminAccounts();" in main
     assert (
-        "const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection({"
+        "const {stopNeteaseLoginPolling,refreshNeteaseLogin} = setupNeteaseConnection();"
         in main
     )
+    assert 'from "./ui-common.js";' in accounts
+    assert 'from "./ui-common.js";' in netease
     assert "export function setupAdminAccounts(" in accounts
     assert "export function setupNeteaseConnection(" in netease
     assert "let neteaseLoginPolling=null;" in netease
@@ -118,6 +121,25 @@ def test_event_settings_are_owned_by_a_module():
     assert "document.activeElement" in settings
     assert "invalidateQueueState();" in settings
     assert "function updateStylePreview()" in settings
+
+
+def test_shared_ui_helpers_have_explicit_es_module_imports():
+    root = Path(__file__).resolve().parents[1] / "static"
+    common = (root / "ui-common.js").read_text()
+    for feature in (
+        "app.js",
+        "lyrics.js",
+        "song-requests.js",
+        "remote-controls.js",
+        "tv-primary.js",
+        "admin-settings.js",
+        "admin-accounts.js",
+        "admin-netease.js",
+    ):
+        assert 'from "./ui-common.js";' in (root / feature).read_text()
+    for helper in ("toast", "api", "error", "guarded", "duration", "appendText"):
+        assert re.search(rf"export (?:async )?function {helper}\(", common)
+    assert "export {$};" in common
 
 
 def test_guest_and_admin_js_element_references_exist():
