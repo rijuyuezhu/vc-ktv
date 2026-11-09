@@ -6,6 +6,7 @@ from collections.abc import Callable
 import httpx
 from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from vc_ktv.application.errors import bail
 from vc_ktv.application.orders import OrderService
@@ -48,13 +49,16 @@ def create_song_source_router(
 ) -> APIRouter:
     router = APIRouter()
     events = app.state.events
-    store = app.state.store
+
+    def require_source_access(vc_guest, vc_admin):
+        if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
+            require_user(vc_guest)
 
     @router.get("/api/preview")
     async def preview(
         bvid: str, page: int = 1, vc_guest: str | None = Cookie(default=None)
     ):
-        require_user(vc_guest)
+        await run_in_threadpool(require_user, vc_guest)
         return await app.state.lookup(get_bvid(bvid), page)
 
     @router.get("/api/netease/search")
@@ -64,8 +68,7 @@ def create_song_source_router(
         vc_guest: str | None = Cookie(default=None),
         vc_admin: str | None = Cookie(default=None),
     ):
-        if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
-            require_user(vc_guest)
+        await run_in_threadpool(require_source_access, vc_guest, vc_admin)
         if not q.strip() or page < 0:
             bail(400, "请输入歌名或歌手")
         try:
@@ -86,8 +89,7 @@ def create_song_source_router(
     ):
         # Read-only previews are available to joined users and either admin role.
         # Account connection and credential endpoints will be global-admin-only.
-        if current_user(vc_guest) is None and admin_principal(vc_admin) is None:
-            require_user(vc_guest)
+        await run_in_threadpool(require_source_access, vc_guest, vc_admin)
         try:
             song_id = await app.state.netease_resolve(ref)
         except ValueError as error:
@@ -106,14 +108,14 @@ def create_song_source_router(
         body: RequestSong,
         vc_guest: str | None = Cookie(default=None),
     ):
-        user = require_user(vc_guest)
+        user = await run_in_threadpool(require_user, vc_guest)
         guest = user["id"]
         event_id = events.active_id
-        with store.lock:
-            orders.check_new_order(guest)
+        await run_in_threadpool(orders.precheck_new_order, guest)
         info = await app.state.lookup(get_bvid(body.bvid), body.page)
         metadata = get_source("bilibili").metadata(info, ref=body.bvid, page=body.page)
-        new_id = orders.submit(
+        new_id = await run_in_threadpool(
+            orders.submit,
             guest,
             event_id,
             metadata,
@@ -131,7 +133,7 @@ def create_song_source_router(
         body: RequestNetEaseSong,
         vc_guest: str | None = Cookie(default=None),
     ):
-        user = require_user(vc_guest)
+        user = await run_in_threadpool(require_user, vc_guest)
         try:
             song_id = await app.state.netease_resolve(body.ref)
         except ValueError as error:
@@ -139,8 +141,7 @@ def create_song_source_router(
         except httpx.HTTPError:
             bail(502, "网易云分享链接暂时无法解析")
         event_id = events.active_id
-        with store.lock:
-            orders.check_new_order(user["id"])
+        await run_in_threadpool(orders.precheck_new_order, user["id"])
         try:
             info = await app.state.netease_lookup(song_id)
         except LookupError:
@@ -148,7 +149,8 @@ def create_song_source_router(
         except (httpx.HTTPError, ValueError, TypeError):
             bail(502, "网易云歌曲信息暂不可用")
         metadata = get_source("netease").metadata(info, ref=str(song_id))
-        new_id = orders.submit(
+        new_id = await run_in_threadpool(
+            orders.submit,
             user["id"],
             event_id,
             metadata,
