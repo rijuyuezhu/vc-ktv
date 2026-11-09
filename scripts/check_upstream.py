@@ -89,7 +89,6 @@ def check(*, dry_run: bool = False, head: str | None = None) -> str:
         "**Manual review only.** Compare vendored files, preserve attribution, "
         "test the adapted pipeline and update the pinned SHA only after merging "
         "a reviewed PR. Do not upgrade model weights or production automatically.\n\n"
-        "Tracked by #31.\n"
     )
     existing = next((issue for issue in tracked if issue["state"] == "OPEN"), None)
     if existing:
