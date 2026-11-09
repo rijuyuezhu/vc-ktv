@@ -45,7 +45,7 @@ class SubtitleProgress:
         # Telemetry is optional. A failed write cannot spoil a render.
         with self.store.lock:
             try:
-                cursor = self.store.db.execute(
+                self.store.db.execute(
                     "UPDATE songs SET prep_stage=?,prep_stage_at=?,prep_timing=? "
                     "WHERE id=? AND status='ready' AND prep_state='aligning' "
                     "AND prep_stage!=?",
@@ -57,8 +57,7 @@ class SubtitleProgress:
                         stage,
                     ),
                 )
-                if cursor.rowcount:
-                    self.store.db.commit()
+                self.store.db.commit()
             except sqlite3.Error:
                 self.store.db.rollback()
                 log.exception(
