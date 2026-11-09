@@ -26,6 +26,7 @@ from vc_ktv.processing.media_preparation import (
     render_provider_video,
     render_upstream_video,
 )
+from vc_ktv.processing.subtitle_progress import SubtitleProgress
 from vc_ktv.rendering.subtitle_styles import DEFAULT_PRESET
 from vc_ktv.sources import DownloadTools, get_source
 from vc_ktv.sources.netease_media import MusicUnavailable, download_netease_video
@@ -515,8 +516,7 @@ class AutoPrep:
         song_id = row["id"]
         stages = json.loads(row["prep_timing"] or "{}")
         started = time.monotonic()
-        current_stage = None
-        stage_started = started
+        progress = SubtitleProgress(self.store, song_id, stages, started)
         source = self.store.media / Path(row["source_file"] or "").name
         if not source.is_file():
             raise RuntimeError("source file vanished")
@@ -549,56 +549,13 @@ class AutoPrep:
             options = {"preset": preset}
             if self.enhance is render_upstream_video:
                 options["max_bandwidth_mbps"] = max_bandwidth_mbps
-                stage_names = {
-                    "读取原视频并提取音频": "extract",
-                    "Kim 分离用于推理的人声": "kim",
-                    "双遍 Qwen3-ASR 定位与 TIFA 安全分块对齐": "align",
-                    "整首 TIFA 对齐完整歌词": "align",
-                    "整首 TIFA 对齐完整歌词（不分块、不估算）": "align",
-                    "生成 ASS、LRC 与时间轴记录": "subtitles",
-                    "将字幕烧录到保留原始音轨的 MP4": "render",
-                }
-
-                def progress(message):
-                    nonlocal current_stage, stage_started
-                    stage = stage_names.get(message)
-                    if stage is None or stage == current_stage:
-                        return
-                    now = time.monotonic()
-                    if current_stage is not None:
-                        stages[current_stage] = round(now - stage_started, 2)
-                    current_stage, stage_started = stage, now
-                    # At most one DB write per stage transition; the source
-                    # audio and finished video are never affected by telemetry.
-                    with self.store.lock:
-                        try:
-                            cur = self.store.db.execute(
-                                "UPDATE songs SET prep_stage=?,prep_stage_at=?,prep_timing=? "
-                                "WHERE id=? AND status='ready' AND prep_state='aligning' "
-                                "AND prep_stage!=?",
-                                (
-                                    stage,
-                                    int(time.time()),
-                                    json.dumps(stages),
-                                    song_id,
-                                    stage,
-                                ),
-                            )
-                            if cur.rowcount:
-                                self.store.db.commit()
-                        except sqlite3.Error:
-                            self.store.db.rollback()
-                            log.exception(
-                                "Failed to save subtitle progress for song #%s", song_id
-                            )
-
                 options["progress"] = progress
             if row.get("lyric_timing_mode") == "provider":
                 (archive / "source-provider.lrc").write_text(
                     row["source_lrc_raw"], encoding="utf-8"
                 )
                 (archive / "confirmed_lyrics.txt").write_text(lyrics, encoding="utf-8")
-                current_stage, stage_started = "render", time.monotonic()
+                progress.start_provider_render()
                 with self.store.lock:
                     self.store.db.execute(
                         "UPDATE songs SET prep_stage='render',prep_stage_at=? "
@@ -723,9 +680,7 @@ class AutoPrep:
                 )
                 self.store.db.commit()
         finally:
-            if current_stage is not None:
-                stages[current_stage] = round(time.monotonic() - stage_started, 2)
-            metadata["stage_seconds"] = stages
+            metadata["stage_seconds"] = progress.finish()
             metadata["elapsed_seconds"] = round(time.monotonic() - started, 2)
             # Diagnostics are best-effort: a committed render must not be
             # downgraded because its timing or report could not be written.
