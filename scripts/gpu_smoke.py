@@ -13,7 +13,7 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 
-from vc_ktv.processing.upstream_pipeline import make_karaoke_video, pipeline_settings
+from vc_ktv.pipeline import make_karaoke_video, pipeline_settings
 
 LYRICS = "你好世界\n今天我们一起唱歌\n谢谢大家\n"
 SPEECH = "你好世界。今天我们一起唱歌。谢谢大家。"

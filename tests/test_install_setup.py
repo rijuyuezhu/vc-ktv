@@ -7,9 +7,9 @@ import sys
 import pytest
 from fastapi.testclient import TestClient
 
-from scripts import check_install, setup_spark_assets
-from scripts.setup_spark_runtimes import main as runtime_main
-from scripts.setup_spark_runtimes import require_cuda, setup, tifa_python
+from scripts import check_install, setup_pipeline_assets
+from scripts.setup_pipeline_runtimes import main as runtime_main
+from scripts.setup_pipeline_runtimes import require_cuda, setup, tifa_python
 from vc_ktv.application.factory import create_app
 
 
@@ -64,33 +64,35 @@ def test_cuda_runtime_must_be_available_before_creating_overlay(tmp_path, monkey
     shared = tmp_path / "tifa-python"
     shared.touch()
     monkeypatch.setattr(
-        "scripts.setup_spark_runtimes.python_output", lambda *_: "False"
+        "scripts.setup_pipeline_runtimes.python_output", lambda *_: "False"
     )
 
     def forbidden(*args, **kwargs):
         raise AssertionError("No overlay should be created for missing CUDA")
 
-    monkeypatch.setattr("scripts.setup_spark_runtimes.subprocess.run", forbidden)
+    monkeypatch.setattr("scripts.setup_pipeline_runtimes.subprocess.run", forbidden)
     with pytest.raises(RuntimeError, match="CUDA torch unavailable"):
         setup("kim", tmp_path, shared)
     assert not (tmp_path / "runtime/kim").exists()
 
 
 def test_cuda_runtime_probe_requires_true(monkeypatch, tmp_path):
-    monkeypatch.setattr("scripts.setup_spark_runtimes.python_output", lambda *_: "True")
+    monkeypatch.setattr(
+        "scripts.setup_pipeline_runtimes.python_output", lambda *_: "True"
+    )
     require_cuda(tmp_path / "python")
 
 
 def test_asset_download_group_uses_pipeline_root_env(monkeypatch, tmp_path):
     targets = []
     monkeypatch.setenv("VC_KTV_PIPELINE_ROOT", str(tmp_path))
-    monkeypatch.setattr(sys, "argv", ["setup_spark_assets", "kim"])
+    monkeypatch.setattr(sys, "argv", ["setup_pipeline_assets", "kim"])
     monkeypatch.setattr(
-        setup_spark_assets,
+        setup_pipeline_assets,
         "download",
         lambda item, root: targets.append(root / item["target"]) or "cached",
     )
-    setup_spark_assets.main()
+    setup_pipeline_assets.main()
     assert len(targets) == 2
     assert all(tmp_path in target.parents for target in targets)
 
@@ -100,7 +102,7 @@ def test_runtime_default_root_uses_pipeline_root_env(tmp_path):
         [
             sys.executable,
             "-c",
-            "from scripts.setup_spark_runtimes import PIPELINE_ROOT; print(PIPELINE_ROOT)",
+            "from scripts.setup_pipeline_runtimes import PIPELINE_ROOT; print(PIPELINE_ROOT)",
         ],
         env={**os.environ, "VC_KTV_PIPELINE_ROOT": str(tmp_path)},
         text=True,
@@ -114,13 +116,13 @@ def test_runtime_cli_preserves_venv_python_symlink(tmp_path, monkeypatch):
     python.symlink_to(sys.executable)
     passed = []
     monkeypatch.setattr(
-        "scripts.setup_spark_runtimes.setup", lambda *args: passed.append(args)
+        "scripts.setup_pipeline_runtimes.setup", lambda *args: passed.append(args)
     )
     monkeypatch.setattr(
         sys,
         "argv",
         [
-            "setup_spark_runtimes",
+            "setup_pipeline_runtimes",
             "kim",
             "--root",
             str(tmp_path),
@@ -172,8 +174,8 @@ def test_assets_restart_when_upstream_does_not_support_byte_ranges(
         output.write_bytes(content)
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(setup_spark_assets.subprocess, "run", fake_curl)
-    assert setup_spark_assets.download(item, tmp_path) == "downloaded"
+    monkeypatch.setattr(setup_pipeline_assets.subprocess, "run", fake_curl)
+    assert setup_pipeline_assets.download(item, tmp_path) == "downloaded"
     assert len(calls) == 2
     assert "--continue-at" in calls[0] and "--continue-at" not in calls[1]
     assert (tmp_path / item["target"]).read_bytes() == content
@@ -202,8 +204,8 @@ def test_assets_resumes_when_upstream_supports_byte_ranges(tmp_path, monkeypatch
             stream.write(content[37:])
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(setup_spark_assets.subprocess, "run", fake_curl)
-    assert setup_spark_assets.download(item, tmp_path) == "downloaded"
+    monkeypatch.setattr(setup_pipeline_assets.subprocess, "run", fake_curl)
+    assert setup_pipeline_assets.download(item, tmp_path) == "downloaded"
     assert len(calls) == 1
     assert (tmp_path / item["target"]).read_bytes() == content
 
@@ -228,8 +230,8 @@ def test_assets_discard_invalid_checksum_before_fallback(tmp_path, monkeypatch):
         out.write_bytes(b"bad model" if len(calls) == 1 else content)
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(setup_spark_assets.subprocess, "run", fake_curl)
-    assert setup_spark_assets.download(item, tmp_path) == "downloaded"
+    monkeypatch.setattr(setup_pipeline_assets.subprocess, "run", fake_curl)
+    assert setup_pipeline_assets.download(item, tmp_path) == "downloaded"
     assert len(calls) == 2
     assert "hf-mirror.com" in calls[0][-1]
     assert "huggingface.co" in calls[1][-1]

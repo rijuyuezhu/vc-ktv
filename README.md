@@ -4,10 +4,10 @@ VC-KTV 是一个自托管 KTV 点歌系统，支持 **B站视频**和**网易云
 
 ## 快速开始
 
-需要 Linux、Python 3.12、[uv](https://docs.astral.sh/uv/) 和 FFmpeg。源码仓库当前为私有仓库，需要 GitHub 访问权限；将 `OWNER` 换成仓库所有者。
+需要 Linux、Python 3.12、[uv](https://docs.astral.sh/uv/) 和 FFmpeg。公开源码可直接克隆。
 
 ```sh
-gh repo clone OWNER/vc-ktv
+git clone https://github.com/rijuyuezhu/vc-ktv.git
 cd vc-ktv
 uv sync --locked
 ./scripts/setup.sh
@@ -38,6 +38,8 @@ cat ~/.config/vc-ktv/admin-password
 - [开发指南](docs/DEVELOPMENT.md)：源码结构、测试与开发约定
 - [部署与升级](docs/RELEASE.md) · [安全与网络](docs/SECURITY.md)
 
-## 许可
+字幕引擎基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK)，来源与许可见 [第三方说明](third_party/autoassrenderer/README.md)。音视频、歌词及模型遵守各自的许可。
 
-项目代码采用 [Apache-2.0](LICENSE)。字幕引擎基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK)，来源与许可见 [第三方说明](third_party/autoassrenderer/README.md)。音乐、视频、歌词及模型遵守各自的许可和使用规则。
+# LICENSE
+
+Apache License 2.0. See [LICENSE](LICENSE).

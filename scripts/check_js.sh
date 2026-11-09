@@ -9,4 +9,3 @@ for file in static/*.js; do
   esac
 done
 node --test tests/test_*.cjs
-node --check experiments/bilibili-overlay/overlay.js

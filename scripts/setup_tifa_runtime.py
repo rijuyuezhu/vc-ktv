@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 REQUIREMENTS = (
-    REPO / "third_party/autoassrenderer/tifa-requirements-spark-arm64-cu130.txt"
+    REPO / "third_party/autoassrenderer/tifa-requirements-linux-aarch64-cu130.txt"
 )
 TORCH_VERSION = "2.13.0+cu130"
 AUDIO_VERSION = "2.11.0+cu130"
@@ -103,7 +103,7 @@ def setup(root: Path, torch_python: Path) -> Path:
     source = root / "models/forced_alignment/sources/TIFA"
     if not (source / "infer.py").is_file():
         raise FileNotFoundError(
-            f"TIFA source missing at {source}; run setup_spark_assets first"
+            f"TIFA source missing at {source}; run setup_pipeline_assets first"
         )
     if platform.system() != "Linux":
         raise RuntimeError("This CUDA/TIFA runtime setup requires Linux")

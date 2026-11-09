@@ -5,7 +5,7 @@ from pathlib import Path
 from ktv_app.timeline import Timeline
 from vc_ktv.infra.config import pipeline_settings
 from vc_ktv.pipeline import Timeline as PublicTimeline
-from vc_ktv.processing.upstream_pipeline import spark_settings
+from vc_ktv.pipeline import pipeline_settings as public_pipeline_settings
 
 
 def test_pipeline_settings_preserves_installed_layout(tmp_path, monkeypatch):
@@ -19,11 +19,7 @@ def test_pipeline_settings_preserves_installed_layout(tmp_path, monkeypatch):
     assert installed.device == "cuda"
     monkeypatch.setenv("VC_KTV_PIPELINE_ROOT", str(root))
     assert pipeline_settings().tifa_model == installed.tifa_model
-    assert (
-        spark_settings(root).model_dump() == installed.model_dump()
-        if hasattr(installed, "model_dump")
-        else spark_settings(root).tifa_model == installed.tifa_model
-    )
+    assert public_pipeline_settings is pipeline_settings
 
 
 def test_vendor_timeline_identity_is_preserved():
