@@ -50,9 +50,10 @@ uv run --no-sync python -m scripts.offline_backup verify \
 
 ## 更新和回滚
 
-将 `COMMIT_SHA` 替换为已通过 CI 的目标提交，在部署工作树执行：
+确认没有歌曲正在播放或制作，将 `COMMIT_SHA` 替换为已通过 CI 的目标提交，在部署工作树执行：
 
 ```sh
+systemctl --user stop vc-ktv.service
 git fetch origin
 git switch --detach COMMIT_SHA
 uv sync --locked --no-dev

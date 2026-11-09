@@ -1,6 +1,6 @@
 # 开发指南
 
-项目使用 Python 3.12、FastAPI、SQLite 和原生 JavaScript。代码入口及数据流见 [系统架构](ARCHITECTURE.md)。
+项目使用 Python 3.12、FastAPI、SQLite 和原生 JavaScript。前端检查需要 Node.js。代码入口及数据流见 [系统架构](ARCHITECTURE.md)。
 
 ## 开发环境
 
@@ -9,6 +9,7 @@ uv sync --locked --group dev
 uv run --no-sync pre-commit run --all-files
 uv run --no-sync pytest -q
 bash -n scripts/*.sh
+bash scripts/check_js.sh
 ```
 
 前端位于 `static/`，服务端位于 `vc_ktv/`，字幕引擎通过 `vc_ktv/pipeline/` 接入；`ktv_app/` 为固定版本的第三方源码。自动测试使用隔离数据库和合成媒体；真实 GPU 环境可另外运行：
