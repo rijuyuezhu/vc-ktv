@@ -38,6 +38,7 @@ from vc_ktv.application.common import (
     probe_media,
     vcpedia_find,
 )
+from vc_ktv.application.event_lifecycle import EventLifecycle
 from vc_ktv.application.media import MediaService
 from vc_ktv.application.orders import OrderService
 from vc_ktv.application.playback import PlaybackService
@@ -95,53 +96,36 @@ def create_app(
         storage_path=root / ".private" / "netease-session.json"
     )
     worker.netease_cookies = netease_login.cookies
-    running = False
-
-    async def monitor_workers():
-        # Restart missing workers without requiring a service restart or a
-        # second scheduler. Failed SQLite recovery is retried by start().
-        while True:
-            await asyncio.sleep(10)
-            with events.lock:
-                if not running or not events.active_id or events.transitioning:
-                    continue
-                live = sum(thread.is_alive() for thread in worker.workers)
-                if live >= worker.max_workers + worker.fast_workers:
-                    continue
-                try:
-                    if live:
-                        worker.resume_after_failed_stop()
-                    else:
-                        worker.start()
-                except Exception:
-                    logging.getLogger(__name__).exception("AutoPrep recovery failed")
+    worker.cancel_external_tasks = manual.stop_all
+    lifecycle = EventLifecycle(
+        events, worker, manual, netease_login, probe_media, auto_prepare
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        nonlocal running
         if auto_prepare:
             from vc_ktv.pipeline import primary_font_warning
 
             warning = primary_font_warning("Noto Sans CJK SC")
             if warning:
                 logging.getLogger(__name__).warning("KTV subtitle font: %s", warning)
-        running = True
+        lifecycle.running = True
         if auto_prepare and events.active_id:
-            worker.store = (
-                events.active()
-            )  # Also handle events created before lifespan.
-            worker.start()
-        monitor = asyncio.create_task(monitor_workers()) if auto_prepare else None
+            lifecycle.worker.store = events.active()  # Pre-created event.
+            lifecycle.worker.start()
+        monitor = (
+            asyncio.create_task(lifecycle.monitor_workers()) if auto_prepare else None
+        )
         try:
             yield
         finally:
-            running = False
+            lifecycle.running = False
             if monitor:
                 monitor.cancel()
                 with suppress(asyncio.CancelledError):
                     await monitor
-            if auto_prepare and worker.worker:
-                worker.stop()
+            if auto_prepare and lifecycle.worker.worker:
+                lifecycle.worker.stop()
             netease_login.close()
 
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
@@ -149,7 +133,9 @@ def create_app(
     app.state.orders = orders
     app.state.playback = playback
     app.state.manual_render = manual
-    app.state.autoprep = worker
+    app.state.autoprep = lifecycle.worker
+    app.state.lifecycle = lifecycle
+    lifecycle.bind_state(app.state)
     app.state.media_pins = media_pins
     app.state.media = media
     app.state.store = store
@@ -165,11 +151,6 @@ def create_app(
     lyric_search_times = {}
 
     app.state.probe = probe_media
-    worker.cancel_external_tasks = manual.stop_all
-
-    def stop_song_processing(song_id: int) -> None:
-        worker.cancel_song(song_id)
-        manual.stop_song(song_id)
 
     @app.middleware("http")
     async def origin_check(request: Request, call_next):
@@ -220,11 +201,6 @@ def create_app(
     )
     app.include_router(event_history_router)
 
-    def publish_worker(replacement: AutoPrep) -> None:
-        nonlocal worker
-        worker = replacement
-        app.state.autoprep = replacement
-
     app.include_router(
         create_event_admin_router(
             store=store,
@@ -232,14 +208,7 @@ def create_app(
             require_admin=auth.require_admin,
             require_global_admin=auth.require_global_admin,
             export_event_songs=export_event_songs,
-            get_worker=lambda: worker,
-            publish_worker=publish_worker,
-            probe_media=probe_media,
-            netease_login=netease_login,
-            stop_manual_renders=manual.stop_all,
-            is_running=lambda: running,
-            auto_prepare=auto_prepare,
-            rendering=manual.rendering,
+            lifecycle=lifecycle,
         )
     )
 
@@ -249,13 +218,15 @@ def create_app(
             "ok": True,
             "version": "0.5.0",
             "auto_prepare": auto_prepare,
-            "autoprep_workers": sum(thread.is_alive() for thread in worker.workers),
+            "autoprep_workers": sum(
+                thread.is_alive() for thread in lifecycle.worker.workers
+            ),
             "gpu_alignment": gpu_alignment,
             "autoprep_ready": (
                 auto_prepare
                 and (
                     not events.active_id
-                    or any(thread.is_alive() for thread in worker.workers)
+                    or any(thread.is_alive() for thread in lifecycle.worker.workers)
                 )
             ),
         }
@@ -365,7 +336,7 @@ def create_app(
             store=store,
             require_admin=auth.require_admin,
             require_user=auth.require_user,
-            stop_song_processing=stop_song_processing,
+            stop_song_processing=lifecycle.stop_song,
         )
     )
 
