@@ -42,6 +42,7 @@ from vc_ktv.application.event_lifecycle import EventLifecycle
 from vc_ktv.application.media import MediaService
 from vc_ktv.application.orders import OrderService
 from vc_ktv.application.playback import PlaybackService
+from vc_ktv.application.tv import TVSessionService
 from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store, time_now
 from vc_ktv.infra.media_pins import MediaPins
@@ -91,6 +92,7 @@ def create_app(
     media = MediaService(store, events, auth, media_pins)
     orders = OrderService(store, events)
     playback = PlaybackService(store, orders)
+    tv = TVSessionService(store, events, auth)
     manual = ManualRenderManager(store, events)
     netease_login = NeteaseLogin(
         storage_path=root / ".private" / "netease-session.json"
@@ -132,6 +134,7 @@ def create_app(
     app.state.auth = auth
     app.state.orders = orders
     app.state.playback = playback
+    app.state.tv_session = tv
     app.state.manual_render = manual
     app.state.autoprep = lifecycle.worker
     app.state.lifecycle = lifecycle
@@ -309,17 +312,7 @@ def create_app(
         )
     )
 
-    app.include_router(
-        create_tv_router(
-            store=store,
-            events=events,
-            require_admin=auth.require_admin,
-            read_signed=auth.read_signed,
-            sign=auth.sign,
-            media=media,
-            playback=playback,
-        )
-    )
+    app.include_router(create_tv_router(tv=tv, playback=playback, media=media))
 
     app.include_router(
         create_history_router(
