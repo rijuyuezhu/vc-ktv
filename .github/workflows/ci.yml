@@ -43,18 +43,5 @@ jobs:
       - name: Shell syntax
         run: bash -n scripts/*.sh
 
-      - name: JavaScript syntax
-        run: |
-          node --input-type=module --check < static/app.js
-          node --input-type=module --check < static/ui-common.js
-          node --input-type=module --check < static/lyrics.js
-          node --input-type=module --check < static/song-requests.js
-          node --input-type=module --check < static/remote-controls.js
-          node --input-type=module --check < static/tv-primary.js
-          node --input-type=module --check < static/admin-accounts.js
-          node --input-type=module --check < static/admin-netease.js
-          node --input-type=module --check < static/admin-settings.js
-          node --check static/tv.js
-          node --check static/tv-overlay.js
-          node --test tests/test_tv_buffering.cjs tests/test_tv_html_overlay.cjs tests/test_ui_common.cjs
-          node --check experiments/bilibili-overlay/overlay.js
+      - name: JavaScript checks
+        run: bash scripts/check_js.sh
