@@ -54,7 +54,7 @@ def test_manual_render_failure_writeback_recovers_from_transient_sql_fault(
         started.set()
         raise RuntimeError("simulated manual render failure")
 
-    monkeypatch.setattr("vc_ktv.api.preparation_admin.render_video", fail_render)
+    monkeypatch.setattr("vc_ktv.processing.manual_render.render_video", fail_render)
     real_db = store.db
     injected = FailureWritebackFault(real_db, mode)
     store.db = injected

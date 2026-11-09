@@ -4,7 +4,6 @@ import logging
 import secrets
 import sqlite3
 import tempfile
-import threading
 from pathlib import Path
 from typing import Annotated
 
@@ -13,10 +12,10 @@ from starlette.concurrency import run_in_threadpool
 
 from vc_ktv.application.common import MEDIA_MIMES, bail
 from vc_ktv.application.schemas import Lyrics, RenderRequest
-from vc_ktv.core.store import Store, time_now
+from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
 from vc_ktv.processing.media_preparation import normalize_hevc_source
-from vc_ktv.rendering.karaoke import render_video, write_ass
+from vc_ktv.rendering.karaoke import write_ass
 from vc_ktv.rendering.textgrid_import import convert_textgrid
 
 
@@ -28,10 +27,7 @@ def create_preparation_admin_router(
     require_admin,
     check_room_capacity,
     check_guest_capacity,
-    render_slot,
-    rendering,
-    manual_render_threads,
-    manual_render_lock,
+    manual,
 ):
     router = APIRouter()
 
@@ -261,80 +257,6 @@ def create_preparation_admin_router(
                 bail(404, "歌曲不存在")
             return {"text": row[0]}
 
-    def render_worker(
-        target_store: Store,
-        song_id: int,
-        source: Path,
-        lyrics: str,
-        duration: float,
-        lead: float,
-    ):
-        destination = target_store.media / f"{song_id}-ktv-{secrets.token_hex(8)}.mp4"
-        with manual_render_lock:
-            manual_render_threads[song_id] = threading.get_native_id()
-        try:
-            with target_store.lock:
-                current = target_store.db.execute(
-                    "SELECT status FROM songs WHERE id=?", (song_id,)
-                ).fetchone()
-                if not current or current["status"] != "rendering":
-                    return
-            render_video(source, lyrics, destination, duration, lead)
-            with target_store.lock:
-                row = target_store.db.execute(
-                    "SELECT media_file,status FROM songs WHERE id=?", (song_id,)
-                ).fetchone()
-                if row and row["status"] == "rendering":
-                    try:
-                        target_store.db.execute(
-                            "UPDATE songs SET status='ready',media_file=?,render_error='' WHERE id=?",
-                            (destination.name, song_id),
-                        )
-                        target_store.db.commit()
-                    except BaseException:
-                        # The outer handler deletes destination. Roll back the
-                        # media pointer before it records the render failure.
-                        target_store.db.rollback()
-                        raise
-                    # Publishing is complete; deleting the old video is only
-                    # best effort and must never invalidate the new DB path.
-                    if row["media_file"] and row["media_file"] != source.name:
-                        try:
-                            (target_store.media / row["media_file"]).unlink(
-                                missing_ok=True
-                            )
-                        except OSError as error:
-                            logging.getLogger(__name__).warning(
-                                "Song #%s obsolete manual render cleanup failed: %s",
-                                song_id,
-                                error,
-                            )
-                else:
-                    destination.unlink(missing_ok=True)
-        except Exception as error:
-            destination.unlink(missing_ok=True)
-            with target_store.lock:
-                for attempt in range(2):
-                    try:
-                        target_store.db.execute(
-                            "UPDATE songs SET status='ready',render_error=? WHERE id=? AND status='rendering'",
-                            (f"制作失败：{type(error).__name__}", song_id),
-                        )
-                        target_store.db.commit()
-                        break
-                    except sqlite3.Error:
-                        target_store.db.rollback()
-                        logging.getLogger(__name__).exception(
-                            "Manual render failure writeback failed for song #%s (attempt %s)",
-                            song_id,
-                            attempt + 1,
-                        )
-        finally:
-            with manual_render_lock:
-                manual_render_threads.pop(song_id, None)
-            rendering.clear()
-            render_slot.release()
-
     @router.post("/api/admin/songs/{song_id}/alignment/import")
     async def import_textgrid(
         song_id: int,
@@ -405,68 +327,6 @@ def create_preparation_admin_router(
         song_id: int, body: RenderRequest, vc_admin: str | None = Cookie(default=None)
     ):
         require_admin(vc_admin)
-        if not render_slot.acquire(blocking=False):
-            bail(409, "已有歌曲正在制作，请稍后再试")
-        try:
-            with store.lock:
-                row = store.db.execute(
-                    "SELECT * FROM songs WHERE id=?", (song_id,)
-                ).fetchone()
-                if not row:
-                    bail(404, "歌曲不存在")
-                asset = store.replay_assets(row)
-                if row["status"] != "ready" or not asset.get("source_file"):
-                    bail(409, "请先上传可用视频")
-                source = store.media / Path(asset["source_file"]).name
-                if not source.is_file():
-                    bail(404, "原视频不存在，请重新上传")
-                try:
-                    with tempfile.TemporaryDirectory(prefix="vc-ktv-validate-") as tmp:
-                        write_ass(
-                            row["lyrics"],
-                            Path(tmp) / "lyrics.ass",
-                            row["duration"],
-                            body.lead,
-                        )
-                except ValueError as error:
-                    bail(400, str(error))
-                try:
-                    store.db.execute(
-                        "UPDATE songs SET status='rendering',render_error='' WHERE id=?",
-                        (song_id,),
-                    )
-                    store.db.commit()
-                except BaseException:
-                    store.db.rollback()
-                    raise
-                rendering.set()
-                try:
-                    render_thread = threading.Thread(
-                        target=render_worker,
-                        args=(
-                            events.active(),
-                            song_id,
-                            source,
-                            row["lyrics"],
-                            row["duration"],
-                            body.lead,
-                        ),
-                        daemon=True,
-                    )
-                    render_thread.start()
-                except BaseException:
-                    # No worker was launched to clear rendering or release the
-                    # slot. Restore the state before returning an error.
-                    rendering.clear()
-                    store.db.execute(
-                        "UPDATE songs SET status='ready' WHERE id=? AND status='rendering'",
-                        (song_id,),
-                    )
-                    store.db.commit()
-                    raise
-                return {"id": song_id, "status": "rendering", "lead": body.lead}
-        except BaseException:
-            render_slot.release()
-            raise
+        return manual.start(song_id, body.lead)
 
     return router

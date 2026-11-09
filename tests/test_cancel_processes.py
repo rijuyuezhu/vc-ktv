@@ -131,7 +131,7 @@ def test_cancelling_one_of_two_workers_preserves_other_song(tmp_path):
 def test_admin_cancel_kills_manual_ffmpeg_render(tmp_path, monkeypatch):
     import importlib
 
-    server = importlib.import_module("vc_ktv.api.preparation_admin")
+    server = importlib.import_module("vc_ktv.processing.manual_render")
     app = create_app(
         root=tmp_path / "room",
         password="pw",
@@ -193,7 +193,7 @@ def test_admin_cancel_kills_manual_ffmpeg_render(tmp_path, monkeypatch):
 def test_200_gib_budget_stops_manual_render_too(tmp_path, monkeypatch):
     import importlib
 
-    server = importlib.import_module("vc_ktv.api.preparation_admin")
+    server = importlib.import_module("vc_ktv.processing.manual_render")
     app = create_app(
         root=tmp_path / "room",
         password="pw",
