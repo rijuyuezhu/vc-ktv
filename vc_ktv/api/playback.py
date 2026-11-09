@@ -8,7 +8,7 @@ from vc_ktv.application.schemas import Finish, PlaybackMode
 
 
 def create_playback_router(
-    *, playback: PlaybackService, require_admin, require_user, active_view
+    *, playback: PlaybackService, require_admin, require_user, media
 ):
     router = APIRouter()
     store = playback.store
@@ -55,7 +55,7 @@ def create_playback_router(
             if store.playback_mode() == "tv":
                 bail(409, "当前由电视主屏播放")
             playback.claim_next()
-            return {"active": active_view()}
+            return {"active": media.active_view()}
 
     @router.post("/api/admin/finish")
     def finish_song(body: Finish, vc_admin: str | None = Cookie(default=None)):

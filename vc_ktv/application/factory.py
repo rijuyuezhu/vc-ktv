@@ -1,13 +1,11 @@
 """FastAPI composition root: assemble stores, workers, auth and domain routers."""
 
 import asyncio
-import json
 import logging
 import os
 import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import Cookie, FastAPI, Request, Response
 from fastapi.responses import FileResponse
@@ -36,12 +34,12 @@ from vc_ktv.api.tv import create_tv_router
 from vc_ktv.application.auth import AuthService
 from vc_ktv.application.common import (
     STATIC,
-    PinnedFileResponse,
     bilibili_lookup,
     get_bvid,
     probe_media,
     vcpedia_find,
 )
+from vc_ktv.application.media import MediaService
 from vc_ktv.application.orders import OrderService
 from vc_ktv.application.playback import PlaybackService
 from vc_ktv.core.events import CurrentStore, Events
@@ -90,6 +88,7 @@ def create_app(
         gpu_alignment=gpu_alignment,
     )
     auth = AuthService(events, store, password, secret)
+    media = MediaService(store, events, auth, media_pins)
     orders = OrderService(store, events)
     playback = PlaybackService(store, orders)
     netease_login = NeteaseLogin(
@@ -151,6 +150,7 @@ def create_app(
     app.state.playback = playback
     app.state.autoprep = worker
     app.state.media_pins = media_pins
+    app.state.media = media
     app.state.store = store
     app.state.events = events
     app.state.lookup = bilibili_lookup
@@ -162,12 +162,6 @@ def create_app(
     app.state.candidate_search = search_lyric_candidates
     app.state.netease_lyrics = netease_song_lyrics
     lyric_search_times = {}
-
-    def pinned_media_response(path: Path, **kwargs) -> PinnedFileResponse:
-        # Caller holds store.lock while choosing the path and making this hard
-        # link. FileResponse opens the file only after its route returns.
-        pinned = media_pins.pin(path)
-        return PinnedFileResponse(pinned, **kwargs)
 
     app.state.probe = probe_media
     render_slot = threading.BoundedSemaphore(1)
@@ -187,118 +181,6 @@ def create_app(
         with manual_render_lock:
             if tid := manual_render_threads.get(song_id):
                 terminate_thread_children(tid)
-
-    def signed_media(song: dict) -> str:
-        return f"/media/{song['id']}?token={quote(auth.sign('media', f'{events.active_id}:{song["id"]}', 8 * 3600))}"
-
-    def overlay_bundle(song: dict):
-        """Use the nearest matching subtitle archive along replay_of lineage."""
-        if song.get("prep_state") != "done" or song.get("skip_subtitles"):
-            return None
-        resolved = store.replay_assets(song)
-        if not resolved.get("source_file") or not resolved.get("media_file"):
-            return None
-        source = store.media / Path(resolved["source_file"]).name
-        video = store.media / Path(resolved["media_file"]).name
-        for ancestor in store.replay_chain(song):
-            # An independently uploaded/re-rendered replay is not compatible
-            # with its parent's subtitle plan. Legacy hardlinks, however,
-            # remain valid when both physical files are still identical.
-            for field, actual in (("source_file", source), ("media_file", video)):
-                path = ancestor.get(field)
-                if path:
-                    try:
-                        if not (store.media / Path(path).name).samefile(actual):
-                            return None
-                    except OSError:
-                        return None
-            if ancestor["id"] != song["id"] and any(
-                ancestor.get(field) != song.get(field)
-                for field in ("lyrics", "lyric_choice", "lyric_offset_ms")
-            ):
-                return None
-            root = store.media / f"{ancestor['id']}-auto-alignment"
-            for attempt in sorted(root.glob("attempt-*/attempt.json"), reverse=True):
-                try:
-                    info = json.loads(attempt.read_text(encoding="utf-8"))
-                    if info.get("outcome") != "rendered" or info.get(
-                        "source_file"
-                    ) != ancestor.get("source_file"):
-                        continue
-                    for name in ("pipeline/subtitles", "provider_subtitles"):
-                        folder = attempt.parent / name
-                        if all(
-                            (folder / f).is_file()
-                            for f in (
-                                "timeline.json",
-                                "display_plan.json",
-                                "style.json",
-                            )
-                        ):
-                            return folder
-                except (OSError, ValueError, TypeError):
-                    continue
-        return None
-
-    def overlay_archive(bundle: Path) -> Path:
-        return bundle.parent.parent if bundle.name == "subtitles" else bundle.parent
-
-    def overlay_view(song: dict):
-        if not store.settings()["tv_html_overlay"]:
-            return None
-        source_name = store.replay_assets(song).get("source_file")
-        source = store.media / Path(source_name or "").name
-        bundle = overlay_bundle(song)
-        if (
-            not source.is_file()
-            or not bundle
-            or not float(song.get("duration") or 0) > 0
-        ):
-            return None
-        # Never stream a high-bitrate source over the 4 Mbps proxy by accident.
-        limit = store.settings()["max_bandwidth_mbps"]
-        if source.stat().st_size * 8 > float(song["duration"] or 0) * limit * 800_000:
-            cache = overlay_archive(bundle) / "tv-source.mp4"
-            if not cache.is_file():
-                return None
-            try:
-                metadata = json.loads(
-                    (overlay_archive(bundle) / "attempt.json").read_text()
-                )
-                if float(metadata.get("max_bandwidth_mbps", 0)) > limit:
-                    return None
-            except (OSError, ValueError, TypeError):
-                return None
-        media_token = quote(
-            auth.sign("media", f"{events.active_id}:{song['id']}", 8 * 3600)
-        )
-        tv_token = quote(
-            auth.sign("overlay", f"{events.active_id}:{song['id']}", 8 * 3600)
-        )
-        return {
-            "source_url": f"/media/{song['id']}/source?token={media_token}",
-            "timeline_url": f"/api/tv/subtitles/{song['id']}?token={tv_token}",
-        }
-
-    def active_view():
-        song = store.current()
-        if not song:
-            return None
-        info = store.rows(
-            """SELECT s.*, g.name AS nickname FROM songs s
-                             JOIN guests g ON g.id=s.requester WHERE s.id=?""",
-            (song["id"],),
-        )[0]
-        info = store.replay_assets(info)
-        info["media_url"] = signed_media(info)
-        info["html_overlay"] = overlay_view(info)
-        return info
-
-    def state_with_active():
-        # The middleware pins the event; use only its Store mutex here so
-        # an event-close request can set transitioning while readers drain.
-        with events.active().lock:
-            return {**store.state(), "active": active_view()}
 
     @app.middleware("http")
     async def origin_check(request: Request, call_next):
@@ -443,9 +325,7 @@ def create_app(
     app.include_router(create_admin_accounts_router(app, auth.require_global_admin))
 
     app.include_router(
-        create_admin_session_router(
-            auth=auth, events=events, state_with_active=state_with_active
-        )
+        create_admin_session_router(auth=auth, events=events, media=media)
     )
 
     app.include_router(
@@ -468,7 +348,7 @@ def create_app(
             playback=playback,
             require_admin=auth.require_admin,
             require_user=auth.require_user,
-            active_view=active_view,
+            media=media,
         )
     )
 
@@ -479,11 +359,8 @@ def create_app(
             require_admin=auth.require_admin,
             read_signed=auth.read_signed,
             sign=auth.sign,
-            state_with_active=state_with_active,
+            media=media,
             playback=playback,
-            signed_media=signed_media,
-            overlay_view=overlay_view,
-            active_view=active_view,
         )
     )
 
@@ -512,21 +389,11 @@ def create_app(
             events=events,
             admin_principal=auth.admin_principal,
             require_user=auth.require_user,
-            pinned_media_response=pinned_media_response,
+            media=media,
         )
     )
 
-    app.include_router(
-        create_media_router(
-            store=store,
-            events=events,
-            read_signed=auth.read_signed,
-            overlay_view=overlay_view,
-            overlay_archive=overlay_archive,
-            overlay_bundle=overlay_bundle,
-            pinned_media_response=pinned_media_response,
-        )
-    )
+    app.include_router(create_media_router(media=media, auth=auth))
 
     @app.get("/admin", include_in_schema=False)
     @app.get("/admin/", include_in_schema=False)
