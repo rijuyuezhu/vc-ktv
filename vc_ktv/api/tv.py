@@ -21,11 +21,10 @@ def create_tv_router(
     read_signed,
     sign,
     state_with_active,
-    schedule_replay,
+    playback,
     signed_media,
     overlay_view,
-    next_impl,
-    finish_impl,
+    active_view,
 ):
     router = APIRouter()
 
@@ -301,7 +300,7 @@ def create_tv_router(
         with store.lock:
             if store.playback_mode() != "tv":
                 bail(409, "当前不是电视播放模式")
-            return schedule_replay(body.song_id, current_only=True)
+            return playback.schedule_replay(body.song_id, current_only=True)
 
     @router.get("/api/tv/preload")
     def tv_preload(token: str):
@@ -334,7 +333,8 @@ def create_tv_router(
         with store.lock:
             if store.playback_mode() != "tv":
                 bail(409, "当前不是电视播放模式")
-            return next_impl()
+            playback.claim_next()
+            return {"active": active_view()}
 
     @router.post("/api/tv/finish")
     def tv_finish(body: Finish, token: str):
@@ -342,6 +342,6 @@ def create_tv_router(
         with store.lock:
             if store.playback_mode() != "tv":
                 bail(409, "当前不是电视播放模式")
-            return finish_impl(body)
+            return playback.finish(body.song_id, skipped=body.reason == "skip")
 
     return router
