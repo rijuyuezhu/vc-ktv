@@ -26,6 +26,7 @@ from vc_ktv.api.playback import create_playback_router
 from vc_ktv.api.preparation_admin import create_preparation_admin_router
 from vc_ktv.api.song_sources import create_song_source_router
 from vc_ktv.api.tv import create_tv_router
+from vc_ktv.application.admin_preparation import AdminPreparationService
 from vc_ktv.application.archive import EventArchiveService
 from vc_ktv.application.auth import AuthService
 from vc_ktv.application.event_lifecycle import EventLifecycle
@@ -153,6 +154,9 @@ def create_app(
     app.state.netease_lyrics = netease_song_lyrics
 
     app.state.probe = probe_media
+    admin_preparation = AdminPreparationService(
+        store, orders, lambda path: app.state.probe(path)
+    )
 
     @app.middleware("http")
     async def origin_check(request: Request, call_next):
@@ -271,12 +275,8 @@ def create_app(
 
     app.include_router(
         create_preparation_admin_router(
-            app=app,
-            store=store,
-            events=events,
+            preparation=admin_preparation,
             require_admin=auth.require_admin,
-            check_room_capacity=orders.check_room_capacity,
-            check_guest_capacity=orders.check_guest_capacity,
             manual=manual,
         )
     )
