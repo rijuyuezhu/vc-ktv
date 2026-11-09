@@ -26,6 +26,7 @@ from vc_ktv.processing.media_preparation import (
     render_provider_video,
     render_upstream_video,
 )
+from vc_ktv.processing.publication import publish_original, publish_subtitles
 from vc_ktv.processing.subtitle_progress import SubtitleProgress
 from vc_ktv.rendering.subtitle_styles import DEFAULT_PRESET
 from vc_ktv.sources import DownloadTools, get_source
@@ -464,57 +465,15 @@ class AutoPrep:
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
-            target = (
-                self.store.media
-                / f"{song_id}-original-{secrets.token_hex(6)}{path.suffix}"
-            )
-            published = False
-            try:
-                with path.open("rb") as src, target.open("wb") as out:
-                    while chunk := src.read(4 * 1024 * 1024):
-                        out.write(chunk)
-                        check_current_budget()
-                with self.store.lock:
-                    latest = self.store.db.execute(
-                        "SELECT status,prep_state,skip_subtitles FROM songs WHERE id=?",
-                        (song_id,),
-                    ).fetchone()
-                    if (
-                        not latest
-                        or latest["status"] != "waiting"
-                        or latest["prep_state"] != "downloading"
-                    ):
-                        return
-                    try:
-                        self.store.db.execute(
-                            """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
-                               prep_state=?,prep_stage=?,prep_stage_at=?,prep_timing=?,
-                               prep_error='',prep_retry_at=0 WHERE id=?""",
-                            (
-                                target.name,
-                                target.name,
-                                round(actual_duration),
-                                "original"
-                                if latest["skip_subtitles"]
-                                else "downloaded",
-                                "skipped" if latest["skip_subtitles"] else "downloaded",
-                                int(time.time()),
-                                json.dumps(
-                                    {"download": round(time.monotonic() - started, 2)}
-                                ),
-                                song_id,
-                            ),
-                        )
-                        self.store.db.commit()
-                    except BaseException:
-                        self.store.db.rollback()
-                        raise
-                    published = True
-            finally:
-                # Only a committed media path may retain the published file.
-                # A failed copy or SQLite write must not leak partial videos.
-                if not published:
-                    target.unlink(missing_ok=True)
+            if not publish_original(
+                self.store,
+                song_id,
+                path,
+                actual_duration,
+                started,
+                check_current_budget,
+            ):
+                return
         log.info("Song #%s original available, subtitle enhancement follows", song_id)
 
     def prepare_subtitles(self, row):
@@ -599,56 +558,8 @@ class AutoPrep:
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
-            with self.store.lock:
-                latest = self.store.db.execute(
-                    "SELECT status,source_file,media_file,prep_state,lyric_choice,"
-                    "lyric_timing_mode,provider_lrc,lyric_offset_ms FROM songs WHERE id=?",
-                    (song_id,),
-                ).fetchone()
-                if (
-                    latest
-                    and latest["status"] == "ready"
-                    and latest["source_file"] == row["source_file"]
-                    and latest["prep_state"] == "aligning"
-                    and latest["lyric_choice"] == lyrics
-                    and latest["lyric_timing_mode"]
-                    == row.get("lyric_timing_mode", "align")
-                    and latest["provider_lrc"] == row.get("provider_lrc", "")
-                    and latest["lyric_offset_ms"] == row.get("lyric_offset_ms", 0)
-                ):
-                    try:
-                        self.store.db.execute(
-                            "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
-                            "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
-                            (
-                                target.name,
-                                (archive / "aligned.lrc").read_text(),
-                                int(time.time()),
-                                song_id,
-                            ),
-                        )
-                        self.store.db.commit()
-                    except BaseException:
-                        # The failure handler deletes target. Never commit a
-                        # media_file pointing at that deleted render later.
-                        self.store.db.rollback()
-                        raise
-                    # The new video is committed. A failed cleanup of the old
-                    # artifact must not turn this success into a render failure
-                    # and delete the new file referenced by SQLite.
-                    old_media = latest["media_file"]
-                    if old_media and old_media != row["source_file"]:
-                        try:
-                            (self.store.media / old_media).unlink(missing_ok=True)
-                        except OSError as error:
-                            log.warning(
-                                "Song #%s obsolete media cleanup failed: %s",
-                                song_id,
-                                error,
-                            )
-                else:
-                    target.unlink(missing_ok=True)  # Playback already started.
-                    metadata["outcome"] = "stale"
+            if not publish_subtitles(self.store, row, target, archive / "aligned.lrc"):
+                metadata["outcome"] = "stale"
         except Exception as error:
             metadata["outcome"] = "failed"
             metadata["error_code"] = getattr(error, "code", type(error).__name__)
