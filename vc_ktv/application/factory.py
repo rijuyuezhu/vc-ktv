@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from fastapi import Cookie, FastAPI, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from vc_ktv.api.admin_accounts import create_admin_accounts_router
 from vc_ktv.api.admin_session import create_admin_session_router
@@ -179,12 +180,14 @@ def create_app(
         }
         if not path.startswith(("/api/", "/media/")) or lifecycle_writer:
             return await call_next(request)
-        if not events.begin_request():
+        # A concurrent Store transaction can hold Events.lock indirectly.
+        # Wait off-loop so one busy request cannot stall unrelated clients.
+        if not await run_in_threadpool(events.begin_request):
             return Response("场次正在切换，请重试", status_code=409)
         try:
             return await call_next(request)
         finally:
-            events.end_request()
+            await run_in_threadpool(events.end_request)
 
     @app.get("/api/event")
     def current_event():
