@@ -33,7 +33,7 @@ def create_event_admin_router(
     events,
     require_admin,
     require_global_admin,
-    export_event_songs,
+    archive,
     lifecycle: EventLifecycle,
 ) -> APIRouter:
     router = APIRouter()
@@ -66,7 +66,7 @@ def create_event_admin_router(
         require_global_admin(vc_admin)
         with events.lock:
             events.closed_folder(event_id)
-        csv_data = export_event_songs(event_id, vc_admin).body.decode("utf-8")
+        csv_data = archive.csv_text(event_id, vc_admin)
         return events.release_media(event_id, csv_data)
 
     @router.delete("/api/admin/events/{event_id}")
