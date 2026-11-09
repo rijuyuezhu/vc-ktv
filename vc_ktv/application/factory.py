@@ -28,13 +28,6 @@ from vc_ktv.api.song_sources import create_song_source_router
 from vc_ktv.api.tv import create_tv_router
 from vc_ktv.application.archive import EventArchiveService
 from vc_ktv.application.auth import AuthService
-from vc_ktv.application.common import (
-    STATIC,
-    bilibili_lookup,
-    get_bvid,
-    probe_media,
-    vcpedia_find,
-)
 from vc_ktv.application.event_lifecycle import EventLifecycle
 from vc_ktv.application.guest_lyrics import LyricSelectionService
 from vc_ktv.application.media import MediaService
@@ -45,14 +38,19 @@ from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store, time_now
 from vc_ktv.infra.media_pins import MediaPins
 from vc_ktv.lyrics.lyric_selection import netease_song_lyrics, search_lyric_candidates
+from vc_ktv.lyrics.lyric_sources import vcpedia_find
 from vc_ktv.processing.manual_render import ManualRenderManager
+from vc_ktv.processing.media_preparation import probe_media
 from vc_ktv.processing.worker import AutoPrep
+from vc_ktv.sources.bilibili import bilibili_lookup
 from vc_ktv.sources.netease_catalog import lookup_netease_song
 from vc_ktv.sources.netease_discovery import (
     resolve_song_reference,
     search_netease_songs,
 )
 from vc_ktv.sources.netease_login import NeteaseLogin
+
+STATIC = Path(__file__).resolve().parents[2] / "static"
 
 
 def create_app(
@@ -256,7 +254,6 @@ def create_app(
     app.include_router(
         create_song_source_router(
             app,
-            get_bvid=get_bvid,
             current_user=auth.current_user,
             admin_principal=auth.admin_principal,
             require_user=auth.require_user,

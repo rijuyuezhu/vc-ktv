@@ -1,15 +1,28 @@
 """Song-source search, previews and submissions (HTTP boundaries only)."""
 
+import re
 from collections.abc import Callable
 
 import httpx
 from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.application.orders import OrderService
 from vc_ktv.core.titles import title_key
 from vc_ktv.sources import get_source
+
+BVID = re.compile(r"^BV[0-9A-Za-z]{10}$")
+
+
+def get_bvid(raw: str) -> str:
+    raw = raw.strip()
+    # Accept either an exact BV ID or common Bilibili video URLs.
+    match = re.search(r"(?:^|/)(BV[0-9A-Za-z]{10})(?:[/?#]|$)", raw)
+    v = match.group(1) if match else raw
+    if not BVID.fullmatch(v):
+        bail(400, "请输入 BV 号或含 BV 号的视频链接")
+    return v
 
 
 class Preview(BaseModel):
@@ -28,7 +41,6 @@ class RequestNetEaseSong(BaseModel):
 def create_song_source_router(
     app,
     *,
-    get_bvid: Callable[[str], str],
     current_user: Callable,
     admin_principal: Callable,
     require_user: Callable,

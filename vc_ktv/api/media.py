@@ -5,7 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from vc_ktv.application.common import MEDIA_MIMES, bail
+from vc_ktv.application.errors import bail
+from vc_ktv.application.media import MEDIA_MIMES
 
 
 def create_media_router(*, media, auth):

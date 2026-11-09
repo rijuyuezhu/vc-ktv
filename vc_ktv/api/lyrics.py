@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 import httpx
 from fastapi import APIRouter, Cookie, File, UploadFile
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.application.guest_lyrics import LyricSelectionService
 from vc_ktv.application.schemas import GuestLyricChoice
 from vc_ktv.core.titles import title_key

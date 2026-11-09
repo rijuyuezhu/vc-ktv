@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Cookie, Response
 from pydantic import BaseModel, Field
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.sources.netease_login import NeteaseLogin, NeteaseLoginError
 
 

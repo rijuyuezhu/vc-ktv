@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.store import time_now
 
 

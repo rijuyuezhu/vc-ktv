@@ -2,10 +2,13 @@
 
 import sqlite3
 
-from vc_ktv.application.common import MAX_ACTIVE_SONGS, MAX_USER_SONGS, bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
 from vc_ktv.sources.base import SongInfo
+
+MAX_ACTIVE_SONGS = 1000
+MAX_USER_SONGS = 20
 
 
 class OrderService:

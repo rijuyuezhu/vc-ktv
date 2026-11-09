@@ -71,3 +71,32 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
                         }
                     )
     return variants
+
+
+async def vcpedia_find(query: str):
+    if not query.strip():
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://vcpedia.cn/api.php",
+                params={
+                    "action": "query",
+                    "list": "search",
+                    "srsearch": query[:80],
+                    "srlimit": 5,
+                    "format": "json",
+                },
+                headers={"User-Agent": "VC-KTV/0.1 (song metadata lookup)"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        return [
+            {
+                "title": entry["title"],
+                "url": "https://vcpedia.cn/" + quote(entry["title"].replace(" ", "_")),
+            }
+            for entry in data.get("query", {}).get("search", [])
+        ]
+    except (httpx.HTTPError, ValueError, KeyError):
+        return []

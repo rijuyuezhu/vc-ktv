@@ -4,7 +4,7 @@ import sqlite3
 
 from fastapi import APIRouter, Cookie
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 
 
 def create_cancellation_router(

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Cookie
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.application.playback import PlaybackService
 from vc_ktv.application.schemas import Finish, PlaybackMode
 

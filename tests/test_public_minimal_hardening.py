@@ -6,8 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register
-from vc_ktv.application.common import MAX_ACTIVE_SONGS, MAX_USER_SONGS
 from vc_ktv.application.factory import create_app
+from vc_ktv.application.orders import MAX_ACTIVE_SONGS, MAX_USER_SONGS
 
 BVID = "BV0000000001"
 

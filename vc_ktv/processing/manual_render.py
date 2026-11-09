@@ -7,7 +7,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.store import Store
 from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.rendering.karaoke import render_video, write_ass

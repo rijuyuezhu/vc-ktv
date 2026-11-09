@@ -10,7 +10,8 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, File, UploadFile
 from starlette.concurrency import run_in_threadpool
 
-from vc_ktv.application.common import MEDIA_MIMES, bail
+from vc_ktv.application.errors import bail
+from vc_ktv.application.media import MEDIA_MIMES
 from vc_ktv.application.schemas import Lyrics, RenderRequest
 from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded

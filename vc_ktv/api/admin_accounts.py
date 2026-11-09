@@ -6,7 +6,7 @@ import sqlite3
 from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.accounts import password_hash
 
 
