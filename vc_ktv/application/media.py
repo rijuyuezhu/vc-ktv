@@ -4,7 +4,30 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
-from vc_ktv.application.common import PinnedFileResponse
+from fastapi.responses import FileResponse
+
+MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
+
+
+class PinnedFileResponse(FileResponse):
+    """Keep a media inode alive through FileResponse's deferred open/send."""
+
+    async def __call__(self, scope, receive, send):
+        # A pathsend event may be queued for later opening. Stream the file
+        # here instead so the pinned link is safe to remove in finally.
+        if "http.response.pathsend" in scope.get("extensions", {}):
+            scope = {
+                **scope,
+                "extensions": {
+                    key: value
+                    for key, value in scope["extensions"].items()
+                    if key != "http.response.pathsend"
+                },
+            }
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
 
 
 class MediaService:

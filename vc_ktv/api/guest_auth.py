@@ -8,7 +8,7 @@ from fastapi import APIRouter, Cookie, Request, Response
 from pydantic import BaseModel, Field
 
 from vc_ktv.application.auth import AuthService
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.accounts import password_hash, verify_password
 from vc_ktv.core.store import time_now
 

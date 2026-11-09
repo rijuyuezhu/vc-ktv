@@ -6,7 +6,7 @@ import json
 import secrets
 from urllib.parse import quote
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.store import time_now
 
 

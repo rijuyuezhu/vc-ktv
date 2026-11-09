@@ -1,10 +1,11 @@
 """Guest lyric selection, time-axis capabilities and atomic song changes."""
 
 import hashlib
+import re
 import sqlite3
 from pathlib import Path
 
-from vc_ktv.application.common import LRC_LINE, LRC_WORD_TIME, bail
+from vc_ktv.application.errors import bail
 from vc_ktv.application.schemas import GuestLyricChoice
 from vc_ktv.core.store import time_now
 from vc_ktv.lyrics.timed_lyrics import (
@@ -12,6 +13,11 @@ from vc_ktv.lyrics.timed_lyrics import (
     project_provider_timeline,
     provider_timeline,
 )
+
+LRC_LINE = re.compile(
+    r"^(?:\[(?:(?:\d{1,2}:)?\d{1,3}:\d{2}(?:[.:]\d{1,3})?)\])+\s*(.*)$"
+)
+LRC_WORD_TIME = re.compile(r"<(?:(?:\d{1,2}:)?\d{1,3}:\d{2}(?:[.:]\d{1,3})?)>")
 
 
 class LyricSelectionService:

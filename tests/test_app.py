@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, use_browser_playback
-from vc_ktv.application.common import get_bvid
+from vc_ktv.api.song_sources import get_bvid
 from vc_ktv.application.factory import create_app
 
 

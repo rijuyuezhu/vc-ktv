@@ -11,7 +11,7 @@ from starlette.responses import FileResponse
 
 from tests.helpers import join_and_register
 from tests.test_manual_casting_queue import add_song, new_app
-from vc_ktv.application.common import PinnedFileResponse
+from vc_ktv.application.media import PinnedFileResponse
 
 
 def test_download_survives_media_replacement_before_file_open(tmp_path, monkeypatch):

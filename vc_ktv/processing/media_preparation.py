@@ -348,3 +348,45 @@ def render_provider_video(
         "verified_against_audio": False,
         "character_timing": "equal_split_estimate",
     }
+
+
+def probe_media(file: Path) -> float:
+    """Validate a real video file and obtain its actual duration."""
+    try:
+        proc = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_format",
+                "-show_streams",
+                "-of",
+                "json",
+                str(file),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=True,
+        )
+        data = json.loads(proc.stdout)
+        streams = data.get("streams", [])
+        if not any(
+            s.get("codec_type") == "video"
+            and 0 < s.get("width", 0) <= 7680
+            and 0 < s.get("height", 0) <= 4320
+            for s in streams
+        ):
+            raise ValueError("未找到有效的视频轨道")
+        duration = float(data["format"]["duration"])
+        if duration <= 0:
+            raise ValueError("视频时长必须在 1 秒至 1 小时之间")
+        return duration
+    except (
+        subprocess.SubprocessError,
+        OSError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as error:
+        raise ValueError("视频无效或无法解析，请上传有效的 MP4 或 WebM") from error

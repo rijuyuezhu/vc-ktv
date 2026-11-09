@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from fastapi import Request, Response
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.accounts import verify_password
 from vc_ktv.core.store import time_now
 

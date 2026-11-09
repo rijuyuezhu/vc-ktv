@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from fastapi import Response
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 
 
 class EventArchiveService:

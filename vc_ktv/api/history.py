@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.core.store import Store
 from vc_ktv.core.titles import title_key
 

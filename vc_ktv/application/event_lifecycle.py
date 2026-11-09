@@ -4,7 +4,7 @@ import asyncio
 import logging
 import shutil
 
-from vc_ktv.application.common import bail
+from vc_ktv.application.errors import bail
 from vc_ktv.processing.worker import AutoPrep
 
 

@@ -292,3 +292,24 @@ def test_short_vcpedia_verses_keep_intentional_repeated_lines(monkeypatch):
     )
     rows = asyncio.run(lyric_sources.vcpedia_lyric_candidates("一首短歌"))
     assert [row["text"] for row in rows] == ["你好\n你好\n再见"]
+
+
+def test_vcpedia_page_search_preserves_provider_response(monkeypatch):
+    real_client = httpx.AsyncClient
+
+    def respond(request):
+        assert request.url.host == "vcpedia.cn"
+        assert request.url.params["list"] == "search"
+        assert request.url.params["srlimit"] == "5"
+        return httpx.Response(
+            200, json={"query": {"search": [{"title": "第一 首"}, {"title": "第二首"}]}}
+        )
+
+    def client(*args, **kwargs):
+        return real_client(*args, transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr(lyric_sources.httpx, "AsyncClient", client)
+    rows = asyncio.run(lyric_sources.vcpedia_find("测试"))
+    assert [row["title"] for row in rows] == ["第一 首", "第二首"]
+    assert rows[0]["url"] == "https://vcpedia.cn/%E7%AC%AC%E4%B8%80_%E9%A6%96"
+    assert asyncio.run(lyric_sources.vcpedia_find("  ")) == []
