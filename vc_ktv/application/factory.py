@@ -43,6 +43,7 @@ from vc_ktv.application.common import (
     vcpedia_find,
 )
 from vc_ktv.application.orders import OrderService
+from vc_ktv.application.playback import PlaybackService
 from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store, time_now
 from vc_ktv.infra.media_pins import MediaPins
@@ -90,6 +91,7 @@ def create_app(
     )
     auth = AuthService(events, store, password, secret)
     orders = OrderService(store, events)
+    playback = PlaybackService(store, orders)
     netease_login = NeteaseLogin(
         storage_path=root / ".private" / "netease-session.json"
     )
@@ -146,6 +148,7 @@ def create_app(
     app = FastAPI(title="VC KTV MVP", version="0.5.0", lifespan=lifespan)
     app.state.auth = auth
     app.state.orders = orders
+    app.state.playback = playback
     app.state.autoprep = worker
     app.state.media_pins = media_pins
     app.state.store = store
@@ -460,15 +463,14 @@ def create_app(
         )
     )
 
-    playback_router, next_impl, finish_impl, schedule_replay = create_playback_router(
-        store=store,
-        require_admin=auth.require_admin,
-        require_user=auth.require_user,
-        active_view=active_view,
-        check_new_order=orders.check_new_order,
-        check_room_capacity=orders.check_room_capacity,
+    app.include_router(
+        create_playback_router(
+            playback=playback,
+            require_admin=auth.require_admin,
+            require_user=auth.require_user,
+            active_view=active_view,
+        )
     )
-    app.include_router(playback_router)
 
     app.include_router(
         create_tv_router(
@@ -478,11 +480,10 @@ def create_app(
             read_signed=auth.read_signed,
             sign=auth.sign,
             state_with_active=state_with_active,
-            schedule_replay=schedule_replay,
+            playback=playback,
             signed_media=signed_media,
             overlay_view=overlay_view,
-            next_impl=next_impl,
-            finish_impl=finish_impl,
+            active_view=active_view,
         )
     )
 

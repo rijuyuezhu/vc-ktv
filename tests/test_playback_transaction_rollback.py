@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import use_browser_playback
 from tests.test_fair_capped_two import ready
+from tests.test_manual_casting_queue import add_song
 from vc_ktv.application.factory import create_app
 
 
@@ -170,3 +171,40 @@ def test_failed_finish_rolls_back_song_and_real_virtual_play_counts(
             "SELECT plays,fair_offset FROM guests WHERE id='a'"
         ).fetchone()
         assert tuple(guest) == ((0, 1) if reason == "skip" else (1, 0))
+
+
+def test_failed_replay_priority_update_restores_previous_pin(tmp_path):
+    """Replay insertion and replacing the single priority slot are one transaction."""
+    app, store = start_room(tmp_path)
+    with store.lock:
+        store.db.execute("INSERT INTO guests(id,name) VALUES('a','A')")
+        store.db.commit()
+    played = add_song(store, "a", status="played", media="past.mp4", time=1)
+    pinned = add_song(store, "a", status="ready", media="pinned.mp4", time=2)
+
+    with TestClient(app, raise_server_exceptions=False) as admin:
+        login(admin)
+        assert admin.post(f"/api/admin/songs/{pinned}/pin-next").status_code == 200
+        real_db = store.db
+        broken = FailOnceSql(real_db, "UPDATE songs SET priority_next=1 WHERE id=?")
+        store.db = broken
+        try:
+            response = admin.post(f"/api/admin/songs/{played}/replay")
+        finally:
+            store.db = real_db
+        assert response.status_code == 500
+        assert broken.rollbacks == 1
+        assert not real_db.in_transaction
+        assert store.rows("SELECT id FROM songs WHERE replay_of IS NOT NULL") == []
+        assert [
+            song["id"]
+            for song in store.rows("SELECT id FROM songs WHERE priority_next=1")
+        ] == [pinned]
+
+        response = admin.post(f"/api/admin/songs/{played}/replay")
+        assert response.status_code == 200, response.text
+        replay_id = response.json()["id"]
+        assert [
+            song["id"]
+            for song in store.rows("SELECT id FROM songs WHERE priority_next=1")
+        ] == [replay_id]
