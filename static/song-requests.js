@@ -1,43 +1,91 @@
 import { $, api, guarded, toast, error, appendText, duration } from "./ui-common.js";
-// Guest Bilibili preview, NetEase lookup and song request actions.
-export function setupSongRequests({ refresh, openLyricPicker }) {
-  let preview = null;
+// A single official Bilibili player serves both P selection and lyric-side preview.
+export function setupBilibiliPreview() {
+  const dialog = $("bilibili-preview-dialog");
+  let selectedPage = 1;
+  let onChoose = null;
+  let video = null;
 
-  async function fetchPreview(page = 1) {
-    const info = await api(
-      `/api/preview?bvid=${encodeURIComponent($("bvid").value.trim())}&page=${page}`
-    );
-    preview = info;
-    $("preview").classList.remove("hidden");
-    $("preview-title").textContent = info.title;
-    $("preview-owner").textContent = `UP 主：${info.uploader}`;
-    $("preview-duration").textContent = `时长：${duration(info.duration)}`;
-    $("preview-cover").src = info.cover;
-    $("preview-cover").referrerPolicy = "no-referrer";
-    $("official-link").href = info.official_url;
-    $("embed-container").classList.add("hidden");
-    $("embed").removeAttribute("src");
-    $("page-select").replaceChildren();
-    info.pages.forEach((p) => {
-      const opt = document.createElement("option");
-      opt.value = p.page;
-      opt.textContent = `P${p.page}  ${p.part}`;
-      $("page-select").append(opt);
+  function showPage(page) {
+    selectedPage = page;
+    const bvid = encodeURIComponent(video.bvid);
+    const url = `https://player.bilibili.com/player.html?bvid=${bvid}&page=${page}&high_quality=1`;
+    const player = $("bilibili-preview-player");
+    if (player.src !== url) player.src = url;
+    $("bilibili-preview-official").href = `https://www.bilibili.com/video/${bvid}/?p=${page}`;
+    for (const choice of $("bilibili-preview-parts").children)
+      choice.setAttribute("aria-pressed", String(Number(choice.dataset.page) === page));
+  }
+  dialog.addEventListener("close", () => {
+    $("bilibili-preview-player").removeAttribute("src"); // Stop audio, even after Esc.
+    onChoose = null;
+    video = null;
+  });
+  $("bilibili-preview-back").onclick = () => dialog.close();
+  $("bilibili-preview-confirm").onclick = () =>
+    guarded(() => onChoose?.(selectedPage), $("bilibili-preview-confirm"));
+
+  function open(source, page, choose) {
+    if (dialog.open) return;
+    video = source;
+    onChoose = choose;
+    $("bilibili-preview-title").textContent = choose ? "选择分 P" : "预览视频";
+    $("bilibili-preview-song").textContent = source.title || "";
+    $("bilibili-preview-confirm").hidden = !choose;
+    $("bilibili-preview-parts").hidden = !choose;
+    const choices = $("bilibili-preview-parts");
+    choices.replaceChildren();
+    if (choose) {
+      for (const part of source.pages) {
+        const choice = appendText(
+          choices,
+          "button",
+          `P${part.page}  ${part.part}`,
+          "choice-card bili-part"
+        );
+        choice.type = "button";
+        choice.dataset.page = String(part.page);
+        choice.onclick = () => showPage(part.page);
+      }
+    }
+    showPage(page);
+    dialog.showModal();
+  }
+  return {
+    choose: (source, page, onConfirm) => open(source, page, onConfirm),
+    watch: (source) => open(source, source.page || 1, null),
+    close: () => {
+      if (dialog.open) dialog.close();
+    }
+  };
+}
+
+// Guest Bilibili/NetEase requests share the existing song queue.
+export function setupSongRequests({ refresh, openLyricPicker, videoPreview }) {
+  async function submitBilibili(info, page) {
+    const result = await api("/api/songs", "POST", { bvid: info.bvid, page });
+    videoPreview.close();
+    $("bvid").value = "";
+    toast("已点歌，请选歌词");
+    await refresh();
+    await openLyricPicker(result.id, result.title, result.lyric_query, {
+      bvid: info.bvid,
+      page,
+      title: info.title
     });
-    $("page-select").value = String(info.page);
-    $("multi-page").classList.toggle("hidden", info.pages.length < 2);
   }
   $("quick-submit-btn").onclick = () =>
     guarded(async () => {
-      const bvid = $("bvid").value.trim();
-      if (!bvid) throw new Error("请输入 BV 号");
-      const result = await api("/api/songs", "POST", { bvid, page: 1 });
-      $("bvid").value = "";
-      $("preview").classList.add("hidden");
-      preview = null;
-      toast("已点歌，请选歌词");
-      await refresh();
-      await openLyricPicker(result.id, result.title, result.lyric_query);
+      const raw = $("bvid").value.trim();
+      if (!raw) throw new Error("请输入 BV 号或视频链接");
+      const info = await api(`/api/preview?bvid=${encodeURIComponent(raw)}&page=1`);
+      const requested = Number(raw.match(/[?&]p=(\d+)/)?.[1]) || 1;
+      const page = info.pages.some((part) => part.page === requested) ? requested : 1;
+      if (info.pages.length > 1) {
+        videoPreview.choose(info, page, (chosenPage) => submitBilibili(info, chosenPage));
+      } else {
+        await submitBilibili(info, 1);
+      }
     }, $("quick-submit-btn"));
   // Source selection changes only the input panel; both sources share the same queue.
   function selectSongSource(source) {
@@ -153,26 +201,7 @@ export function setupSongRequests({ refresh, openLyricPicker }) {
     e.preventDefault();
     guarded(queryNeteaseSongs, $("netease-search-btn"));
   });
-  $("preview-btn").onclick = () => guarded(() => fetchPreview(), $("preview-btn"));
   $("bvid").addEventListener("keydown", (e) => {
     if (e.key === "Enter") $("quick-submit-btn").click();
   });
-  $("page-select").onchange = () => guarded(() => fetchPreview(Number($("page-select").value)));
-  $("watch-btn").onclick = () => {
-    if (!preview) return;
-    $("embed").src = preview.embed_url;
-    $("embed-container").classList.remove("hidden");
-  };
-  $("submit-btn").onclick = () =>
-    guarded(async () => {
-      if (!preview) throw new Error("先查询视频");
-      const title = preview.title;
-      const result = await api("/api/songs", "POST", { bvid: preview.bvid, page: preview.page });
-      toast("已点歌，请选歌词");
-      $("preview").classList.add("hidden");
-      $("bvid").value = "";
-      preview = null;
-      await refresh();
-      await openLyricPicker(result.id, title, result.lyric_query);
-    }, $("submit-btn"));
 }

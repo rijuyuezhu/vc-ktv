@@ -83,16 +83,6 @@
         <label for="bvid">视频链接或 BV 号</label>
         <div class="input-row"><input id="bvid" placeholder="BVxxxxxxxxxx / B站链接" spellcheck="false"><button id="quick-submit-btn" class="btn primary">♫ 点歌</button></div>
 
-        <details class="advanced"><summary>⌕ 视频预览与分 P 选择</summary>
-          <button id="preview-btn" class="btn neutral" type="button" style="margin-top:10px">查找视频</button>
-        <div id="preview" class="preview hidden">
-          <div class="song-preview"><img id="preview-cover" alt="视频封面"><div class="preview-info"><strong id="preview-title"></strong><span id="preview-owner"></span><span id="preview-duration"></span></div></div>
-          <div id="multi-page" class="hidden"><label for="page-select">选择分 P</label><select id="page-select"></select></div>
-          <div class="preview-actions"><button id="watch-btn" class="btn neutral">▶ 预览</button><a id="official-link" target="_blank" rel="noopener noreferrer">在 B 站查看</a></div>
-          <div id="embed-container" class="hidden"><iframe id="embed" title="B站官方预览播放器" allow="autoplay;fullscreen;picture-in-picture" allowfullscreen></iframe></div>
-          <button id="submit-btn" class="btn primary wide">♫ 加入队列</button>
-        </div>
-        </details>
         </div>
         <div id="source-panel-netease" role="tabpanel" aria-labelledby="source-tab-netease" hidden>
           <label for="netease-song-query">歌名、歌手或网易云分享链接</label>
@@ -331,23 +321,39 @@
     </section>
   </main>
   <footer>VC-KTV</footer>
-  <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog">
-    <form method="dialog"><div class="section-head"><h2>选择这首歌的歌词</h2><div class="input-row"><button id="guest-lyrics-cancel" class="btn neutral" type="button">✕ 取消点歌</button><button class="btn subtle">稍后</button></div></div></form>
-    <p id="guest-lyrics-song" class="muted"></p>
-    <p class="muted">选择适合这首视频的歌词，找不到可以搜索歌名。</p>
-    <p><button id="guest-lyrics-skip" class="btn neutral" type="button">🎬 不加字幕，使用原片</button></p>
-    <label for="guest-lyrics-query">歌词搜索关键词</label>
-    <div class="input-row">
-      <input id="guest-lyrics-query" placeholder="歌名，例如：歌曲名称">
-      <button id="guest-lyrics-search" class="btn neutral" type="button">重新搜索</button>
+  <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog" aria-labelledby="guest-lyrics-title">
+    <div class="section-head guest-lyrics-head">
+      <h2 id="guest-lyrics-title">选择歌词</h2>
+      <div class="guest-lyrics-actions">
+        <button id="guest-lyrics-preview" class="btn subtle" type="button" hidden>▶ 预览视频</button>
+        <button id="guest-lyrics-cancel" class="btn subtle" type="button">取消点歌</button>
+        <form method="dialog"><button class="btn subtle" type="submit">稍后</button></form>
+      </div>
     </div>
-    <p id="guest-lyrics-status" class="muted" aria-live="polite"></p>
-    <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
-    <button id="guest-lyrics-more" class="btn neutral" type="button">更多歌词来源</button>
-    <label for="guest-lyrics-upload">📄 上传自己的 LRC 歌词</label>
-    <input id="guest-lyrics-upload" type="file" accept=".lrc,text/plain">
-    <details class="upload-help"><summary>关于上传的歌词</summary><p class="muted">支持 UTF-8 格式、最大 128 KiB。上传后将重新对齐歌词时间。</p></details>
-
+    <div class="guest-lyrics-content">
+      <p id="guest-lyrics-song" class="muted"></p>
+      <div class="input-row guest-lyrics-search">
+        <input id="guest-lyrics-query" placeholder="搜索歌曲名称" aria-label="歌词搜索关键词">
+        <button id="guest-lyrics-search" class="btn neutral" type="button" aria-label="搜索歌词">⌕</button>
+      </div>
+      <p id="guest-lyrics-status" class="muted" aria-live="polite"></p>
+      <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
+      <div class="guest-lyrics-extras">
+        <button id="guest-lyrics-more" class="btn subtle" type="button">更多来源</button>
+        <label for="guest-lyrics-upload" class="btn subtle">上传 LRC</label>
+        <input id="guest-lyrics-upload" type="file" accept=".lrc,text/plain" class="visually-hidden">
+        <button id="guest-lyrics-skip" class="btn subtle" type="button">不加字幕</button>
+      </div>
+    </div>
+    <div class="guest-lyrics-footer"><button id="guest-lyrics-select" class="btn primary" type="button" disabled>选择</button></div>
+  </dialog>
+  <dialog id="bilibili-preview-dialog" class="bilibili-preview-dialog" aria-labelledby="bilibili-preview-title">
+    <div class="section-head"><h2 id="bilibili-preview-title">选择分 P</h2><button id="bilibili-preview-back" class="btn subtle" type="button">返回</button></div>
+    <p id="bilibili-preview-song" class="muted"></p>
+    <iframe id="bilibili-preview-player" title="B站官方视频预览" allow="autoplay;fullscreen;picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+    <a id="bilibili-preview-official" target="_blank" rel="noopener noreferrer">在 B 站查看</a>
+    <div id="bilibili-preview-parts" class="bilibili-preview-parts" aria-label="选择视频分 P"></div>
+    <button id="bilibili-preview-confirm" class="btn primary wide" type="button">下一步：选择歌词</button>
   </dialog>
   <dialog id="netease-review-dialog" class="netease-review-dialog" aria-labelledby="netease-review-title">
     <div class="section-head">

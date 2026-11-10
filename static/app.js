@@ -1,7 +1,7 @@
 import { setupAdminPlayback } from "./admin-playback.js";
 import { setupSongDetail } from "./song-detail.js";
 import { setupAdminEvents } from "./admin-events.js";
-import { setupSongRequests } from "./song-requests.js";
+import { setupSongRequests, setupBilibiliPreview } from "./song-requests.js";
 import { createLyricPicker } from "./lyrics.js";
 import { $, api, toast, error, guarded, duration, appendText } from "./ui-common.js";
 ("use strict");
@@ -115,10 +115,11 @@ async function refreshSongHistory() {
     list.append(item);
   });
 }
-const lyricPicker = createLyricPicker({ refresh, cancelGuestSong });
+const videoPreview = setupBilibiliPreview();
+const lyricPicker = createLyricPicker({ refresh, cancelGuestSong, videoPreview });
 const { openLyricPicker } = lyricPicker;
 
-setupSongRequests({ refresh, openLyricPicker });
+setupSongRequests({ refresh, openLyricPicker, videoPreview });
 const { refreshSongDetail, invalidateSongDetail } = setupSongDetail({
   refresh,
   currentRoute,
