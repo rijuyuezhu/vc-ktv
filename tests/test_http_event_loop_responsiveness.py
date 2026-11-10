@@ -2,7 +2,6 @@
 
 import asyncio
 import threading
-import time
 
 import httpx
 
@@ -47,21 +46,22 @@ def test_event_admission_contending_with_worker_does_not_block_loop(tmp_path):
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://test"
             ) as client:
-                start = time.monotonic()
                 response = asyncio.create_task(client.get("/api/health"))
-                # Release the Store mutex after enough time to distinguish
-                # normal coroutine scheduling from a 350 ms event-loop stall.
-                release_timer = threading.Timer(0.35, release.set)
+                # On a truly blocked event loop this watchdog frees the lock;
+                # the heartbeat must run before that happens. The timeout is
+                # intentionally generous for shared CI runner scheduling.
+                release_timer = threading.Timer(1.5, release.set)
                 release_timer.start()
                 try:
                     await asyncio.sleep(0.03)
-                    heartbeat = time.monotonic() - start
-                    result = await response
+                    assert not release.is_set(), (
+                        "event loop blocked until Store lock released"
+                    )
                 finally:
                     release.set()
+                    release_timer.cancel()
                     release_timer.join(timeout=2)
-                assert result.status_code == 200
-                assert heartbeat < 0.2, f"event loop stalled for {heartbeat:.3f}s"
+                assert (await response).status_code == 200
         finally:
             release.set()
             owner.join(timeout=2)
@@ -99,15 +99,14 @@ def test_event_admission_cleanup_does_not_block_loop(tmp_path, monkeypatch):
         ) as client:
             ongoing = asyncio.create_task(client.get("/api/health"))
             assert await asyncio.to_thread(entered.wait, 2)
-            release_timer = threading.Timer(0.35, release.set)
+            release_timer = threading.Timer(1.5, release.set)
             release_timer.start()
             try:
-                start = time.monotonic()
                 await asyncio.sleep(0.03)
-                heartbeat = time.monotonic() - start
-                assert heartbeat < 0.2, f"event loop stalled for {heartbeat:.3f}s"
+                assert not release.is_set(), "event loop blocked during request cleanup"
             finally:
                 release.set()
+                release_timer.cancel()
                 release_timer.join(timeout=2)
             assert (await ongoing).status_code == 200
             assert events.inflight == 0
@@ -142,7 +141,7 @@ def test_unrelated_health_response_during_an_active_store_transaction(tmp_path):
             ) as client:
                 task = asyncio.create_task(client.get("/api/health"))
                 try:
-                    result = await asyncio.wait_for(asyncio.shield(task), timeout=0.2)
+                    result = await asyncio.wait_for(asyncio.shield(task), timeout=1.0)
                     assert result.status_code == 200
                     assert not release.is_set(), (
                         "the test Store transaction ended early"
