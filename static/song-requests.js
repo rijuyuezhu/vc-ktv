@@ -56,6 +56,13 @@ let neteaseCanLoadMore=false;
 async function submitNeteaseSong(ref,button){
   await guarded(async()=>{
     const result=await api("/api/netease/songs","POST",{ref});
+    neteaseSearchVersion++;
+    neteaseLastQuery="";
+    neteasePage=0;
+    neteaseCanLoadMore=false;
+    $("netease-song-query").value="";
+    $("netease-search-results").replaceChildren();
+    $("netease-search-message").textContent="已点歌，可以继续搜索下一首。";
     toast("✓ 已加入队列，请选择歌词");
     await refresh();
     await openLyricPicker(result.id,result.title,result.lyric_query);
@@ -145,6 +152,7 @@ $("submit-btn").onclick=()=>guarded(async()=>{
   const title=preview.title;
   const result=await api("/api/songs","POST",{bvid:preview.bvid,page:preview.page});
   toast("已点歌，请选歌词");$("preview").classList.add("hidden");
+  $("bvid").value="";
   preview=null;await refresh();
   await openLyricPicker(result.id,title,result.lyric_query);
 },$("submit-btn"));
