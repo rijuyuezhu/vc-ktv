@@ -8,6 +8,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from vc_ktv.lyrics.timed_lyrics import offset_timeline
@@ -228,13 +229,86 @@ def normalize_original_codec(
             output.unlink(missing_ok=True)
 
 
+def _try_native_av1_tv_cache(
+    source: Path,
+    archive: Path,
+    duration: float,
+    bandwidth_mbps: float,
+    bvid: str,
+    page: int,
+) -> bool:
+    """Use Bilibili's smaller AV1 stream instead of a second lossy encode."""
+    ffprobe = os.environ.get("KTV_FFPROBE", "ffprobe")
+
+    def info(path: Path) -> tuple[str, int, float]:
+        result = subprocess.run(
+            [
+                ffprobe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name,height:format=duration",
+                "-of",
+                "json",
+                str(path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        data = json.loads(result.stdout)
+        video = data["streams"][0]
+        return (
+            video["codec_name"],
+            int(video["height"]),
+            float(data["format"]["duration"]),
+        )
+
+    try:
+        codec, height, source_duration = info(source)
+        if codec != "av1" or height <= 720:
+            return False
+        with tempfile.TemporaryDirectory(prefix="tv-native-", dir=archive) as temporary:
+            candidate = media_download(
+                bvid, page, Path(temporary), max_height=720, prefer_av1=True
+            )
+            small_codec, small_height, small_duration = info(candidate)
+            if (
+                small_codec != "av1"
+                or small_height != 720
+                or abs(source_duration - small_duration) > 1
+                or abs(duration - small_duration) > 2
+                or candidate.stat().st_size * 8
+                > small_duration * bandwidth_mbps * 800_000
+            ):
+                return False
+            # Atomic publication; source and subtitle-burned video remain intact.
+            candidate.replace(archive / "tv-source.mp4")
+            return True
+    except Exception as error:
+        # A secondary download is opportunistic; preserve the H.264 fallback.
+        log.warning("Native AV1 TV cache unavailable for %s: %s", bvid, error)
+        return False
+
+
 def prepare_tv_source(
-    source: Path, archive: Path, duration: float, bandwidth_mbps: float
+    source: Path,
+    archive: Path,
+    duration: float,
+    bandwidth_mbps: float,
+    *,
+    native_av1: tuple[str, int] | None = None,
 ) -> None:
     """Only transcode high-average-bitrate original video into a private TV cache."""
     if (
         duration <= 0
         or source.stat().st_size * 8 <= duration * bandwidth_mbps * 800_000
+    ):
+        return
+    if native_av1 and _try_native_av1_tv_cache(
+        source, archive, duration, bandwidth_mbps, *native_av1
     ):
         return
     destination = archive / "tv-source.mp4"

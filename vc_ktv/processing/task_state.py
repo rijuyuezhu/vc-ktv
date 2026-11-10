@@ -77,6 +77,7 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool):
             claimed["style_preset"] = settings["subtitle_style"]
             claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
             claimed["tv_html_overlay"] = settings["tv_html_overlay"]
+            claimed["original_codec_mode"] = settings["original_codec_mode"]
         store.db.commit()
         return claimed
     except sqlite3.Error:

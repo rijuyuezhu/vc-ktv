@@ -37,6 +37,19 @@ from vc_ktv.sources.netease_media import download_netease_video
 log = logging.getLogger(__name__)
 
 
+def _native_av1_variant(row: dict) -> tuple[str, int] | None:
+    # Uploaded replacements may retain a Bilibili ID, but are not its video.
+    if (
+        row.get("original_codec_mode") != "av1"
+        or row.get("source_type") not in (None, "bilibili")
+        or not Path(row.get("source_file") or "").name.startswith(
+            f"{row['id']}-original-"
+        )
+    ):
+        return None
+    return row["bvid"], int(row["page"])
+
+
 class SubtitleError(RuntimeError):
     def __init__(self, code: str, message: str):
         self.code = code
@@ -396,7 +409,11 @@ class AutoPrep:
             if row.get("tv_html_overlay"):
                 try:
                     prepare_tv_source(
-                        source, archive, float(row["duration"]), max_bandwidth_mbps
+                        source,
+                        archive,
+                        float(row["duration"]),
+                        max_bandwidth_mbps,
+                        native_av1=_native_av1_variant(row),
                     )
                     metadata["tv_source_ready"] = True
                 except (OSError, ValueError, subprocess.SubprocessError) as error:
