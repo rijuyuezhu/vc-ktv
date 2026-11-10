@@ -386,6 +386,7 @@ class AutoPrep:
             "lyric_source": row["lyric_source"],
             "outcome": "running",
         }
+        published = False
         try:
             options = {"preset": preset}
             if self.enhance is render_upstream_video:
@@ -433,6 +434,7 @@ class AutoPrep:
                 ):
                     metadata["outcome"] = "stale"
                 else:
+                    published = True
                     metadata["ready_seconds"] = round(time.monotonic() - started, 2)
                     try:
                         _write_attempt_report(archive, metadata)
@@ -454,8 +456,11 @@ class AutoPrep:
                     if budget is not None:
                         budget.check()
                 except Exception as error:
-                    # TV caching is optional after a successful publication.
-                    (archive / "tv-source.mp4").unlink(missing_ok=True)
+                    # Cache work is optional; failure cannot invalidate a published video.
+                    try:
+                        (archive / "tv-source.mp4").unlink(missing_ok=True)
+                    except OSError:
+                        log.warning("Unable to clean TV cache for song #%s", song_id)
                     log.warning(
                         "TV source compression failed for song #%s: %s",
                         song_id,
@@ -467,41 +472,46 @@ class AutoPrep:
                         time.monotonic() - cache_started, 2
                     )
         except Exception as error:
-            metadata["outcome"] = "failed"
-            metadata["error_code"] = getattr(error, "code", type(error).__name__)
-            metadata["error_message"] = str(error)[:400]
-            log.warning(
-                "Song #%s subtitle enhancement failed, original preserved: %s",
-                song_id,
-                error,
-            )
-            target.unlink(missing_ok=True)
-            with self.store.lock:
-                message = (
-                    str(error)
-                    if isinstance(error, SubtitleError)
-                    else "字幕制作失败，请查看日志"
+            if published:
+                # SQLite already points to target. Nothing after publication may
+                # turn a successful render into a broken media reference.
+                log.exception("Post-publication work failed for song #%s", song_id)
+            else:
+                metadata["outcome"] = "failed"
+                metadata["error_code"] = getattr(error, "code", type(error).__name__)
+                metadata["error_message"] = str(error)[:400]
+                log.warning(
+                    "Song #%s subtitle enhancement failed, original preserved: %s",
+                    song_id,
+                    error,
                 )
-                # Explicit style re-render may have a prior finished video.
-                # On failure preserve both its path and completed status.
-                old_video = row["media_file"]
-                keep_done = (
-                    old_video
-                    and old_video != row["source_file"]
-                    and (self.store.media / Path(old_video).name).is_file()
-                )
-                self.store.db.execute(
-                    "UPDATE songs SET prep_state=?,prep_error=? "
-                    "WHERE id=? AND status='ready' AND prep_state='aligning' "
-                    "AND source_file=?",
-                    (
-                        "done" if keep_done else "original",
-                        message,
-                        song_id,
-                        row["source_file"],
-                    ),
-                )
-                self.store.db.commit()
+                target.unlink(missing_ok=True)
+                with self.store.lock:
+                    message = (
+                        str(error)
+                        if isinstance(error, SubtitleError)
+                        else "字幕制作失败，请查看日志"
+                    )
+                    # Explicit style re-render may have a prior finished video.
+                    # On failure preserve both its path and completed status.
+                    old_video = row["media_file"]
+                    keep_done = (
+                        old_video
+                        and old_video != row["source_file"]
+                        and (self.store.media / Path(old_video).name).is_file()
+                    )
+                    self.store.db.execute(
+                        "UPDATE songs SET prep_state=?,prep_error=? "
+                        "WHERE id=? AND status='ready' AND prep_state='aligning' "
+                        "AND source_file=?",
+                        (
+                            "done" if keep_done else "original",
+                            message,
+                            song_id,
+                            row["source_file"],
+                        ),
+                    )
+                    self.store.db.commit()
         finally:
             metadata["stage_seconds"] = progress.finish()
             metadata["elapsed_seconds"] = round(time.monotonic() - started, 2)
