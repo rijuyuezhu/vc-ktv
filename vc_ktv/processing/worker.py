@@ -113,6 +113,11 @@ class AutoPrep:
         self.active_tasks_lock = threading.RLock()
         self.budget_watcher: threading.Thread | None = None
         self.cancel_external_tasks = lambda: None
+        # Manual, optional and single-flight: no new persistent queue/worker.
+        self.cache_retry_slot = threading.Lock()
+        self.cache_retry_thread: threading.Thread | None = None
+        self.cache_retry_cancel: threading.Event | None = None
+        self.cache_retry_song_id: int | None = None
 
     def start(self):
         with self.store.lock:
@@ -134,14 +139,20 @@ class AutoPrep:
 
     def stop(self):
         self.stop_signal.set()
+        self.cancel_tv_cache_retry()
         for thread in self.workers:
             thread.join(timeout=2)
+        if self.cache_retry_thread:
+            self.cache_retry_thread.join(timeout=2)
         if self.budget_watcher:
             self.budget_watcher.join(timeout=2)
-        return all(not thread.is_alive() for thread in self.workers)
+        return all(not thread.is_alive() for thread in self.workers) and (
+            self.cache_retry_thread is None or not self.cache_retry_thread.is_alive()
+        )
 
     def cancel_song(self, song_id: int) -> list[int]:
         """Stop active child processes of a cancelled song, not other workers."""
+        self.cancel_tv_cache_retry(song_id)
         with self.active_tasks_lock:
             task = self.active_tasks.get(song_id)
             if task is None:
@@ -149,6 +160,134 @@ class AutoPrep:
             tid, cancelled = task
             cancelled.set()
             return terminate_thread_children(tid)
+
+    def cancel_tv_cache_retry(self, song_id: int | None = None) -> None:
+        """Cancellation shares the existing per-thread subprocess termination."""
+        if self.cache_retry_song_id is None or (
+            song_id is not None and song_id != self.cache_retry_song_id
+        ):
+            return
+        if self.cache_retry_cancel is not None:
+            self.cache_retry_cancel.set()
+        thread = self.cache_retry_thread
+        if thread and thread.native_id:
+            terminate_thread_children(thread.native_id)
+
+    def retry_tv_cache(
+        self,
+        song_id: int,
+        source: Path,
+        archive: Path,
+        media_file: str,
+        bandwidth_mbps: float,
+        native_av1: tuple[str, int] | None,
+    ) -> None:
+        """Run at most one manual cache repair; the song stays playable."""
+        if not self.cache_retry_slot.acquire(blocking=False):
+            raise RuntimeError("已有电视缓存正在补做")
+        cancelled = threading.Event()
+        self.cache_retry_song_id = song_id
+        self.cache_retry_cancel = cancelled
+        try:
+            if self.stop_signal.is_set():
+                raise RuntimeError("后台服务正在停止")
+            with self.active_tasks_lock:
+                if song_id in self.active_tasks:
+                    raise RuntimeError("歌曲正在制作，请稍后再补做缓存")
+            thread = threading.Thread(
+                target=self._repair_tv_cache,
+                args=(
+                    song_id,
+                    source,
+                    archive,
+                    media_file,
+                    bandwidth_mbps,
+                    native_av1,
+                    cancelled,
+                ),
+                name="vc-ktv-tv-cache-retry",
+                daemon=True,
+            )
+            self.cache_retry_thread = thread
+            thread.start()
+        except BaseException:
+            self.cache_retry_song_id = None
+            self.cache_retry_cancel = None
+            self.cache_retry_slot.release()
+            raise
+
+    def _repair_tv_cache(
+        self,
+        song_id: int,
+        source: Path,
+        archive: Path,
+        media_file: str,
+        bandwidth_mbps: float,
+        native_av1: tuple[str, int] | None,
+        cancelled: threading.Event,
+    ) -> None:
+        started = time.monotonic()
+        budget = getattr(self.store, "disk_budget", None)
+        try:
+            with budget_scope(budget, cancelled):
+                check_current_budget()
+                with tempfile.TemporaryDirectory(
+                    prefix="tv-cache-retry-", dir=archive
+                ) as tmp:
+                    staging = Path(tmp)
+                    duration = self.probe(source)
+                    prepare_tv_source(
+                        source, staging, duration, bandwidth_mbps, native_av1=native_av1
+                    )
+                    check_current_budget()
+                    candidate = staging / "tv-source.mp4"
+                    with self.store.lock:
+                        row = self.store.db.execute(
+                            "SELECT * FROM songs WHERE id=?", (song_id,)
+                        ).fetchone()
+                        resolved = self.store.replay_assets(row) if row else {}
+                        settings = self.store.settings()
+                        if (
+                            not row
+                            or row["status"] != "ready"
+                            or row["prep_state"] != "done"
+                            or row["media_file"] != media_file
+                            or resolved.get("source_file") != source.name
+                            or settings["max_bandwidth_mbps"] != bandwidth_mbps
+                            or not settings["tv_html_overlay"]
+                        ):
+                            return  # A new render, cancellation or event close won.
+                        if self.stop_signal.is_set():
+                            return
+                        # The attempt remains active only while its media is published.
+                        if not (archive / "attempt.json").is_file():
+                            return
+                        metadata = json.loads((archive / "attempt.json").read_text())
+                        if (
+                            metadata.get("outcome") != "rendered"
+                            or metadata.get("source_file") != source.name
+                        ):
+                            return
+                        if candidate.is_file():
+                            if candidate.stat().st_size < 1024:
+                                raise ValueError("生成的电视缓存文件为空或不完整")
+                            candidate.replace(archive / "tv-source.mp4")
+                            metadata["max_bandwidth_mbps"] = bandwidth_mbps
+                            metadata["tv_source_ready"] = True
+                        else:
+                            metadata["tv_source_ready"] = False
+                        metadata["tv_cache_seconds"] = round(
+                            time.monotonic() - started, 2
+                        )
+                        metadata.pop("tv_cache_error", None)
+                        _write_attempt_report(archive, metadata)
+        except Exception as error:
+            if not cancelled.is_set():
+                log.warning("TV cache retry failed for song #%s: %s", song_id, error)
+        finally:
+            self.cache_retry_song_id = None
+            self.cache_retry_cancel = None
+            self.cache_retry_slot.release()
 
     def watch_disk(self):
         budget = getattr(self.store, "disk_budget", None)
@@ -187,6 +326,7 @@ class AutoPrep:
                 for song_id in song_ids:
                     self.cancel_song(song_id)
                 self.cancel_external_tasks()
+                self.cancel_tv_cache_retry()
             except OSError:
                 log.exception("Failed to inspect room disk usage")
 

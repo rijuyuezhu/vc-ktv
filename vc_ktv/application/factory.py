@@ -127,7 +127,10 @@ def create_app(
                 monitor.cancel()
                 with suppress(asyncio.CancelledError):
                     await monitor
-            if auto_prepare and lifecycle.worker.worker:
+            if (auto_prepare and lifecycle.worker.worker) or (
+                lifecycle.worker.cache_retry_thread
+                and lifecycle.worker.cache_retry_thread.is_alive()
+            ):
                 lifecycle.worker.stop()
             netease_login.close()
 
@@ -157,7 +160,11 @@ def create_app(
 
     app.state.probe = probe_media
     admin_preparation = AdminPreparationService(
-        store, orders, lambda path: app.state.probe(path)
+        store,
+        orders,
+        lambda path: app.state.probe(path),
+        media=media,
+        worker=lambda: lifecycle.worker,
     )
 
     @app.middleware("http")

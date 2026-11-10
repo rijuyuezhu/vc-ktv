@@ -103,6 +103,12 @@ export function setupSongDetail({
           toast("已上传");await refresh();
         });
       }
+      if(song.status==="ready"&&song.prep_state==="done"&&song.has_media)
+        songAction(actions,"补做电视缓存",async()=>{
+          const result=await api("/api/admin/songs/"+song.id+"/tv-cache/retry","POST");
+          toast(result.status==="started"?"已开始补做":result.status==="not_needed"?
+            "当前原片无需缓存":"电视缓存已就绪");
+        });
       if(song.status==="ready"&&["original","done"].includes(song.prep_state))
         songAction(actions,song.prep_state==="done"?"按新风格重制":"重试字幕",async()=>{
           if(song.prep_state==="done"&&!confirm("按当前字幕样式重新制作？"))return;

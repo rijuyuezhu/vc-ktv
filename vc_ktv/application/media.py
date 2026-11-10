@@ -120,8 +120,13 @@ class MediaService:
             if not cache.is_file():
                 return None
             try:
+                if cache.stat().st_size < 1024:
+                    return None
                 metadata = json.loads((archive / "attempt.json").read_text())
-                if float(metadata.get("max_bandwidth_mbps", 0)) > limit:
+                if (
+                    metadata.get("tv_source_ready") is False
+                    or float(metadata.get("max_bandwidth_mbps", 0)) > limit
+                ):
                     return None
             except (OSError, ValueError, TypeError):
                 return None
