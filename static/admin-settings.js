@@ -14,7 +14,7 @@ export function setupAdminSettings({refresh, invalidateQueueState}) {
     $("max-bandwidth-mbps").value=String(settings.max_bandwidth_mbps);
     $("pause-orders").checked=settings.orders_paused;
     $("tv-html-overlay").checked=settings.tv_html_overlay;
-    $("force-h264-originals").checked=settings.force_h264_originals;
+    $("original-codec-mode").value=settings.original_codec_mode;
   }else if(document.activeElement!==$("queue-policy")&&
            document.activeElement!==$("allow-unsubtitled")&&
            document.activeElement!==$("subtitle-style")&&
@@ -22,7 +22,7 @@ export function setupAdminSettings({refresh, invalidateQueueState}) {
            document.activeElement!==$("max-bandwidth-mbps")&&
            document.activeElement!==$("pause-orders")&&
            document.activeElement!==$("tv-html-overlay")&&
-           document.activeElement!==$("force-h264-originals")&&
+           document.activeElement!==$("original-codec-mode")&&
            document.activeElement!==$("settings-save-btn")){
     $("queue-policy").value=settings.queue_policy;
     $("subtitle-style").value=settings.subtitle_style;
@@ -31,7 +31,7 @@ export function setupAdminSettings({refresh, invalidateQueueState}) {
     $("max-bandwidth-mbps").value=String(settings.max_bandwidth_mbps);
     $("pause-orders").checked=settings.orders_paused;
     $("tv-html-overlay").checked=settings.tv_html_overlay;
-    $("force-h264-originals").checked=settings.force_h264_originals;
+    $("original-codec-mode").value=settings.original_codec_mode;
   }
   updateStylePreview();
 }
@@ -45,7 +45,7 @@ $("settings-save-btn").onclick=()=>guarded(async()=>{
     video_quality:Number($("video-quality").value),
     max_bandwidth_mbps:Number($("max-bandwidth-mbps").value),
     tv_html_overlay:$("tv-html-overlay").checked,
-    force_h264_originals:$("force-h264-originals").checked
+    original_codec_mode:$("original-codec-mode").value
   });
   toast("已保存");await refresh();
 },$("settings-save-btn"));

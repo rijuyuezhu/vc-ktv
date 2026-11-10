@@ -50,7 +50,7 @@ async function harness(){
     account:{name:null,role:null},confirm:true,prompt:"旧场次"};
   const settings={queue_policy:"fair",subtitle_style:"default",video_quality:720,
     allow_unsubtitled:true,max_bandwidth_mbps:4,orders_paused:false,
-    tv_html_overlay:false,force_h264_originals:false};
+    tv_html_overlay:false,original_codec_mode:"default"};
   global.document={getElementById:byId,createElement:element,
     querySelector:selector=>{
       if(!links.has(selector))links.set(selector,element("a"));

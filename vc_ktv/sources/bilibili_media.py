@@ -88,9 +88,14 @@ def _download(client: httpx.Client, urls: list[str], dest: Path) -> int:
 
 
 def public_media_download(
-    bvid: str, page: int, destdir: Path, *, max_height: int = 720
+    bvid: str,
+    page: int,
+    destdir: Path,
+    *,
+    max_height: int = 720,
+    prefer_av1: bool = False,
 ) -> Path:
-    """Prefer public DASH AVC/AAC at the selected 1080p, 720p or 480p ceiling."""
+    """Prefer AVC/AAC or AV1/AAC public DASH at the selected quality ceiling."""
     if not BVID.fullmatch(bvid) or page < 1:
         raise ValueError("无效 BV 号或分 P")
     if max_height not in QUALITY_HEIGHTS:
@@ -123,11 +128,21 @@ def public_media_download(
                 (
                     item
                     for item in dash.get("video", [])
-                    if str(item.get("codecs", "")).startswith("avc1")
+                    if (
+                        str(item.get("codecs", "")).startswith("avc1")
+                        or (
+                            prefer_av1
+                            and str(item.get("codecs", "")).startswith("av01")
+                        )
+                    )
                     and isinstance(item.get("id"), int)
                     and item["id"] <= qn
                 ),
-                key=lambda item: (item["id"], item.get("bandwidth", 0)),
+                key=lambda item: (
+                    item["id"],
+                    prefer_av1 and str(item.get("codecs", "")).startswith("av01"),
+                    item.get("bandwidth", 0),
+                ),
                 reverse=True,
             )
             audios = sorted(
@@ -230,6 +245,6 @@ def public_media_download(
             except (httpx.HTTPError, ValueError, PublicMediaUnavailable) as error:
                 failures.append(f"MP4 {height}p: {type(error).__name__}")
     raise PublicMediaUnavailable(
-        "该视频没有公开可用的 H.264/AAC 或 MP4 媒体"
+        "该视频没有公开可用的 MP4 视频及 AAC 音频"
         + (f"；{', '.join(failures[:4])}" if failures else "")
     )

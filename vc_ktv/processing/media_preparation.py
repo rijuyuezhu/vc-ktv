@@ -31,7 +31,12 @@ log = logging.getLogger(__name__)
 
 
 def media_download(
-    bvid: str, page: int, directory: Path, *, max_height: int = 720
+    bvid: str,
+    page: int,
+    directory: Path,
+    *,
+    max_height: int = 720,
+    prefer_av1: bool = False,
 ) -> Path:
     if max_height not in QUALITY_HEIGHTS:
         raise ValueError("不支持的清晰度")
@@ -65,6 +70,7 @@ def media_download(
                 *args,
                 "-f",
                 selection,
+                *(["-S", "res,vcodec:av01"] if prefer_av1 else []),
                 "--merge-output-format",
                 "mp4",
                 "-o",
@@ -94,11 +100,21 @@ def media_download(
     log.warning(
         "yt-dlp exhausted quality fallbacks for %s p%s; using public API", bvid, page
     )
-    return public_media_download(bvid, page, directory, max_height=max_height)
+    return public_media_download(
+        bvid,
+        page,
+        directory,
+        max_height=max_height,
+        **({"prefer_av1": True} if prefer_av1 else {}),
+    )
 
 
-def normalize_hevc_source(path: Path, *, force_h264: bool = False) -> Path:
-    """Normalize incompatible video codecs before the original is published."""
+def normalize_original_codec(
+    path: Path, *, mode: str = "default", max_video_kbps: int = 2616
+) -> Path:
+    """Apply the per-event codec choice before publishing a source video."""
+    if mode not in ("default", "h264", "av1"):
+        raise ValueError("不支持的原片编码方式")
     result = subprocess.run(
         [
             os.environ.get("KTV_FFPROBE", "ffprobe"),
@@ -115,50 +131,87 @@ def normalize_hevc_source(path: Path, *, force_h264: bool = False) -> Path:
         capture_output=True,
         text=True,
     )
-    # The existing media probe validates malformed inputs before publication.
+    # Existing media validation handles a failed probe.
     if result.returncode:
         return path
     codec = result.stdout.strip()
-    if codec != "hevc" and not (force_h264 and codec not in ("", "h264")):
+    target = "av1" if mode == "av1" else "h264"
+    if codec == target or not codec or (mode == "default" and codec != "hevc"):
         return path
 
-    output = path.with_name(path.stem + "-h264.mp4")
+    output = path.with_name(path.stem + f"-{target}.mp4")
     converted = False
     try:
-        subprocess.run(
-            [
-                os.environ.get("KTV_FFMPEG", "ffmpeg"),
-                "-nostdin",
-                "-v",
-                "error",
-                "-y",
-                "-i",
-                str(path),
-                "-map",
-                "0:v:0",
-                "-map",
-                "0:a?",
-                "-map_metadata",
-                "0",
-                "-c:v",
-                "libx264",
-                "-crf",
-                "23",
-                "-preset",
-                "fast",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "copy",
-                "-movflags",
-                "+faststart",
-                str(output),
-            ],
-            check=True,
-            capture_output=True,
-        )
+        common = [
+            os.environ.get("KTV_FFMPEG", "ffmpeg"),
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a?",
+            "-map_metadata",
+            "0",
+        ]
+        suffix = [
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
+            str(output),
+        ]
+        if target == "h264":
+            encoders = [["-c:v", "libx264", "-crf", "23", "-preset", "fast"]]
+        else:
+            # NVENC is much faster on Spark; CPU fallback also runs on Mac.
+            encoders = [
+                [
+                    "-c:v",
+                    "av1_nvenc",
+                    "-preset",
+                    "p5",
+                    "-rc",
+                    "vbr",
+                    "-cq",
+                    "38",
+                    "-b:v",
+                    "0",
+                    "-maxrate",
+                    f"{max_video_kbps}k",
+                    "-bufsize",
+                    f"{max_video_kbps}k",
+                ],
+                [
+                    "-c:v",
+                    "libsvtav1",
+                    "-preset",
+                    "9",
+                    "-b:v",
+                    f"{round(max_video_kbps * 0.7)}k",
+                    "-svtav1-params",
+                    "lp=4",
+                ],
+            ]
+        for index, encoder in enumerate(encoders):
+            try:
+                subprocess.run(
+                    [*common, *encoder, *suffix],
+                    check=True,
+                    capture_output=True,
+                )
+                break
+            except subprocess.CalledProcessError:
+                output.unlink(missing_ok=True)
+                if index == len(encoders) - 1:
+                    raise
         if output.stat().st_size < 1024:
-            raise ValueError("H.264 conversion yielded an empty video")
+            raise ValueError("原片转码生成的文件为空")
         if path.suffix.lower() == ".mp4":
             output.replace(path)
             converted = True

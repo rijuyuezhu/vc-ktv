@@ -37,6 +37,7 @@ class DownloadTools:
     music: Callable[..., Path]
     cookies: Callable[[], Any]
     video_quality_keyword: bool
+    prefer_av1: bool = False
 
 
 class SongSource(Protocol):

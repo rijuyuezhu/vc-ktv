@@ -199,7 +199,7 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay','force_h264_originals')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay','force_h264_originals','original_codec_mode')"
             )
         }
         return {
@@ -210,7 +210,10 @@ class Store:
             "max_bandwidth_mbps": float(values.get("max_bandwidth_mbps", "3")),
             "orders_paused": values.get("orders_paused", "0") == "1",
             "tv_html_overlay": values.get("tv_html_overlay", "1") == "1",
-            "force_h264_originals": values.get("force_h264_originals", "0") == "1",
+            "original_codec_mode": values.get(
+                "original_codec_mode",
+                "h264" if values.get("force_h264_originals") == "1" else "default",
+            ),
         }
 
     def playback_mode(self):
@@ -228,7 +231,7 @@ class Store:
         max_bandwidth_mbps: float | None = None,
         orders_paused: bool | None = None,
         tv_html_overlay: bool | None = None,
-        force_h264_originals: bool | None = None,
+        original_codec_mode: Literal["default", "h264", "av1"] | None = None,
     ):
         # Optional values are updates, not resets; legacy admin clients omit them.
         updates = {}
@@ -245,10 +248,7 @@ class Store:
                 "tv_html_overlay",
                 None if tv_html_overlay is None else int(tv_html_overlay),
             ),
-            (
-                "force_h264_originals",
-                None if force_h264_originals is None else int(force_h264_originals),
-            ),
+            ("original_codec_mode", original_codec_mode),
         ):
             if value is not None:
                 updates[key] = str(value)

@@ -80,7 +80,7 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
             "max_bandwidth_mbps": 3.0,
             "tv_html_overlay": True,
             "orders_paused": False,
-            "force_h264_originals": False,
+            "original_codec_mode": "default",
         }
         store = app.state.store
         original = add_song(store, "A", 1, "downloaded")
@@ -205,7 +205,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
             "max_bandwidth_mbps": 3.0,
             "tv_html_overlay": True,
             "orders_paused": False,
-            "force_h264_originals": False,
+            "original_codec_mode": "default",
         }
     reopened = create_app(
         root=root,
@@ -222,7 +222,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         "max_bandwidth_mbps": 3.0,
         "tv_html_overlay": True,
         "orders_paused": False,
-        "force_h264_originals": False,
+        "original_codec_mode": "default",
     }
     with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
         assert dict(

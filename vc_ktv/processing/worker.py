@@ -21,10 +21,11 @@ from vc_ktv.infra.disk_budget import (
 from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.processing.media_preparation import (
     media_download,
-    normalize_hevc_source,
+    normalize_original_codec,
     prepare_tv_source,
     render_provider_video,
     render_upstream_video,
+    stream_video_kbps,
 )
 from vc_ktv.processing.publication import publish_original, publish_subtitles
 from vc_ktv.processing.subtitle_progress import SubtitleProgress
@@ -300,11 +301,14 @@ class AutoPrep:
                     music=self.netease_download,
                     cookies=self.netease_cookies,
                     video_quality_keyword=self.download is media_download,
+                    prefer_av1=row.get("original_codec_mode") == "av1",
                 ),
             )
             check_current_budget()
-            path = normalize_hevc_source(
-                path, force_h264=row.get("force_h264_originals", False)
+            path = normalize_original_codec(
+                path,
+                mode=row.get("original_codec_mode", "default"),
+                max_video_kbps=stream_video_kbps(row.get("max_bandwidth_mbps", 3.0)),
             )
             check_current_budget()
             actual_duration = self.probe(path)

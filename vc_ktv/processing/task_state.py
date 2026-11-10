@@ -71,7 +71,8 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool):
         settings = store.settings()
         if row["status"] == "waiting":
             claimed["video_quality"] = settings["video_quality"]
-            claimed["force_h264_originals"] = settings["force_h264_originals"]
+            claimed["original_codec_mode"] = settings["original_codec_mode"]
+            claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
         else:
             claimed["style_preset"] = settings["subtitle_style"]
             claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
