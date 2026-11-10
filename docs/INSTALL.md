@@ -39,6 +39,8 @@ VC_KTV_GPU_ALIGNMENT=0 uv run --no-sync python -m vc_ktv
 
 默认访问地址为 `http://127.0.0.1:8778/`，管理员页面为 `/admin/`。可用 `curl -fsS http://127.0.0.1:8778/api/health` 检查服务。
 
+统一转码 AV1 需要 FFmpeg 支持 `av1_nvenc` 或 `libsvtav1`。
+
 ## GPU 字幕（可选）
 
 使用 NVIDIA CUDA 及 Kim、Qwen3-ASR、TIFA。模型与 CUDA 运行时单独存放，默认位于 `~/.local/share/vc-ktv/pipeline/`。

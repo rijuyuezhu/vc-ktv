@@ -16,6 +16,7 @@ let currentEventId = null;
 let guestAuthenticated = false;
 let playedKey = null;
 
+const isAdminPath=()=>window.location.pathname.replace(/\/$/, "")==="/admin";
 
 async function cancelGuestSong(songId){
   if(!confirm("取消自己点的这首歌？"))return;
@@ -39,6 +40,15 @@ function songState(song) {
   if(song.prep_state==="downloaded"&&!song.lyric_selected&&!song.skip_subtitles)return "待选歌词";
   if(["aligning","downloading"].includes(song.prep_state))return "制作中";
   return "准备中";
+}
+function addSourceTag(parent,song){
+  const isNetease=song.source_type==="netease";
+  const tag=appendText(parent,"span","","source-tag");
+  const image=appendText(tag,"img","");
+  image.src=isNetease?"/icons/neteasecloudmusic.svg":"/icons/bilibili.svg";
+  image.alt="";image.setAttribute("aria-hidden","true");
+  appendText(tag,"span",isNetease?"网易云":"B站");
+  tag.title=isNetease?"网易云音乐":"哔哩哔哩";
 }
 function compactSong(song,order){
   const row=document.createElement("button");row.type="button";
@@ -92,7 +102,6 @@ const {refreshSongDetail,invalidateSongDetail}=setupSongDetail({
   openLyricPicker, cancelGuestSong
 });
 
-const isAdminPath=()=>window.location.pathname.replace(/\/$/, "")==="/admin";
 function currentRoute(){return window.location.hash.replace(/^#\/?/, "");}
 const adminRoutes={
   settings:["设置",null],

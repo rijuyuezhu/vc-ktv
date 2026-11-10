@@ -57,6 +57,8 @@ def test_song_detail_and_manual_lyric_editor_have_one_owner():
     assert "export function setupSongDetail({" in detail
     assert "const {refreshSongDetail,invalidateSongDetail}=setupSongDetail({" in main
     assert "invalidateSongDetail();playedKey=null;" in main
+    assert main.index("const isAdminPath=") < main.index("setupSongDetail({")
+    assert "function addSourceTag(parent,song){" in main
     assert "async function refreshSongDetail()" in detail
     assert "async function editLyrics(songId, songTitle)" in detail
     assert "const key=JSON.stringify([song,isAdminPath()])" in detail
@@ -333,6 +335,15 @@ def test_tv_html_overlay_and_bandwidth_ui_controls():
     player = (root / "tv.js").read_text()
     assert 'id="tv-html-overlay" type="checkbox" checked' in admin
     assert 'id="max-bandwidth-mbps"' in admin
+    assert 'id="video-quality"' in admin
+    assert 'id="original-codec-mode"' in admin
+    assert 'for="video-quality">B站清晰度' in admin
+    assert 'for="max-bandwidth-mbps">播放码率预算（Mbps）' in admin
+    assert admin.index('id="video-quality"') < admin.index('id="original-codec-mode"')
+    assert admin.index('id="original-codec-mode"') < admin.index(
+        'id="max-bandwidth-mbps"'
+    )
+    assert "original_codec_mode:" in admin_js
     assert 'id="compact-video"' not in admin
     assert '"tv_html_overlay"' not in admin  # UI binds via JS.
     assert "tv_html_overlay:" in admin_js
