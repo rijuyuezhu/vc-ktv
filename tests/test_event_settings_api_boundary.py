@@ -49,7 +49,7 @@ def test_settings_router_preserves_model_and_admin_scope(tmp_path):
         assert after == updated.json()
         assert after["max_bandwidth_mbps"] == before["max_bandwidth_mbps"]
         assert (
-            admin.put("/api/admin/settings", json={"video_quality": 1080}).status_code
+            admin.put("/api/admin/settings", json={"video_quality": 1440}).status_code
             == 422
         )
         assert admin.get("/api/admin/settings").json() == after

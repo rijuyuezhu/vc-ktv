@@ -24,8 +24,8 @@ HEADERS = {
     "Referer": "https://www.bilibili.com/",
 }
 TRUSTED_CDN = ("bilivideo.com", "bilivideo.cn", "hdslb.com")
-# Public video quality ceilings exposed to admins: 720p (default), 480p.
-QUALITY_LEVELS = ((64, 720), (32, 480))
+# Public video quality ceilings exposed to admins: 1080p, 720p (default), 480p.
+QUALITY_LEVELS = ((80, 1080), (64, 720), (32, 480))
 QUALITY_HEIGHTS = tuple(height for _, height in QUALITY_LEVELS)
 
 
@@ -90,7 +90,7 @@ def _download(client: httpx.Client, urls: list[str], dest: Path) -> int:
 def public_media_download(
     bvid: str, page: int, destdir: Path, *, max_height: int = 720
 ) -> Path:
-    """Prefer public DASH AVC/AAC at the selected 720p or 480p ceiling."""
+    """Prefer public DASH AVC/AAC at the selected 1080p, 720p or 480p ceiling."""
     if not BVID.fullmatch(bvid) or page < 1:
         raise ValueError("无效 BV 号或分 P")
     if max_height not in QUALITY_HEIGHTS:

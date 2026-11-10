@@ -224,7 +224,7 @@ class Store:
         queue_policy: str | None,
         allow_unsubtitled: bool | None,
         subtitle_style: StylePreset | None = None,
-        video_quality: Literal[720, 480] | None = None,
+        video_quality: Literal[1080, 720, 480] | None = None,
         max_bandwidth_mbps: float | None = None,
         orders_paused: bool | None = None,
         tv_html_overlay: bool | None = None,
