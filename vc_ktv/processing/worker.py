@@ -430,6 +430,8 @@ class AutoPrep:
                         else:
                             self.prepare_subtitles(row)
             except Exception as error:
+                if cancelled.is_set():
+                    continue  # User cancellation also interrupts downloader subprocesses.
                 log.exception("Unexpected preparation error for song #%s", row["id"])
                 while not self.stop_signal.is_set():
                     try:

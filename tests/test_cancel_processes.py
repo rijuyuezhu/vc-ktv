@@ -21,7 +21,7 @@ def eventually(condition, seconds=6):
     return False
 
 
-def test_admin_cancel_kills_background_download_process(tmp_path):
+def test_admin_cancel_kills_background_download_process(tmp_path, caplog):
     app = create_app(
         root=tmp_path / "room",
         password="pw",
@@ -70,6 +70,10 @@ def test_admin_cancel_kills_background_download_process(tmp_path):
             assert eventually(lambda: spawned[0].poll() is not None)
             assert spawned[0].returncode == -9
             assert eventually(lambda: worker.active_claims == 0)
+            assert not any(
+                "Unexpected preparation error" in record.getMessage()
+                for record in caplog.records
+            )
             with app.state.store.lock:
                 assert (
                     app.state.store.db.execute(

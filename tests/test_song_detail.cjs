@@ -195,6 +195,17 @@ test("unchanged detail updates running elapsed time without destroying DOM; inva
   }finally{h.cleanup();}
 });
 
+test("cancelled download does not display a growing preparation timer",async()=>{
+  const h=await harness(true);
+  try{
+    h.state.song=baseSong({status:"cancelled",prep_state:"downloading",
+      prep_stage_at:Math.floor(Date.now()/1000)-120});
+    await h.refreshSongDetail();
+    const page=h.byId("page-song");
+    assert.equal(find(page,x=>x.classList.contains("stage-current-time")),null);
+  }finally{h.cleanup();}
+});
+
 test("administrator lyric editor retrieves, searches, imports TextGrid and saves",async()=>{
   const h=await harness(true);
   try{

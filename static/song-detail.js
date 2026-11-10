@@ -206,7 +206,7 @@ export function setupSongDetail({
       const names={download:"下载",extract:"提取音频",kim:"人声分离",
         align:"歌词对齐",subtitles:"字幕生成",render:"烧录"};
       const entries=Object.entries(names).filter(([name])=>song.stage_seconds?.[name]!=null);
-      const running=["downloading","aligning"].includes(song.prep_state);
+      const running=song.status!=="cancelled"&&["downloading","aligning"].includes(song.prep_state);
       if(entries.length||running||(song.prep_error&&!song.skip_subtitles)){
         const details=appendText(panel,"details","","timing-details");
         details.open=timingWasOpen;
