@@ -133,7 +133,7 @@ function currentRoute() {
   return window.location.hash.replace(/^#\/?/, "");
 }
 const adminRoutes = {
-  settings: ["设置", null],
+  settings: ["设置与统计", null],
   "settings-playback": ["播放与视频", "event-settings-panel"],
   "settings-queue": ["点歌与队列", "event-queue-settings-panel"],
   "settings-event": ["场次管理", "event-management"],
@@ -152,7 +152,8 @@ function setupSubpages() {
     ["settings-event", "场次管理", "加入码与场次"],
     ["settings-accounts", "管理员账号", "账号与权限"],
     ["settings-netease", "网易云音乐", "音乐源连接"],
-    ["settings-history", "历史歌单", "记录与导出"]
+    ["settings-history", "历史歌单", "记录与导出"],
+    ["stats", "演唱统计", "各点歌者的演唱次数和时长"]
   ]) {
     const link = appendText(menu, "a", "", "settings-nav-item");
     link.href = "#" + route;
@@ -206,8 +207,8 @@ function showPage() {
   $("tab-guest").setAttribute("aria-current", isAdmin ? "false" : "page");
   $("tab-admin").setAttribute("aria-current", isAdmin ? "page" : "false");
   $("hero-title").textContent = isAdmin ? "管理 KTV" : "想唱什么？";
-  $("hero-desc").textContent = isAdmin ? "当前队列" : "选择歌曲，加入队列";
-  $("hero-title").parentElement.classList.toggle("hidden", !!page);
+  $("admin-settings-link").classList.toggle("hidden", !isAdmin || !admin);
+  $("hero-title").closest(".hero").classList.toggle("hidden", !!page);
   $("subpage-title").textContent =
     page === "played"
       ? "本场记录"
@@ -221,7 +222,7 @@ function showPage() {
       ? window.history.state?.fromPlayed
         ? "#played"
         : "#"
-      : page === "settings" || page === "stats" || page === "played"
+      : page === "settings" || page === "played"
         ? "#"
         : "#settings";
   $("page-settings").classList.toggle("hidden", page !== "settings");
@@ -286,7 +287,7 @@ $("login-box").addEventListener("submit", (e) => {
     await refresh();
   }, $("login-btn"));
 });
-function updateAccount(signedIn, name, role) {
+function updateAccount(signedIn, name) {
   const menu = $("account-menu");
   menu.classList.toggle("hidden", !signedIn);
   if (!signedIn) {
@@ -294,7 +295,7 @@ function updateAccount(signedIn, name, role) {
     return;
   }
   $("account-name").textContent = name;
-  $("account-role").textContent = role;
+  $("account-name").title = name;
 }
 $("account-logout").onclick = () =>
   guarded(async () => {
@@ -306,7 +307,7 @@ $("account-logout").onclick = () =>
       adminPlayback.resetPlayer();
     } else await api("/api/users/logout", "POST");
     $("account-menu").open = false;
-    updateAccount(false, "", "");
+    updateAccount(false, "");
     await refresh();
   }, $("account-logout"));
 const adminPlayback = setupAdminPlayback({
@@ -362,11 +363,7 @@ function renderEntry(entry) {
   $("guest-access").classList.toggle("hidden", guestAuthenticated);
   $("guest-past-link").classList.toggle("hidden", !pastOnly || !entry.event);
   if (!isAdminPath())
-    updateAccount(
-      guestAuthenticated,
-      entry.username || entry.archived_event?.username || "",
-      "点歌用户"
-    );
+    updateAccount(guestAuthenticated, entry.username || entry.archived_event?.username || "");
   $("request-panel").classList.toggle("hidden", !entry.authenticated);
   $("queue-panel").classList.toggle("hidden", !entry.authenticated);
   if (entry.archived_event && !entry.event && currentRoute() !== "played")
@@ -454,7 +451,8 @@ async function refresh() {
         else throw e;
       }
       $("login-box").classList.toggle("hidden", admin);
-      if (!admin) updateAccount(false, "", "");
+      $("admin-settings-link").classList.toggle("hidden", !admin);
+      if (!admin) updateAccount(false, "");
       $("admin-panel").classList.toggle(
         "hidden",
         !admin ||
