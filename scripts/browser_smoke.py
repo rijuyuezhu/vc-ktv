@@ -250,6 +250,10 @@ def check_ui(
     # Exercise both settings forms and keep an in-progress edit intact across
     # the administrator's periodic refresh.
     page.goto(base + "/admin/#settings-playback", wait_until="networkidle")
+    advanced = page.locator("#video-advanced")
+    assert not advanced.evaluate("(node) => node.open")
+    assert not page.locator("#video-quality").is_visible()
+    advanced.locator("summary").click()
     quality = page.locator("#video-quality")
     quality.wait_for(state="visible")
     codec = page.locator("#original-codec-mode")
@@ -272,6 +276,10 @@ def check_ui(
     assert video_settings["video_quality"] == 720
     assert video_settings["original_codec_mode"] == "h264"
     page.reload(wait_until="networkidle")
+    advanced = page.locator("#video-advanced")
+    assert not advanced.evaluate("(node) => node.open")
+    assert not page.locator("#video-quality").is_visible()
+    advanced.locator("summary").click()
     assert quality.input_value() == "720"
     assert codec.input_value() == "h264"
 
@@ -336,6 +344,14 @@ def check_ui(
             ),
         ),
     )
+    page.route(
+        "**/api/admin/netease/check",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body='{"connected":false,"pending":true,"phase":"waiting"}',
+        ),
+    )
     page.goto(base + "/admin/#settings-netease", wait_until="domcontentloaded")
     page.locator("#netease-login-start").wait_for(state="visible")
     page.locator("#netease-login-start").click()
@@ -382,6 +398,10 @@ def check_ui(
     )
     assert "复制更换链接" in admin_page.locator("#tv-copy-btn").text_content()
     assert admin_page.locator("#tv-revoke-btn").is_visible()
+    remote_advanced = admin_page.locator("#tv-remote-extra")
+    assert not remote_advanced.evaluate("(node) => node.open")
+    assert not admin_page.locator("#remote-opacity").is_visible()
+    remote_advanced.locator("summary").click()
     assert admin_page.locator("#remote-opacity").is_enabled()
     admin_page.locator("#remote-opacity").evaluate(
         '(control) => {control.value="20";control.dispatchEvent(new Event("change"));}'

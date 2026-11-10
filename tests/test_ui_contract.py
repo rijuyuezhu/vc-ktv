@@ -327,6 +327,28 @@ def test_netease_line_review_dialog_is_wired_with_signed_row_selection():
     assert "review-check" in js
 
 
+def test_admin_advanced_options_are_collapsed_without_removing_controls():
+    html = (Path(__file__).resolve().parents[1] / "static/index.html").read_text()
+    assert '<details id="tv-remote-extra" class="remote-extra hidden">' in html
+    assert '<details id="video-advanced" class="settings-advanced">' in html
+    remote = html.split('<details id="tv-remote-extra"', 1)[1].split("</details>", 1)[0]
+    for name in ("remote-offset-value", "remote-opacity", "remote-smooth"):
+        assert f'id="{name}"' in remote
+    advanced = html.split('<details id="video-advanced"', 1)[1].split("</details>", 1)[
+        0
+    ]
+    for name in ("video-quality", "original-codec-mode", "max-bandwidth-mbps"):
+        assert f'id="{name}"' in advanced
+    visible = html.split(
+        '<section class="panel full-width" id="event-settings-panel">', 1
+    )[1]
+    visible = visible.split('<details id="video-advanced"', 1)[0]
+    for name in ("playback-mode", "subtitle-style"):
+        assert f'id="{name}"' in visible
+    assert 'id="tv-link-btn"' in html and 'id="tv-copy-btn"' in html
+    assert 'id="tv-revoke-btn"' in html
+
+
 def test_tv_html_overlay_and_bandwidth_ui_controls():
     root = Path(__file__).resolve().parents[1] / "static"
     admin = (root / "index.html").read_text()
