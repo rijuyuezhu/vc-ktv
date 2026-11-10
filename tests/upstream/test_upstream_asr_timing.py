@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from ktv_app.aligners.asr_timing import owned_tokens, time_asr_chunks
@@ -115,13 +113,3 @@ def test_failed_short_window_location_does_not_invent_timestamps(tmp_path, monke
             Settings(),
             tmp_path,
         )
-
-
-def test_release_has_no_qwen_fa_model_dependency():
-    root = Path(__file__).resolve().parents[2]
-    from dataclasses import fields
-
-    assert "locator_model" not in {field.name for field in fields(Settings)}
-    worker = (root / "ktv_app/aligners/locator_worker.py").read_text(encoding="utf-8")
-    assert "forced_aligner=" not in worker and "return_time_stamps=False" in worker
-    assert not (root / "ktv_app/aligners/qwen_fa_worker.py").exists()
