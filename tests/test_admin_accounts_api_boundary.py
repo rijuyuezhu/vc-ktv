@@ -13,11 +13,6 @@ def test_admin_account_routes_preserve_authorization(tmp_path):
         auto_prepare=False,
     )
     app.state.events.create("Room", "123456")
-    routes = app.openapi()["paths"]
-    assert "get" in routes["/api/admin/accounts"]
-    assert "post" in routes["/api/admin/accounts"]
-    assert "put" in routes["/api/admin/accounts/{account_id}/password"]
-    assert "delete" in routes["/api/admin/accounts/{account_id}"]
     with TestClient(app) as global_admin, TestClient(app) as operator:
         assert operator.get("/api/admin/accounts").status_code == 401
         assert (

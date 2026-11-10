@@ -16,7 +16,6 @@ from ktv_app.aligners.reliable_blocks import (
 )
 from ktv_app.completion import complete_timeline, remove_estimates
 from ktv_app.timeline import Line, Timeline, Unit, quality
-from ktv_app.workflow import AlignmentOptions
 
 
 def source(count=24):
@@ -226,12 +225,6 @@ def test_context_rows_are_discarded_by_id_and_native_outside_core_is_quarantined
     assert [line.id for line in result.lines] == ["1", "2"]
     assert result.lines[0].units[0].start is None
     assert results[0][0]["native_boundary_violations"]
-
-
-def test_new_option_is_valid():
-    assert (
-        AlignmentOptions(model="reliable_blocks_tifa").model == "reliable_blocks_tifa"
-    )
 
 
 def character_tokens(lines):

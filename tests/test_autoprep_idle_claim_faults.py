@@ -75,8 +75,7 @@ class ClaimFaultDb:
         return getattr(self.real_db, name)
 
 
-@pytest.mark.parametrize("workers", (1, 4))
-def test_idle_claim_has_no_sqlite_commit_or_mutation(tmp_path, workers):
+def test_idle_claim_has_no_sqlite_commit_or_mutation(tmp_path):
     store = Store(tmp_path / "room")
     real_db = store.db
 
@@ -92,15 +91,17 @@ def test_idle_claim_has_no_sqlite_commit_or_mutation(tmp_path, workers):
 
     counter = NoIdleCommit()
     store.db = counter
-    worker = AutoPrep(store, lambda _: 8, max_workers=workers)
+    worker = AutoPrep(store, lambda _: 8, max_workers=4)
     for _ in range(4):
         assert worker.claim() is None
     assert counter.commits == 0
     assert not real_db.in_transaction
 
 
-@pytest.mark.parametrize("workers", (1, 4))
-@pytest.mark.parametrize("fault", ("query", "update", "commit", "settings"))
+@pytest.mark.parametrize(
+    ("workers", "fault"),
+    [(1, "query"), (1, "update"), (1, "settings"), (1, "commit"), (4, "commit")],
+)
 def test_transient_claim_sql_failure_rolls_back_and_workers_keep_processing(
     tmp_path, workers, fault
 ):

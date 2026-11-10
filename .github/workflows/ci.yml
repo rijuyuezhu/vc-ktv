@@ -9,10 +9,15 @@ on:
 permissions:
   contents: read
 
+# Drop superseded PR checks; keep main-branch runs for the merge history.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   static:
-    name: Static analysis
-    runs-on: ubuntu-latest
+    name: Static checks and JavaScript tests
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -35,9 +40,15 @@ jobs:
       - name: Pre-commit
         run: uv run --no-sync pre-commit run --all-files
 
+      - name: Shell syntax
+        run: bash -n scripts/*.sh
+
+      - name: JavaScript syntax and tests
+        run: bash scripts/check_js.sh
+
   tests:
     name: Tests (Python 3.12)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -60,10 +71,4 @@ jobs:
           sudo apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
 
       - name: Python tests
-        run: uv run --no-sync pytest -q
-
-      - name: Shell syntax
-        run: bash -n scripts/*.sh
-
-      - name: JavaScript checks
-        run: bash scripts/check_js.sh
+        run: uv run --no-sync pytest -q --durations=15
