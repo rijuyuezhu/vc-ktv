@@ -9,6 +9,7 @@ uv sync --locked --group dev
 npm ci
 npm run format:check
 uv run --no-sync pre-commit run --all-files
+uv run --no-sync pyright
 uv run --no-sync pytest -q
 bash -n scripts/*.sh
 bash scripts/check_js.sh

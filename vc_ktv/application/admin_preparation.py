@@ -22,7 +22,7 @@ from vc_ktv.rendering.textgrid_import import convert_textgrid
 class AdminPreparationService:
     """Change event-local media, lyric and preparation state."""
 
-    def __init__(self, store, orders, probe, *, media=None, worker=None):
+    def __init__(self, store, orders, probe, *, media, worker):
         self.store = store
         self.orders = orders
         self.probe = probe

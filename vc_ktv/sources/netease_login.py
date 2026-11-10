@@ -21,6 +21,7 @@ from urllib.parse import urlencode
 import httpx
 import qrcode
 import qrcode.image.svg
+from qrcode.constants import ERROR_CORRECT_M
 
 from vc_ktv.sources.netease_weapi import encode_weapi_form
 
@@ -155,7 +156,7 @@ class NeteaseLogin:
                 qr = qrcode.QRCode(
                     box_size=8,
                     border=3,
-                    error_correction=qrcode.constants.ERROR_CORRECT_M,
+                    error_correction=ERROR_CORRECT_M,
                 )
                 qr.add_data(scan_url)
                 qr.make(fit=True)

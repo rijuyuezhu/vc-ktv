@@ -7,6 +7,7 @@ from urllib.parse import quote
 
 import httpx
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 
 
 async def vcpedia_lyric_candidates(title: str) -> list[dict]:
@@ -28,21 +29,22 @@ async def vcpedia_lyric_candidates(title: str) -> list[dict]:
     if not markup:
         return []
     soup = BeautifulSoup(markup, "html.parser")
-    headings = [
-        h
-        for h in soup.find_all(["h2", "h3"])
-        if h.find(class_="mw-headline")
-        and "歌词" in h.find(class_="mw-headline").get_text()
-    ]
+    headings = []
+    for h in soup.find_all(["h2", "h3"]):
+        if not isinstance(h, Tag):
+            continue
+        headline = h.find(class_="mw-headline")
+        if headline is not None and "歌词" in headline.get_text():
+            headings.append(h)
     variants = []
     for heading in headings:
         for element in heading.next_siblings:
-            if getattr(element, "name", None) in ("h2", "h3"):
+            if isinstance(element, Tag) and element.name in ("h2", "h3"):
                 break
-            if not getattr(element, "name", None):
+            if not isinstance(element, Tag):
                 continue
             poems = (
-                [element] if "poem" in element.get("class", []) else []
+                [element] if "poem" in (element.get("class") or ()) else []
             ) + element.select("div.poem")
             for poem in poems:
                 # Each poem is a separate candidate. Keep inline spans together while
