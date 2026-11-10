@@ -350,7 +350,7 @@ def test_480p_selection_is_a_hard_ceiling_and_no_720p_request(monkeypatch, tmp_p
     assert "height<=480" in selected[0]
     assert "height<=720" not in selected[0]
     with pytest.raises(ValueError, match="清晰度"):
-        autoprep.media_download("BV0000000002", 1, tmp_path, max_height=1080)
+        autoprep.media_download("BV0000000002", 1, tmp_path, max_height=1440)
 
 
 def test_public_api_480p_mode_only_requests_32(monkeypatch, tmp_path):
@@ -407,3 +407,91 @@ def test_public_api_480p_mode_only_requests_32(monkeypatch, tmp_path):
         == b"remux-480"
     )
     assert queries == ["32"]
+
+
+def test_1080p_yt_dlp_retries_lower_ceilings(monkeypatch, tmp_path):
+    attempts = []
+
+    def run(cmd, **kwargs):
+        selected = cmd[cmd.index("-f") + 1]
+        attempts.append(selected)
+        if len(attempts) < 3:
+            return subprocess.CompletedProcess(cmd, 1, stderr="unavailable")
+        (tmp_path / "source.mp4").write_bytes(b"fallback-480")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(autoprep.subprocess, "run", run)
+    monkeypatch.setattr(
+        autoprep,
+        "public_media_download",
+        lambda *a, **k: pytest.fail("unexpected API fallback"),
+    )
+    output = autoprep.media_download("BV0000000002", 1, tmp_path, max_height=1080)
+    assert output.read_bytes() == b"fallback-480"
+    assert len(attempts) == 3
+    assert all(
+        f"height<={height}" in attempt
+        for height, attempt in zip((1080, 720, 480), attempts)
+    )
+
+
+def test_public_1080p_requests_80_and_falls_back_to_64(monkeypatch, tmp_path):
+    requested = []
+
+    def handle(req):
+        if req.url.path == "/x/web-interface/view":
+            return httpx.Response(
+                200, json={"code": 0, "data": {"pages": [{"cid": 42}]}}
+            )
+        if req.url.path == "/x/player/playurl":
+            qn = int(req.url.params["qn"])
+            requested.append(qn)
+            if qn == 80:
+                return httpx.Response(200, json={"code": -403})
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "dash": {
+                            "video": [
+                                {
+                                    "id": 64,
+                                    "codecs": "avc1.640028",
+                                    "baseUrl": "https://cdn.bilivideo.com/720",
+                                }
+                            ],
+                            "audio": [
+                                {
+                                    "id": 30232,
+                                    "codecs": "mp4a.40.2",
+                                    "baseUrl": "https://cdn.bilivideo.com/aac",
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+        if req.url.host == "cdn.bilivideo.com":
+            return httpx.Response(200, content=b"x" * 2300)
+        raise AssertionError(str(req.url))
+
+    original = httpx.Client
+    monkeypatch.setattr(
+        bilibili_media.httpx,
+        "Client",
+        lambda **kw: original(transport=httpx.MockTransport(handle), **kw),
+    )
+
+    def remux(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"remux")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(bilibili_media.subprocess, "run", remux)
+    assert (
+        bilibili_media.public_media_download(
+            "BV0000000002", 1, tmp_path, max_height=1080
+        ).read_bytes()
+        == b"remux"
+    )
+    assert requested == [80, 64]

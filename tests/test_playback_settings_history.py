@@ -318,11 +318,16 @@ def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
                 json={
                     "queue_policy": "fair",
                     "allow_unsubtitled": False,
-                    "video_quality": 1080,
+                    "video_quality": 1440,
                 },
             ).status_code
             == 422
         )
+        assert (
+            admin.put("/api/admin/settings", json={"video_quality": 1080}).status_code
+            == 200
+        )
+        assert admin.get("/api/admin/settings").json()["video_quality"] == 1080
         result = admin.put(
             "/api/admin/settings",
             json={

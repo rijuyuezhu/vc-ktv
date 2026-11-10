@@ -19,7 +19,7 @@ class PlaybackSettings(BaseModel):
     allow_unsubtitled: bool | None = None
     # Old clients that omit the new field must not reset the chosen preset.
     subtitle_style: StylePreset | None = None
-    video_quality: Literal[720, 480] | None = None
+    video_quality: Literal[1080, 720, 480] | None = None
     # Optional to preserve older admin clients' current per-event setting.
     max_bandwidth_mbps: float | None = Field(default=None, ge=1)
     orders_paused: bool | None = None
