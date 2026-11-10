@@ -7,7 +7,6 @@ import logging
 import os
 import secrets
 import sqlite3
-import subprocess
 import tempfile
 import threading
 import time
@@ -406,21 +405,8 @@ class AutoPrep:
                 report = self.enhance(
                     source, lyrics, target, archive, float(row["duration"]), **options
                 )
-            if row.get("tv_html_overlay"):
-                try:
-                    prepare_tv_source(
-                        source,
-                        archive,
-                        float(row["duration"]),
-                        max_bandwidth_mbps,
-                        native_av1=_native_av1_variant(row),
-                    )
-                    metadata["tv_source_ready"] = True
-                except (OSError, ValueError, subprocess.SubprocessError) as error:
-                    log.warning(
-                        "TV source compression failed for song #%s: %s", song_id, error
-                    )
-                    metadata["tv_source_ready"] = False
+            # Stop rendering time accounting before optional TV cache work.
+            progress.finish()
             metadata["outcome"] = "rendered"
             metadata["report"] = report
             budget = getattr(self.store, "disk_budget", None)
@@ -428,6 +414,36 @@ class AutoPrep:
                 budget.check()
             if not publish_subtitles(self.store, row, target, archive / "aligned.lrc"):
                 metadata["outcome"] = "stale"
+            else:
+                # The baked video is ready before optional TV cache work.
+                metadata["ready_seconds"] = round(time.monotonic() - started, 2)
+                if row.get("tv_html_overlay"):
+                    cache_started = time.monotonic()
+                    try:
+                        prepare_tv_source(
+                            source,
+                            archive,
+                            float(row["duration"]),
+                            max_bandwidth_mbps,
+                            native_av1=_native_av1_variant(row),
+                        )
+                        if budget is not None:
+                            budget.check()
+                    except Exception as error:
+                        # TV caching is optional after a successful publication.
+                        (archive / "tv-source.mp4").unlink(missing_ok=True)
+                        log.warning(
+                            "TV source compression failed for song #%s: %s",
+                            song_id,
+                            error,
+                        )
+                    finally:
+                        metadata["tv_source_ready"] = (
+                            archive / "tv-source.mp4"
+                        ).is_file()
+                        metadata["tv_cache_seconds"] = round(
+                            time.monotonic() - cache_started, 2
+                        )
         except Exception as error:
             metadata["outcome"] = "failed"
             metadata["error_code"] = getattr(error, "code", type(error).__name__)
