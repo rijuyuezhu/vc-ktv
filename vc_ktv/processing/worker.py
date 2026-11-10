@@ -534,6 +534,9 @@ class AutoPrep:
                 options["max_bandwidth_mbps"] = max_bandwidth_mbps
                 options["progress"] = progress
             if row.get("lyric_timing_mode") == "provider":
+                # Song duration is rounded for display/queue metadata. Validate
+                # line timestamps against the actual source media duration.
+                media_duration = self.probe(source)
                 (archive / "source-provider.lrc").write_text(
                     row["source_lrc_raw"], encoding="utf-8"
                 )
@@ -552,7 +555,7 @@ class AutoPrep:
                     row["lyric_offset_ms"],
                     target,
                     archive,
-                    float(row["duration"]),
+                    media_duration,
                     max_bandwidth_mbps=max_bandwidth_mbps,
                     preset=preset,
                 )
