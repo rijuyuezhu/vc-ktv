@@ -247,11 +247,11 @@
             <div>
               <label for="original-codec-mode">原片视频编码</label>
               <select id="original-codec-mode">
-                <option value="default">保持现状（默认）</option>
+                <option value="default">保持原编码策略</option>
                 <option value="h264">全部使用 H.264</option>
                 <option value="av1">全部使用 AV1</option>
               </select>
-              <p class="settings-note">默认仅转换 H.265；AV1 需设备支持。仅影响新原片。</p>
+              <p class="settings-note">新场次默认 AV1；旧电视可选 H.264。仅影响新原片。</p>
             </div>
             <div>
               <label for="max-bandwidth-mbps">播放码率预算（Mbps）</label>
