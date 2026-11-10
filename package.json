@@ -1,0 +1,13 @@
+{
+  "name": "vc-ktv-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint static tests"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "eslint": "^9.0.0",
+    "globals": "^16.0.0"
+  }
+}

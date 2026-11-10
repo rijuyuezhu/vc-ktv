@@ -55,8 +55,11 @@ def convert_textgrid(
     if len(source_spans) != len(lines) or any(
         len(mapping) != len(reading)
         or any(not 0 <= a < b <= len(display) for a, b in mapping)
-        or any(a1 > a2 or b1 > b2 for (a1, b1), (a2, b2) in zip(mapping, mapping[1:]))
-        for display, reading, mapping in zip(lines, spoken, source_spans)
+        or any(
+            a1 > a2 or b1 > b2
+            for (a1, b1), (a2, b2) in zip(mapping, mapping[1:], strict=False)
+        )
+        for display, reading, mapping in zip(lines, spoken, source_spans, strict=False)
     ):
         raise ValueError("发音文本与原文字符映射无效")
     grid = TextGrid.fromFile(str(path))
@@ -73,7 +76,7 @@ def convert_textgrid(
     for item in units:
         if not 0 <= item[1] < item[2] <= duration + 0.02:
             raise ValueError("对齐区间超出了视频范围")
-    if any(a[2] > b[1] + 0.02 for a, b in zip(units, units[1:])):
+    if any(a[2] > b[1] + 0.02 for a, b in zip(units, units[1:], strict=False)):
         raise ValueError("对齐区间存在重叠或时间倒退")
 
     total = "".join(chars(line)[0] for line in spoken)
@@ -83,7 +86,7 @@ def convert_textgrid(
 
     output = []
     unit_index = 0
-    for line, reading, mapping in zip(lines, spoken, source_spans):
+    for line, reading, mapping in zip(lines, spoken, source_spans, strict=False):
         normalized, positions = chars(reading)
         if not normalized:
             raise ValueError("歌词含只有标点的行，需先人工清理")

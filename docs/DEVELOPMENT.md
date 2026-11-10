@@ -6,6 +6,7 @@
 
 ```sh
 uv sync --locked --group dev
+npm ci
 uv run --no-sync pre-commit run --all-files
 uv run --no-sync pytest -q
 bash -n scripts/*.sh

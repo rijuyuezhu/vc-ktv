@@ -34,7 +34,7 @@ export function setupAdminPlayback({refresh,isAdminPath,getAdmin,addSourceTag,in
         if(!copied)throw new Error("clipboard unavailable");
       }
       toast("✓ 已复制"+source.copyLabel);
-    }catch(e){
+    }catch{
       prompt("复制"+source.copyLabel,source.ref);
     }
   }

@@ -6,9 +6,9 @@ the event lifecycle and final media commit.
 """
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from ktv_app.aligners.reliable_blocks import align_reliable_blocks
 from ktv_app.completion import complete_timeline, remove_estimates

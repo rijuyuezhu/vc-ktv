@@ -1,8 +1,9 @@
 """Bilibili song-specific metadata and original-video download."""
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import quote
 
 import httpx
@@ -58,7 +59,7 @@ async def bilibili_lookup(bvid: str, page: int) -> dict:
     except (httpx.HTTPError, ValueError) as e:
         raise HTTPException(
             status_code=502, detail=f"B 站视频信息暂时不可用：{type(e).__name__}"
-        )
+        ) from None
     if envelope.get("code") != 0 or not envelope.get("data"):
         raise HTTPException(
             status_code=404, detail="B 站未找到该视频，可能已删除或需要登录"

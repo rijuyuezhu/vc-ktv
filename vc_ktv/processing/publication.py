@@ -4,8 +4,8 @@ import json
 import logging
 import secrets
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 log = logging.getLogger(__name__)
 

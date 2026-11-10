@@ -41,6 +41,18 @@ repos:
         entry: uv run --no-sync ruff check --select F,I --fix
         language: system
         types_or: [python, pyi]
+      - id: ruff-owned
+        name: Ruff extended rules (owned Python)
+        entry: uv run --no-sync ruff check --select E4,E7,E9,F,I,B,UP,SIM,C4 --fix vc_ktv
+        language: system
+        pass_filenames: false
+        files: ^vc_ktv/.*\.py$
+      - id: eslint
+        name: ESLint (JavaScript)
+        entry: node node_modules/eslint/bin/eslint.js static tests
+        language: system
+        pass_filenames: false
+        files: ^(static/.*\.js|tests/.*\.cjs|eslint\.config\.mjs|package(-lock)?\.json)$
       - id: ruff-format
         name: Ruff format
         entry: uv run --no-sync ruff format

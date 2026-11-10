@@ -50,7 +50,7 @@ def provider_timeline(raw: str, confirmed: str) -> str | None:
         started = True
         sung_records.append(row)
     if len(starts) != len(sung_records) or any(
-        b <= a for a, b in zip(starts, starts[1:])
+        b <= a for a, b in zip(starts, starts[1:], strict=False)
     ):
         return None
     cleaned = clean_lyric_text(raw)
@@ -121,6 +121,8 @@ def offset_timeline(timed_lrc: str, offset_ms: int, duration: float) -> str:
     times = [row["start"] + offset for row in records]
     if any(t < 0 or t >= duration for t in times):
         raise ValueError("来源 LRC 时间轴超出视频边界；请检查翻唱版本和偏移")
-    if any(b <= a for a, b in zip(times, times[1:])):
+    if any(b <= a for a, b in zip(times, times[1:], strict=False)):
         raise ValueError("来源 LRC 时间戳重复或倒退")
-    return "\n".join(f"[{_stamp(t)}]{row['text']}" for t, row in zip(times, records))
+    return "\n".join(
+        f"[{_stamp(t)}]{row['text']}" for t, row in zip(times, records, strict=False)
+    )

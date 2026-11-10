@@ -7,6 +7,7 @@ other workers or the web service. DB state controls what gets published.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 from pathlib import Path
@@ -46,8 +47,6 @@ def terminate_thread_children(native_tid: int) -> list[int]:
     for child in first:
         visit(child)
     for pid in leaves_first:
-        try:
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
     return leaves_first

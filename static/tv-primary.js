@@ -22,7 +22,7 @@ async function pollTVRemoteStatus(){
       tvRemoteState=status;
       updateRemoteControls();
     }
-  }catch(e){
+  }catch{
     // Ordinary admin refresh already handles connection errors; polling must
     // never create a toast or disrupt user input.
   }

@@ -7,6 +7,7 @@ const ASS_FONT_TO_CSS=0.69;
 const ASS_BASELINE_ADJUST=0.075;
 // Common Windows/macOS Chinese fonts when the ASS font isn't installed locally.
 const CJK_FONT_FALLBACK='"Noto Sans SC","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif';
+/* exported TVOverlay */
 const TVOverlay={
   timeline:null,plan:null,style:null,offset:0,root:null,
   reset(){
