@@ -49,6 +49,19 @@ def _native_av1_variant(row: dict) -> tuple[str, int] | None:
     return row["bvid"], int(row["page"])
 
 
+def _write_attempt_report(archive: Path, metadata: dict) -> None:
+    """Replace subtitle metadata atomically for concurrent media readers."""
+    temporary = archive / "attempt.tmp.json"
+    try:
+        temporary.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(archive / "attempt.json")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class SubtitleError(RuntimeError):
     def __init__(self, code: str, message: str):
         self.code = code
@@ -412,38 +425,47 @@ class AutoPrep:
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
-            if not publish_subtitles(self.store, row, target, archive / "aligned.lrc"):
-                metadata["outcome"] = "stale"
-            else:
-                # The baked video is ready before optional TV cache work.
-                metadata["ready_seconds"] = round(time.monotonic() - started, 2)
-                if row.get("tv_html_overlay"):
-                    cache_started = time.monotonic()
+            # Publish song state and its HTML subtitle manifest under the
+            # same lock, so readers cannot observe one without the other.
+            with self.store.lock:
+                if not publish_subtitles(
+                    self.store, row, target, archive / "aligned.lrc"
+                ):
+                    metadata["outcome"] = "stale"
+                else:
+                    metadata["ready_seconds"] = round(time.monotonic() - started, 2)
                     try:
-                        prepare_tv_source(
-                            source,
-                            archive,
-                            float(row["duration"]),
-                            max_bandwidth_mbps,
-                            native_av1=_native_av1_variant(row),
-                        )
-                        if budget is not None:
-                            budget.check()
-                    except Exception as error:
-                        # TV caching is optional after a successful publication.
-                        (archive / "tv-source.mp4").unlink(missing_ok=True)
+                        _write_attempt_report(archive, metadata)
+                    except OSError:
+                        # The baked video is already committed and remains playable.
                         log.warning(
-                            "TV source compression failed for song #%s: %s",
-                            song_id,
-                            error,
+                            "Unable to publish subtitle manifest for song #%s", song_id
                         )
-                    finally:
-                        metadata["tv_source_ready"] = (
-                            archive / "tv-source.mp4"
-                        ).is_file()
-                        metadata["tv_cache_seconds"] = round(
-                            time.monotonic() - cache_started, 2
-                        )
+            if metadata["outcome"] == "rendered" and row.get("tv_html_overlay"):
+                cache_started = time.monotonic()
+                try:
+                    prepare_tv_source(
+                        source,
+                        archive,
+                        float(row["duration"]),
+                        max_bandwidth_mbps,
+                        native_av1=_native_av1_variant(row),
+                    )
+                    if budget is not None:
+                        budget.check()
+                except Exception as error:
+                    # TV caching is optional after a successful publication.
+                    (archive / "tv-source.mp4").unlink(missing_ok=True)
+                    log.warning(
+                        "TV source compression failed for song #%s: %s",
+                        song_id,
+                        error,
+                    )
+                finally:
+                    metadata["tv_source_ready"] = (archive / "tv-source.mp4").is_file()
+                    metadata["tv_cache_seconds"] = round(
+                        time.monotonic() - cache_started, 2
+                    )
         except Exception as error:
             metadata["outcome"] = "failed"
             metadata["error_code"] = getattr(error, "code", type(error).__name__)
@@ -498,10 +520,7 @@ class AutoPrep:
                         "Failed to save subtitle timing for song #%s", song_id
                     )
             try:
-                (archive / "attempt.json").write_text(
-                    json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
+                _write_attempt_report(archive, metadata)
             except OSError:
                 log.exception(
                     "Failed to write subtitle attempt report for song #%s", song_id
