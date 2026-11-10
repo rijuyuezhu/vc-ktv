@@ -69,4 +69,5 @@ class SubtitleProgress:
             self.stages[self.current_stage] = round(
                 time.monotonic() - self.stage_started, 2
             )
+            self.current_stage = None
         return self.stages
