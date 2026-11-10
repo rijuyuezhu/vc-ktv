@@ -252,10 +252,15 @@ def check_ui(
     page.goto(base + "/admin/#settings-playback", wait_until="networkidle")
     quality = page.locator("#video-quality")
     quality.wait_for(state="visible")
-    quality.focus()
-    quality.select_option("720")
-    page.wait_for_timeout(4000)
+    codec = page.locator("#original-codec-mode")
     assert quality.input_value() == "720"
+    assert codec.input_value() == "default"
+    quality.focus()
+    quality.select_option("1080")
+    codec.select_option("av1")
+    page.wait_for_timeout(4000)
+    assert quality.input_value() == "1080"
+    assert codec.input_value() == "av1"
     with page.expect_response(
         lambda response: (
             "/api/admin/settings" in response.url and response.request.method == "PUT"
@@ -263,9 +268,12 @@ def check_ui(
     ) as saved:
         page.locator("#settings-save-btn").click()
     assert saved.value.status == 200
-    assert (
-        admin.request.get(base + "/api/admin/settings").json()["video_quality"] == 720
-    )
+    video_settings = admin.request.get(base + "/api/admin/settings").json()
+    assert video_settings["video_quality"] == 1080
+    assert video_settings["original_codec_mode"] == "av1"
+    page.reload(wait_until="networkidle")
+    assert quality.input_value() == "1080"
+    assert codec.input_value() == "av1"
 
     page.goto(base + "/admin/#settings-queue", wait_until="networkidle")
     page.locator("#queue-settings-save").wait_for(state="visible")

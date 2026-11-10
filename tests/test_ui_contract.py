@@ -333,6 +333,15 @@ def test_tv_html_overlay_and_bandwidth_ui_controls():
     player = (root / "tv.js").read_text()
     assert 'id="tv-html-overlay" type="checkbox" checked' in admin
     assert 'id="max-bandwidth-mbps"' in admin
+    assert 'id="video-quality"' in admin
+    assert 'id="original-codec-mode"' in admin
+    assert 'for="video-quality">B站下载清晰度' in admin
+    assert 'for="max-bandwidth-mbps">播放转码码率预算（Mbps）' in admin
+    assert admin.index('id="video-quality"') < admin.index('id="original-codec-mode"')
+    assert admin.index('id="original-codec-mode"') < admin.index(
+        'id="max-bandwidth-mbps"'
+    )
+    assert "original_codec_mode:" in admin_js
     assert 'id="compact-video"' not in admin
     assert '"tv_html_overlay"' not in admin  # UI binds via JS.
     assert "tv_html_overlay:" in admin_js

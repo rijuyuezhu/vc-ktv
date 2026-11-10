@@ -237,16 +237,13 @@
               </select>
             </div>
             <div>
-              <label for="video-quality">原视频清晰度</label>
+              <label for="video-quality">B站下载清晰度</label>
               <select id="video-quality">
                 <option value="1080">1080p</option>
                 <option value="720">720p</option>
                 <option value="480">480p</option>
               </select>
-            </div>
-            <div>
-              <label for="max-bandwidth-mbps">在线码率上限（Mbps）</label>
-              <input id="max-bandwidth-mbps" type="number" min="1" step="0.1" value="3">
+              <p class="settings-note">默认 720p；不可用时自动回退。网易云封面视频固定为 720p。</p>
             </div>
             <div>
               <label for="original-codec-mode">原片视频编码</label>
@@ -255,7 +252,12 @@
                 <option value="h264">全部使用 H.264</option>
                 <option value="av1">全部使用 AV1</option>
               </select>
-              <p class="settings-note">保持现状时仅将 HEVC 转成 H.264；AV1 节省带宽，旧电视可能不支持。只影响新准备的原片。</p>
+              <p class="settings-note">保持现状时仅将 HEVC 转成 H.264；AV1 原片可能不兼容旧浏览器或电视，烧录版仍为 H.264。只影响新准备的原片。</p>
+            </div>
+            <div>
+              <label for="max-bandwidth-mbps">播放转码码率预算（Mbps）</label>
+              <input id="max-bandwidth-mbps" type="number" min="1" step="0.1" value="3">
+              <p class="settings-note">用于转码和电视缓存，不限制所有原片的码率。</p>
             </div>
           </div>
           <label class="setting-toggle"><input id="tv-html-overlay" type="checkbox" checked><span>主屏实时字幕叠加</span></label>
