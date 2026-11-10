@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import tempfile
@@ -182,7 +183,7 @@ def render_video(
         folder = Path(directory)
         report = write_ass(lyrics, folder / "lyrics.ass", duration, lead)
         cmd = [
-            "ffmpeg",
+            os.environ.get("KTV_FFMPEG", "ffmpeg"),
             "-nostdin",
             "-hide_banner",
             "-loglevel",

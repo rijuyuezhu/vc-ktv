@@ -166,7 +166,7 @@ function showPage(){
   for(const routeName of Object.keys(adminRoutes)){
     if(routeName!=="settings")$("page-"+routeName).classList.toggle("hidden",page!==routeName);
   }
-  document.title="VC KTV | "+(page==="played"?"本场记录":page==="song"?"歌曲详情":
+  document.title="VC-KTV | "+(page==="played"?"本场记录":page==="song"?"歌曲详情":
     page?adminRoutes[page][0]:isAdmin?"管理":"点歌");
 }
 setupSubpages();

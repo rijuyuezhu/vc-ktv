@@ -54,6 +54,37 @@ def test_doctor_distinguishes_base_from_gpu(tmp_path, monkeypatch):
     assert not all(ok for ok, _ in check_install.checks("gpu", config, tmp_path))
 
 
+def test_doctor_uses_configured_ffmpeg_and_ffprobe(tmp_path, monkeypatch):
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "admin-password").write_text("test-only")
+    (config / "token-secret").write_text("test-only")
+    monkeypatch.setenv("KTV_FFMPEG", "/custom/ffmpeg")
+    monkeypatch.setenv("KTV_FFPROBE", "/custom/ffprobe")
+    found = []
+    commands = []
+
+    def find(program):
+        found.append(program)
+        return program
+
+    def probe(command):
+        commands.append(command)
+        return (
+            " ... subtitles "
+            if command[-1] == "-filters"
+            else "libx264"
+            if command[-1] == "-encoders"
+            else "Noto Sans CJK SC"
+        )
+
+    monkeypatch.setattr(check_install.shutil, "which", find)
+    monkeypatch.setattr(check_install, "probe", probe)
+    assert all(ok for ok, _ in check_install.checks("base", config, tmp_path))
+    assert "/custom/ffprobe" in found
+    assert any(cmd[0] == "/custom/ffmpeg" for cmd in commands)
+
+
 def test_runtime_root_respects_cli_override(tmp_path):
     assert tifa_python(tmp_path) == tmp_path / "runtime/tifa/bin/python"
     custom = tmp_path / "other-python"

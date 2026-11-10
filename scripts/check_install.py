@@ -19,17 +19,23 @@ def probe(command: list[str]) -> str:
 
 def checks(mode: str, config: Path, pipeline: Path) -> list[tuple[bool, str]]:
     results = [(sys.version_info >= (3, 12), "Python >= 3.12")]
-    for program in ("ffmpeg", "ffprobe", "fc-match"):
-        results.append((shutil.which(program) is not None, f"{program} on PATH"))
-    if shutil.which("ffmpeg"):
+    ffmpeg = os.getenv("KTV_FFMPEG", "ffmpeg")
+    ffprobe = os.getenv("KTV_FFPROBE", "ffprobe")
+    for name, program in (
+        ("ffmpeg", ffmpeg),
+        ("ffprobe", ffprobe),
+        ("fc-match", "fc-match"),
+    ):
+        results.append((shutil.which(program) is not None, f"{name} available"))
+    if shutil.which(ffmpeg):
         results.extend(
             [
                 (
-                    " subtitles " in probe(["ffmpeg", "-hide_banner", "-filters"]),
+                    " subtitles " in probe([ffmpeg, "-hide_banner", "-filters"]),
                     "FFmpeg subtitles/libass filter",
                 ),
                 (
-                    "libx264" in probe(["ffmpeg", "-hide_banner", "-encoders"]),
+                    "libx264" in probe([ffmpeg, "-hide_banner", "-encoders"]),
                     "FFmpeg libx264 encoder",
                 ),
             ]

@@ -540,3 +540,14 @@ def test_tv_internal_controls_use_external_remote_icons():
     for control in ("pause-resume", "restart", "skip", "replay-next", "next-list"):
         assert f'id="{control}"' in html
     assert "grid-template-columns:repeat(4,minmax(0,1fr))" in html
+
+
+def test_public_product_name_is_consistent():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "static" / "index.html").read_text()
+    tv = (root / "static" / "tv.html").read_text()
+    app = (root / "static" / "app.js").read_text()
+    assert "<strong>VC-KTV</strong>" in html
+    assert "<title>VC-KTV |" in html
+    assert "<title>VC-KTV |" in tv
+    assert 'document.title="VC-KTV | "' in app
