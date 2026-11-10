@@ -253,14 +253,14 @@ def check_ui(
     quality = page.locator("#video-quality")
     quality.wait_for(state="visible")
     codec = page.locator("#original-codec-mode")
-    assert quality.input_value() == "720"
-    assert codec.input_value() == "default"
-    quality.focus()
-    quality.select_option("1080")
-    codec.select_option("av1")
-    page.wait_for_timeout(4000)
     assert quality.input_value() == "1080"
     assert codec.input_value() == "av1"
+    quality.focus()
+    quality.select_option("720")
+    codec.select_option("h264")
+    page.wait_for_timeout(4000)
+    assert quality.input_value() == "720"
+    assert codec.input_value() == "h264"
     with page.expect_response(
         lambda response: (
             "/api/admin/settings" in response.url and response.request.method == "PUT"
@@ -269,14 +269,14 @@ def check_ui(
         page.locator("#settings-save-btn").click()
     assert saved.value.status == 200
     video_settings = admin.request.get(base + "/api/admin/settings").json()
-    assert video_settings["video_quality"] == 1080
-    assert video_settings["original_codec_mode"] == "av1"
+    assert video_settings["video_quality"] == 720
+    assert video_settings["original_codec_mode"] == "h264"
     page.reload(wait_until="networkidle")
-    assert quality.input_value() == "1080"
-    assert codec.input_value() == "av1"
+    assert quality.input_value() == "720"
+    assert codec.input_value() == "h264"
 
-    # Keep later synthetic source upload byte-identical: AV1 was only a
-    # settings persistence test, not an encoding benchmark.
+    # Keep later synthetic upload byte-identical; the test exercises
+    # settings persistence, not actual transcoding.
     quality.select_option("720")
     codec.select_option("default")
     with page.expect_response(

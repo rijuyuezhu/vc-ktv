@@ -247,6 +247,10 @@ class Events:
                     )
                     (folder / "info.json").chmod(0o600)
                     new_store = self.store_factory(folder)
+                    # Only new rooms receive new defaults; existing rooms are unchanged.
+                    new_store.save_settings(
+                        None, None, video_quality=1080, original_codec_mode="av1"
+                    )
                     self.pointer.write_text(event_id + "\n")
                 except BaseException:
                     # The event is not published. A partially written pointer

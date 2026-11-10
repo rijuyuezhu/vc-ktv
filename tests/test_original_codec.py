@@ -270,9 +270,7 @@ def test_admin_codec_mode_defaults_persists_and_resets_between_events(tmp_path):
             client.post("/api/admin/login", json={"password": "test-admin"}).status_code
             == 200
         )
-        assert (
-            client.get("/api/admin/settings").json()["original_codec_mode"] == "default"
-        )
+        assert client.get("/api/admin/settings").json()["original_codec_mode"] == "av1"
         assert (
             client.put(
                 "/api/admin/settings", json={"original_codec_mode": "av1"}
@@ -302,9 +300,7 @@ def test_admin_codec_mode_defaults_persists_and_resets_between_events(tmp_path):
         assert (
             client.post("/api/admin/events", json={"name": "second"}).status_code == 200
         )
-        assert (
-            client.get("/api/admin/settings").json()["original_codec_mode"] == "default"
-        )
+        assert client.get("/api/admin/settings").json()["original_codec_mode"] == "av1"
 
 
 def test_legacy_h264_setting_is_respected_without_migration(tmp_path):

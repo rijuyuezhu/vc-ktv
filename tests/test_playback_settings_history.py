@@ -76,11 +76,11 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
             "queue_policy": "fair",
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
-            "video_quality": 720,
+            "video_quality": 1080,
             "max_bandwidth_mbps": 3.0,
             "tv_html_overlay": True,
             "orders_paused": False,
-            "original_codec_mode": "default",
+            "original_codec_mode": "av1",
         }
         store = app.state.store
         original = add_song(store, "A", 1, "downloaded")
@@ -201,11 +201,11 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
             "queue_policy": "fair",
             "allow_unsubtitled": False,
             "subtitle_style": "classic",
-            "video_quality": 720,
+            "video_quality": 1080,
             "max_bandwidth_mbps": 3.0,
             "tv_html_overlay": True,
             "orders_paused": False,
-            "original_codec_mode": "default",
+            "original_codec_mode": "av1",
         }
     reopened = create_app(
         root=root,
@@ -218,11 +218,11 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         "queue_policy": "fair",
         "allow_unsubtitled": False,
         "subtitle_style": "classic",
-        "video_quality": 720,
+        "video_quality": 1080,
         "max_bandwidth_mbps": 3.0,
         "tv_html_overlay": True,
         "orders_paused": False,
-        "original_codec_mode": "default",
+        "original_codec_mode": "av1",
     }
     with sqlite3.connect(root / "sessions" / first["id"] / "room.sqlite3") as db:
         assert dict(
@@ -300,7 +300,7 @@ def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
     app.state.events.create("first", "000001")
     with TestClient(app) as admin, TestClient(app) as guest:
         admin_login(admin)
-        assert admin.get("/api/admin/settings").json()["video_quality"] == 720
+        assert admin.get("/api/admin/settings").json()["video_quality"] == 1080
         assert (
             guest.put(
                 "/api/admin/settings",
@@ -361,4 +361,4 @@ def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
             ).status_code
             == 200
         )
-        assert admin.get("/api/admin/settings").json()["video_quality"] == 720
+        assert admin.get("/api/admin/settings").json()["video_quality"] == 1080
