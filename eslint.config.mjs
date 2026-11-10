@@ -6,18 +6,18 @@ export default [
   { rules: { "no-empty": ["error", { allowEmptyCatch: true }] } },
   {
     files: ["static/*.js"],
-    languageOptions: { globals: globals.browser },
+    languageOptions: { globals: globals.browser }
   },
   {
     files: ["static/tv.js", "static/tv-overlay.js"],
-    languageOptions: { sourceType: "script" },
+    languageOptions: { sourceType: "script" }
   },
   {
     files: ["static/tv.js"],
-    languageOptions: { globals: { TVOverlay: "readonly" } },
+    languageOptions: { globals: { TVOverlay: "readonly" } }
   },
   {
     files: ["tests/*.cjs"],
-    languageOptions: { globals: globals.node },
-  },
+    languageOptions: { globals: globals.node }
+  }
 ];
