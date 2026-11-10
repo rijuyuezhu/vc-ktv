@@ -130,5 +130,15 @@ def test_stale_render_does_not_build_cache(tmp_path, monkeypatch):
 
     worker.enhance = render_and_invalidate
     monkeypatch.setattr(prep, "prepare_tv_source", no_cache)
+    original_publish = prep.publish_subtitles
+
+    def check_no_premature_manifest(*args, **kwargs):
+        # An unpublished/stale attempt must not appear as rendered.
+        assert not list(
+            (store.media / f"{song_id}-auto-alignment").glob("attempt-*/attempt.json")
+        )
+        return original_publish(*args, **kwargs)
+
+    monkeypatch.setattr(prep, "publish_subtitles", check_no_premature_manifest)
     worker.prepare_subtitles(worker.claim())
     assert metadata(store, song_id)["outcome"] == "stale"
