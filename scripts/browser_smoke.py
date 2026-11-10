@@ -133,7 +133,9 @@ def check_ui(
     page.locator("#register-confirm").fill(user_password)
     page.locator("#register-btn").click()
     page.locator("#request-panel").wait_for(state="visible")
-    assert "Synthetic UI User" in page.locator("#account-name").text_content()
+    assert page.locator("#account-name").text_content() == "Synthetic UI User"
+    page.locator("#account-menu summary").click()
+    assert page.locator(".account-dropdown").inner_text().strip() == "退出登录"
     guest.close()
     print("PASS mobile join and registration")
 
@@ -195,6 +197,7 @@ def check_ui(
         ),
     )
     page.locator("#source-tab-netease").click()
+    assert not page.locator("#netease-search-message").is_visible()
     page.locator("#netease-song-query").fill("Synthetic")
     page.locator("#netease-search-btn").click()
     result = page.locator(".netease-search-result strong")
@@ -225,6 +228,26 @@ def check_ui(
     page.locator("#password").fill(admin_password)
     page.locator("#login-btn").click()
     page.locator("#login-box").wait_for(state="hidden")
+    page.locator("#admin-settings-link").wait_for(state="visible")
+    assert page.locator("#account-name").text_content() == "管理员"
+    assert page.locator(".quick-nav").count() == 0
+    page.locator("#account-menu summary").click()
+    assert page.locator(".account-dropdown").inner_text().strip() == "退出登录"
+    page.locator("#account-menu summary").click()
+    page.locator("#admin-settings-link").click()
+    page.locator('a[href="#stats"]').click()
+    page.wait_for_function(
+        'document.querySelector("#subpage-title").textContent === "演唱统计"'
+    )
+    assert page.locator("#subpage-back").get_attribute("href") == "#settings"
+    page.locator("#subpage-back").click()
+    page.wait_for_function(
+        'document.querySelector("#subpage-title").textContent === "设置与统计"'
+    )
+    page.locator("#subpage-back").click()
+    page.set_viewport_size({"width": 320, "height": 780})
+    assert page.evaluate("document.documentElement.scrollWidth") == 320
+    page.set_viewport_size({"width": 1280, "height": 720})
 
     # Global administrator actions are isolated to the disposable test event.
     page.goto(base + "/admin/#settings-accounts", wait_until="domcontentloaded")

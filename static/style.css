@@ -43,7 +43,6 @@ a:hover { text-decoration: underline; }
 h1 { margin: 8px 0 7px; font-size: clamp(28px, 4.2vw, 42px); line-height: 1.22; letter-spacing: -1.2px; }
 h2 { margin: 3px 0 0; font-size: 19px; line-height: 1.3; letter-spacing: -.35px; }
 h3 { margin: 19px 0 11px; color: #3f4651; font-size: 15px; }
-.hero p { max-width: 700px; margin: 0; color: var(--muted); }
 .dashboard, .admin-layout { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.05fr); gap: 19px; align-items: start; }
 .panel { min-width: 0; padding: 24px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); box-shadow: 0 3px 15px #17191d08; }
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 20px; }
@@ -163,8 +162,10 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 
 /* Simple surfaces and calm typography: keep the primary action obvious. */
 .hero { margin: 8px 0 21px; }
+.hero-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .hero h1 { font-size: clamp(23px,3vw,32px); letter-spacing: -.7px; }
-.hero p { font-size: 14px; }
+#admin-settings-link { flex: 0 0 auto; font-size: 13px; }
+#netease-search-message:empty { display: none; }
 .dashboard, .admin-layout { gap: 15px; }
 .panel { padding: 19px; }
 .section-head { margin-bottom: 12px; }
@@ -238,9 +239,7 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .subpage { max-width: 960px; margin: auto; min-height: 65vh; }
 .subpage-head { margin-bottom: 16px; justify-content: flex-start; }
 .subpage-head h1 { font-size: 23px; margin: 0; }
-.quick-nav { display: flex; gap: 10px; }
-.quick-nav a, .page-links a { min-height: 44px; display: flex; align-items: center; justify-content: space-between; border-radius: 8px; padding: 12px 14px; background: var(--surface-2); color: var(--ink); font-weight: 650; }
-.quick-nav a { flex: 1; }
+.page-links a { min-height: 44px; display: flex; align-items: center; justify-content: space-between; border-radius: 8px; padding: 12px 14px; background: var(--surface-2); color: var(--ink); font-weight: 650; }
 .page-links { display: grid; gap: 10px; }
 .link-switch { border: 0; background: none; color: var(--accent-ink); text-decoration: underline; }
 .auth-single { max-width: 400px; margin: auto; }
@@ -248,7 +247,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 #guest-access { max-width: 540px; }
 @media (max-width:760px) {
   .subpage-head h1 { font-size: 20px; }
-  .quick-nav a { padding: 10px; }
   .topinner { padding: 9px 12px; }
   .brandicon { width: 34px; height: 34px; font-size: 20px; }
   .tabs a { padding: 8px; }
@@ -362,7 +360,6 @@ button, input, select { min-height: 44px; }
 .song-source-tabs button { min-height: 44px; border: 0; border-radius: 7px; padding: 9px 8px; background: transparent; color: var(--muted); font: inherit; font-size: 14px; font-weight: 700; cursor: pointer; }
 .song-source-tabs button[aria-selected="true"] { background: var(--surface); color: var(--accent-ink); box-shadow: 0 1px 6px #141b3218; }
 .song-source-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.netease-search-help { font-size: 14px; }
 .netease-search-row { align-items: stretch; }
 .netease-search-row input { min-width: 0; }
 .netease-search-message { margin: 12px 0 8px; font-size: 13px; }
@@ -493,14 +490,17 @@ button, input, select { min-height: 44px; }
 .account-menu summary::-webkit-details-marker { display: none; }
 .account-menu summary:hover, .account-menu[open] summary { background: var(--accent-soft); }
 .account-menu summary img, .account-dropdown img { width: 19px; height: 19px; }
-#account-name { display: block; min-width: 0; overflow-wrap: anywhere; font-size: 14px; }
+#account-name {
+  display: block; min-width: 0; max-width: 190px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; font-size: 13px;
+  color: #bd6a28; font-weight: 650;
+}
 .account-dropdown {
   position: absolute; right: 0; top: calc(100% + 12px); z-index: 12;
-  display: grid; gap: 10px; width: 192px; padding: 12px;
+  display: grid; width: max-content; min-width: 145px; padding: 6px;
   border: 1px solid var(--line); border-radius: 11px;
   background: var(--surface); box-shadow: 0 16px 42px #18213820;
 }
-#account-role { padding: 3px 5px 5px; color: var(--muted); font-size: 12px; }
 .account-dropdown button {
   display: flex; align-items: center; gap: 10px; min-height: 44px;
   padding: 10px; border: 0; border-radius: 7px;
@@ -521,7 +521,7 @@ button, input, select { min-height: 44px; }
 #page-settings .page-links .settings-nav-item:last-child { border-bottom: 0; }
 #page-settings-playback, #page-settings-queue,
 #page-settings-event, #page-settings-accounts,
-#page-settings-netease { max-width: 850px; margin: 0 auto; }
+#page-settings-netease, #page-stats { max-width: 850px; margin: 0 auto; }
 #event-settings-panel, #event-queue-settings-panel { padding: 26px; }
 #event-settings-panel .settings-fields, #event-queue-settings-panel .settings-fields {
   display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
@@ -541,9 +541,12 @@ button, input, select { min-height: 44px; }
 #netease-admin-panel h2 { display: flex; align-items: center; gap: 9px; }
 #event-queue-settings-panel { max-width: none; }
 @media (max-width: 760px) {
-  #account-name { display: none; }
-  .account-menu summary { padding: 7px 5px; }
+  #account-name { max-width: 95px; font-size: 12px; }
+  .account-menu summary { min-width: 0; padding: 7px 5px; }
   .top-actions { gap: 2px; }
+  .topinner { flex-wrap: wrap; }
+  .top-actions { margin-left: auto; }
+  .tabs a { padding-inline: 8px; }
   #event-settings-panel, #event-queue-settings-panel { padding: 17px; }
   #event-settings-panel .settings-fields { grid-template-columns: 1fr; gap: 14px; }
   #event-queue-settings-panel .settings-fields { grid-template-columns: 1fr; }
@@ -626,7 +629,7 @@ button, input, select { min-height: 44px; }
   .playback-remote { padding: 13px; }
   .remote-offsets { grid-template-columns: repeat(6,minmax(0,1fr)); }
   .remote-offsets button { font-size: 11px; padding-inline: 0; min-width: 0; }
-  .tv-display { min-height: 170px; }
+  .tv-display { min-height: 0; }
 }
 @media (max-width: 380px) {
   .remote-offsets { grid-template-columns: repeat(3,minmax(0,1fr)); }
@@ -657,7 +660,8 @@ button, input, select { min-height: 44px; }
   .archive-actions .btn { flex: 1 1 auto; text-align: center; justify-content: center; }
 }
 /* The settings subpage already has a title; do not repeat it inside the card. */
-#page-settings-history #event-archive-panel > summary { display: none; }
+#page-settings-history #event-archive-panel > summary,
+#page-stats #performance-panel > summary { display: none; }
 
 .archive-item { flex-wrap: wrap; }
 .archive-songs { flex: 1 0 100%; display: grid; gap: 4px; min-width: 0; }
