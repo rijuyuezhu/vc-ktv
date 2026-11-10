@@ -7,6 +7,7 @@ import time
 import pytest
 
 import vc_ktv.processing.worker as prep
+from vc_ktv.application.media import MediaService
 from vc_ktv.core.store import Store
 
 
@@ -27,6 +28,10 @@ def prepared(tmp_path):
     def render(source, lyrics, destination, archive, duration, *, preset):
         destination.write_bytes(b"BAKED")
         (archive / "aligned.lrc").write_text("lyrics")
+        subtitles = archive / "pipeline" / "subtitles"
+        subtitles.mkdir(parents=True)
+        for name in ("timeline.json", "display_plan.json", "style.json"):
+            (subtitles / name).write_text("{}")
         return {"rendered": True}
 
     worker = prep.AutoPrep(store, lambda path: 180, enhance=render)
@@ -64,6 +69,16 @@ def test_song_is_ready_while_tv_cache_still_builds(tmp_path, monkeypatch):
         assert song["prep_state"] == "done"
         assert (store.media / song["media_file"]).read_bytes() == b"BAKED"
         assert thread.is_alive()
+        # A ready song must expose its subtitle archive before TV caching ends.
+        current = metadata(store, song_id)
+        assert current["outcome"] == "rendered"
+        assert current["source_file"] == "original.mp4"
+        assert "tv_cache_seconds" not in current
+        media = MediaService(store, None, None, None)
+        row = dict(
+            store.db.execute("SELECT * FROM songs WHERE id=?", (song_id,)).fetchone()
+        )
+        assert media.overlay_bundle(row) is not None
         time.sleep(0.04)
     finally:
         resume.set()

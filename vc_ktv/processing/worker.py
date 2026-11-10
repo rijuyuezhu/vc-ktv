@@ -49,6 +49,19 @@ def _native_av1_variant(row: dict) -> tuple[str, int] | None:
     return row["bvid"], int(row["page"])
 
 
+def _write_attempt_report(archive: Path, metadata: dict) -> None:
+    """Replace subtitle metadata atomically for concurrent media readers."""
+    temporary = archive / "attempt.tmp.json"
+    try:
+        temporary.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(archive / "attempt.json")
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class SubtitleError(RuntimeError):
     def __init__(self, code: str, message: str):
         self.code = code
@@ -412,6 +425,12 @@ class AutoPrep:
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
+            # The HTML subtitle reader requires this manifest as soon as the
+            # DB reports a ready song, before optional TV caching completes.
+            try:
+                _write_attempt_report(archive, metadata)
+            except OSError:
+                log.warning("Unable to publish subtitle manifest for song #%s", song_id)
             if not publish_subtitles(self.store, row, target, archive / "aligned.lrc"):
                 metadata["outcome"] = "stale"
             else:
@@ -498,10 +517,7 @@ class AutoPrep:
                         "Failed to save subtitle timing for song #%s", song_id
                     )
             try:
-                (archive / "attempt.json").write_text(
-                    json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-                    encoding="utf-8",
-                )
+                _write_attempt_report(archive, metadata)
             except OSError:
                 log.exception(
                     "Failed to write subtitle attempt report for song #%s", song_id
