@@ -25,10 +25,19 @@ def create_history_router(
     events = app.state.events
 
     @router.get("/api/songs/history")
-    def guest_song_history(vc_guest: str | None = Cookie(default=None)):
+    def song_history(
+        admin_view: bool = False,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
         user = current_user(vc_guest)
-        archive = archived_guest_event(vc_guest) if not user else None
-        if not user and not archive:
+        principal = admin_principal(vc_admin)
+        if admin_view and not principal:
+            bail(401, "需要管理员登录")
+        archive = (
+            archived_guest_event(vc_guest) if not user and not admin_view else None
+        )
+        if not user and not archive and not principal:
             require_user(vc_guest)
         if archive:
             with events.lock:
@@ -68,6 +77,8 @@ def create_history_router(
                         )
                     ]
             return {"songs": songs, "archived": True}
+        if not events.active_id:
+            return {"songs": [], "archived": False}
         with store.lock:
             order = store.close_song_order()
             records = store.rows(

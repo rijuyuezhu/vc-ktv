@@ -415,7 +415,7 @@ button, input, select { min-height: 44px; }
 /* Quiet, stacked song browsing — actions belong to the detail page. */
 .dashboard, .admin-layout { grid-template-columns: minmax(0,1fr); }
 .dashboard > .panel, .admin-layout > .panel { grid-column: 1; }
-#request-panel, #queue-panel, #manage-status { min-width: 0; }
+#request-panel, #queue-panel, #admin-queue-panel { min-width: 0; }
 #queue-panel, .admin-layout > .panel { width: 100%; }
 .current-card { min-height: 0; background: transparent; border: 0; padding: 0; margin-bottom: 12px; }
 .current-card > p { margin: 8px 0; }
