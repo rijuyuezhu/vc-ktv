@@ -37,6 +37,7 @@ def media_download(
     *,
     max_height: int = 720,
     prefer_av1: bool = False,
+    prefer_h264: bool = False,
 ) -> Path:
     if max_height not in QUALITY_HEIGHTS:
         raise ValueError("不支持的清晰度")
@@ -56,6 +57,9 @@ def media_download(
         "--fragment-retries",
         "2",
     ]
+    sort = (
+        "res,vcodec:av01" if prefer_av1 else "res,vcodec:avc" if prefer_h264 else None
+    )
     # Try higher quality first. If the stream itself fails, retry a lower
     # ceiling, not merely a lower format when a format is unavailable.
     for height in (height for height in QUALITY_HEIGHTS if height <= max_height):
@@ -70,7 +74,7 @@ def media_download(
                 *args,
                 "-f",
                 selection,
-                *(["-S", "res,vcodec:av01"] if prefer_av1 else []),
+                *(["-S", sort] if sort else []),
                 "--merge-output-format",
                 "mp4",
                 "-o",
