@@ -302,6 +302,7 @@ class AutoPrep:
                     cookies=self.netease_cookies,
                     video_quality_keyword=self.download is media_download,
                     prefer_av1=row.get("original_codec_mode") == "av1",
+                    prefer_h264=row.get("original_codec_mode") == "h264",
                 ),
             )
             check_current_budget()

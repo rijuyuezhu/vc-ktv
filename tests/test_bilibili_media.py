@@ -577,3 +577,35 @@ def test_public_api_av1_mode_prefers_native_stream(monkeypatch, tmp_path):
     )
     assert output.read_bytes() == b"remux"
     assert requested == ["/av1", "/aac"]
+
+
+def test_yt_dlp_h264_mode_prefers_native_avc_without_lowering_resolution(
+    monkeypatch, tmp_path
+):
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        (tmp_path / "source.mp4").write_bytes(b"native AVC")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(autoprep.subprocess, "run", run)
+    output = autoprep.media_download(
+        "BV0000000002", 1, tmp_path, max_height=1080, prefer_h264=True
+    )
+    assert output.read_bytes() == b"native AVC"
+    assert commands[0][commands[0].index("-S") + 1] == "res,vcodec:avc"
+    assert "height<=1080" in commands[0][commands[0].index("-f") + 1]
+
+
+def test_yt_dlp_default_does_not_force_a_codec(monkeypatch, tmp_path):
+    commands = []
+
+    def run(command, **kwargs):
+        commands.append(command)
+        (tmp_path / "source.mp4").write_bytes(b"original")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(autoprep.subprocess, "run", run)
+    autoprep.media_download("BV0000000002", 1, tmp_path)
+    assert "-S" not in commands[0]

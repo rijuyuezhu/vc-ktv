@@ -38,6 +38,7 @@ class DownloadTools:
     cookies: Callable[[], Any]
     video_quality_keyword: bool
     prefer_av1: bool = False
+    prefer_h264: bool = False
 
 
 class SongSource(Protocol):
