@@ -20,7 +20,10 @@ def eventually(predicate, timeout=5):
     return False
 
 
-@pytest.mark.parametrize("fault", ("timing_update", "timing_commit", "attempt_report"))
+@pytest.mark.parametrize(
+    "fault",
+    ("timing_update", "timing_commit", "attempt_report", "attempt_report_final"),
+)
 @pytest.mark.parametrize("workers", (1, 4))
 def test_successful_render_survives_post_commit_diagnostic_fault(
     tmp_path, monkeypatch, fault, workers
@@ -68,15 +71,21 @@ def test_successful_render_survives_post_commit_diagnostic_fault(
             return getattr(real_db, name)
 
     wrapped = DiagnosticsDb()
-    if fault != "attempt_report":
+    if not fault.startswith("attempt_report"):
         store.db = wrapped
     else:
         real_write = Path.write_text
+        attempts = 0
 
         def deny_attempt_report(path, *args, **kwargs):
-            if path.name == "attempt.json":
-                wrapped.failures += 1
-                raise PermissionError("diagnostics JSON write fault")
+            nonlocal attempts
+            if path.name == "attempt.tmp.json":
+                attempts += 1
+                if (fault == "attempt_report" and attempts == 1) or (
+                    fault == "attempt_report_final" and attempts == 2
+                ):
+                    wrapped.failures += 1
+                    raise PermissionError("diagnostics JSON write fault")
             return real_write(path, *args, **kwargs)
 
         monkeypatch.setattr(Path, "write_text", deny_attempt_report)
