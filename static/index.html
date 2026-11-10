@@ -185,25 +185,22 @@
                 <img src="/icons/volume-2.svg" alt="" aria-hidden="true">
                 <input id="remote-volume" type="range" min="0" max="100" value="100" aria-label="音量">
               </label>
-              <details id="tv-remote-extra" class="remote-extra hidden">
-                <summary>字幕与播放微调</summary>
-                <div class="remote-extra-body">
-                  <div class="remote-label">字幕偏移 <span id="remote-offset-value">+0.0s</span></div>
-                  <div class="remote-offsets">
-                    <button type="button" data-admin-offset="-50">−5s</button>
-                    <button type="button" data-admin-offset="-10">−1s</button>
-                    <button type="button" data-admin-offset="-1">−0.1s</button>
-                    <button type="button" data-admin-offset="1">+0.1s</button>
-                    <button type="button" data-admin-offset="10">+1s</button>
-                    <button type="button" data-admin-offset="50">+5s</button>
-                  </div>
-                  <label class="remote-range remote-opacity" for="remote-opacity">
-                    <span>信息框透明度</span>
-                    <input id="remote-opacity" type="range" min="0" max="100" step="5" value="15">
-                  </label>
-                  <label class="remote-toggle"><input id="remote-smooth" type="checkbox">稳播模式</label>
+              <div id="tv-remote-extra" class="remote-extra hidden">
+                <div class="remote-label">字幕偏移 <span id="remote-offset-value">+0.0s</span></div>
+                <div class="remote-offsets">
+                  <button type="button" data-admin-offset="-50">−5s</button>
+                  <button type="button" data-admin-offset="-10">−1s</button>
+                  <button type="button" data-admin-offset="-1">−0.1s</button>
+                  <button type="button" data-admin-offset="1">+0.1s</button>
+                  <button type="button" data-admin-offset="10">+1s</button>
+                  <button type="button" data-admin-offset="50">+5s</button>
                 </div>
-              </details>
+                <label class="remote-range remote-opacity" for="remote-opacity">
+                  <span>信息框透明度</span>
+                  <input id="remote-opacity" type="range" min="0" max="100" step="5" value="15">
+                </label>
+                <label class="remote-toggle"><input id="remote-smooth" type="checkbox">稳播模式</label>
+              </div>
               <div id="legacy-admin-controls">
                 <div class="control-row">
                   <button id="start-btn" class="btn primary">开始播放</button>
@@ -239,39 +236,35 @@
                 <option value="compact">简洁单行</option>
               </select>
             </div>
-          </div>
-          <details id="video-advanced" class="settings-advanced">
-            <summary>画质、编码与码率</summary>
-            <div class="settings-fields">
-              <div>
-                <label for="video-quality">B站清晰度</label>
-                <select id="video-quality">
-                  <option value="1080">1080p</option>
-                  <option value="720">720p</option>
-                  <option value="480">480p</option>
-                </select>
-              </div>
-              <div>
-                <label for="original-codec-mode">原片视频编码</label>
-                <select id="original-codec-mode">
-                  <option value="default">保持原编码策略</option>
-                  <option value="h264">全部使用 H.264</option>
-                  <option value="av1">全部使用 AV1</option>
-                </select>
-                <p class="settings-note">新场次默认 AV1；旧电视可选 H.264。仅影响新原片。</p>
-              </div>
-              <div>
-                <label for="max-bandwidth-mbps">播放码率预算（Mbps）</label>
-                <input id="max-bandwidth-mbps" type="number" min="1" step="0.1" value="3">
-              </div>
+            <div>
+              <label for="video-quality">B站清晰度</label>
+              <select id="video-quality">
+                <option value="1080">1080p</option>
+                <option value="720">720p</option>
+                <option value="480">480p</option>
+              </select>
             </div>
-          </details>
+            <div>
+              <label for="original-codec-mode">原片视频编码</label>
+              <select id="original-codec-mode">
+                <option value="default">保持原编码策略</option>
+                <option value="h264">全部使用 H.264</option>
+                <option value="av1">全部使用 AV1</option>
+              </select>
+              <p class="settings-note">新场次默认 AV1；旧电视可选 H.264。仅影响新原片。</p>
+            </div>
+            <div>
+              <label for="max-bandwidth-mbps">播放码率预算（Mbps）</label>
+              <input id="max-bandwidth-mbps" type="number" min="1" step="0.1" value="3">
+            </div>
+          </div>
           <label class="setting-toggle"><input id="tv-html-overlay" type="checkbox" checked><span>主屏实时字幕叠加</span></label>
           <div id="style-preview" class="style-preview classic" aria-label="字幕样式预览">
             <span>♫ 示例歌词正在演唱</span>
             <span class="style-preview-second">下一行歌词也会显示</span>
           </div>
           <button id="settings-save-btn" class="btn primary" type="button">保存设置</button>
+          <p class="settings-note">影响下一首新制作的歌曲。</p>
         </section>
         <section class="panel full-width" id="event-queue-settings-panel">
           <div class="settings-fields">
