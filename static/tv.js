@@ -350,7 +350,7 @@ async function checkPreload(){
   if(remaining<=0)return;
   const ahead=bufferedAhead(video);
   // Aggressive preloading must not starve the current 4 Mbps stream.
-  if(smoothPlayback&&preloaded&&ahead<Math.min(8,remaining))clearPreload();
+  if(preloaded&&ahead<Math.min(8,remaining))clearPreload();
   if(remaining>Math.min(smoothPlayback?120:60,video.duration/2))return;
   if(ahead<Math.min(smoothPlayback?20:10,remaining))return;
   const now=performance.now();

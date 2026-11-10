@@ -134,6 +134,22 @@ test("preload only when current song has a reserve; cancel when it runs low",asy
 });
 
 
+test("default playback cancels speculative preload when current buffer falls low",async()=>{
+  const h=tvHarness();
+  await h.ready();
+  h.evaluate("smoothPlayback=false");
+  await h.el("start").onclick();
+  h.el("video").duration=200;
+  h.el("video").currentTime=140;
+  h.el("video").bufferEnd=154;
+  await h.evaluate("checkPreload()");
+  assert.equal(h.calls.preloads,1);
+  assert.equal(h.evaluate("preloaded.id"),2);
+  h.el("video").bufferEnd=146;
+  await h.evaluate("checkPreload()");
+  assert.equal(h.evaluate("preloaded"),null);
+});
+
 test("default TV mode starts immediately without extra caching delay",async()=>{
   const h=tvHarness();
   await h.ready();
