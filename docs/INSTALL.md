@@ -39,7 +39,7 @@ VC_KTV_GPU_ALIGNMENT=0 uv run --no-sync python -m vc_ktv
 
 默认访问地址为 `http://127.0.0.1:8778/`，管理员页面为 `/admin/`。可用 `curl -fsS http://127.0.0.1:8778/api/health` 检查服务。
 
-使用管理员的「全部使用 AV1」原片编码选项时，FFmpeg 需要支持 `av1_nvenc`（GPU）或 `libsvtav1`（CPU）；没有可用 NVENC 时会使用 SVT-AV1。
+统一转码 AV1 需要 FFmpeg 支持 `av1_nvenc` 或 `libsvtav1`。
 
 ## GPU 字幕（可选）
 
