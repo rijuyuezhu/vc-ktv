@@ -495,3 +495,85 @@ def test_public_1080p_requests_80_and_falls_back_to_64(monkeypatch, tmp_path):
         == b"remux"
     )
     assert requested == [80, 64]
+
+
+def test_yt_dlp_av1_mode_prefers_codec_without_lowering_resolution(
+    monkeypatch, tmp_path
+):
+    selections = []
+
+    def run(cmd, **kwargs):
+        selections.append(cmd)
+        (tmp_path / "source.mp4").write_bytes(b"av1-source")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(autoprep.subprocess, "run", run)
+    result = autoprep.media_download(
+        "BV0000000002", 1, tmp_path, max_height=1080, prefer_av1=True
+    )
+    assert result.read_bytes() == b"av1-source"
+    assert selections[0][selections[0].index("-S") + 1] == "res,vcodec:av01"
+    assert "height<=1080" in selections[0][selections[0].index("-f") + 1]
+
+
+def test_public_api_av1_mode_prefers_native_stream(monkeypatch, tmp_path):
+    requested = []
+
+    def handle(req):
+        if req.url.path == "/x/web-interface/view":
+            return httpx.Response(
+                200, json={"code": 0, "data": {"pages": [{"cid": 42}]}}
+            )
+        if req.url.path == "/x/player/playurl":
+            assert req.url.params["qn"] == "80"
+            return httpx.Response(
+                200,
+                json={
+                    "code": 0,
+                    "data": {
+                        "dash": {
+                            "video": [
+                                {
+                                    "id": 80,
+                                    "codecs": "avc1.640032",
+                                    "baseUrl": "https://cdn.bilivideo.com/avc",
+                                },
+                                {
+                                    "id": 80,
+                                    "codecs": "av01.0.08M.08",
+                                    "baseUrl": "https://cdn.bilivideo.com/av1",
+                                },
+                            ],
+                            "audio": [
+                                {
+                                    "id": 30232,
+                                    "codecs": "mp4a.40.2",
+                                    "baseUrl": "https://cdn.bilivideo.com/aac",
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+        if req.url.host == "cdn.bilivideo.com":
+            requested.append(req.url.path)
+            return httpx.Response(200, content=b"x" * 2300)
+        raise AssertionError(str(req.url))
+
+    original = httpx.Client
+    monkeypatch.setattr(
+        bilibili_media.httpx,
+        "Client",
+        lambda **kw: original(transport=httpx.MockTransport(handle), **kw),
+    )
+
+    def remux(cmd, **kwargs):
+        Path(cmd[-1]).write_bytes(b"remux")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(bilibili_media.subprocess, "run", remux)
+    output = bilibili_media.public_media_download(
+        "BV0000000002", 1, tmp_path, max_height=1080, prefer_av1=True
+    )
+    assert output.read_bytes() == b"remux"
+    assert requested == ["/av1", "/aac"]

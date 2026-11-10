@@ -535,7 +535,6 @@ button, input, select { min-height: 44px; }
 }
 .setting-toggle input { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: var(--accent); }
 .settings-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
-.codec-note { margin: -4px 0 14px 31px; line-height: 1.5; }
 #event-settings-panel .style-preview { margin: 17px 0 21px; }
 .brand-icon { width: 18px; height: 18px; display: inline-block; vertical-align: middle; }
 .song-source-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }

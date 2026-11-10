@@ -56,7 +56,7 @@ def test_upload_quota_scan_and_file_publish_do_not_block_loop(tmp_path, monkeypa
 
     monkeypatch.setattr(store.disk_budget, "check", slow_budget_check)
     monkeypatch.setattr(
-        admin_preparation, "normalize_hevc_source", lambda path, **kw: path
+        admin_preparation, "normalize_original_codec", lambda path, **kw: path
     )
     app.state.probe = lambda path: 60
 

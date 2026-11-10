@@ -10,7 +10,10 @@ from pathlib import Path
 from vc_ktv.application.errors import bail
 from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
-from vc_ktv.processing.media_preparation import normalize_hevc_source
+from vc_ktv.processing.media_preparation import (
+    normalize_original_codec,
+    stream_video_kbps,
+)
 from vc_ktv.rendering.karaoke import write_ass
 from vc_ktv.rendering.textgrid_import import convert_textgrid
 
@@ -149,8 +152,11 @@ class AdminPreparationService:
                 bail(507, str(error))
             if not size:
                 bail(400, "视频为空")
-            target = normalize_hevc_source(
-                target, force_h264=store.settings()["force_h264_originals"]
+            settings = store.settings()
+            target = normalize_original_codec(
+                target,
+                mode=settings["original_codec_mode"],
+                max_video_kbps=stream_video_kbps(settings["max_bandwidth_mbps"]),
             )
             store.disk_budget.check()
             try:

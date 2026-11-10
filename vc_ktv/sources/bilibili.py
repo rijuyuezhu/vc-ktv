@@ -35,6 +35,7 @@ class BilibiliSource:
                 song["page"],
                 directory,
                 max_height=song["video_quality"],
+                **({"prefer_av1": True} if tools.prefer_av1 else {}),
             )
         return tools.video(song["bvid"], song["page"], directory)
 

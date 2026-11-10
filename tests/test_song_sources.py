@@ -80,6 +80,22 @@ def test_source_download_injection_preserves_quality_and_cookies(tmp_path):
     get_source("bilibili").download(bvid, tmp_path, context)
     assert calls == [("video", ("BV0000000001", 2, tmp_path), {})]
     calls.clear()
+    context = DownloadTools(
+        video=video,
+        music=music,
+        cookies=cookie,
+        video_quality_keyword=True,
+        prefer_av1=True,
+    )
+    get_source("bilibili").download(bvid, tmp_path, context)
+    assert calls == [
+        (
+            "video",
+            ("BV0000000001", 2, tmp_path),
+            {"max_height": 480, "prefer_av1": True},
+        )
+    ]
+    calls.clear()
     netease = {"source_id": "2613869782", "cover": "cover", "duration": 180}
     assert (
         get_source("netease").download(netease, tmp_path, context).name == "netease.mp4"
