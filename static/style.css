@@ -529,6 +529,10 @@ button, input, select { min-height: 44px; }
 }
 #event-queue-settings-panel .settings-fields { grid-template-columns: 1fr; max-width: 440px; }
 #event-settings-panel .settings-fields > div { min-width: 0; }
+.settings-advanced { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 13px 0; margin-bottom: 12px; }
+.settings-advanced > summary { cursor: pointer; color: var(--accent-ink); font-size: 14px; font-weight: 650; }
+.settings-advanced[open] > summary { margin-bottom: 16px; }
+#event-settings-panel .settings-advanced .settings-fields { margin-bottom: 0; }
 #event-settings-panel label, #event-queue-settings-panel label { margin: 0 0 7px; }
 .setting-toggle { display: flex !important; align-items: center; gap: 13px;
   padding: 14px 0; border-top: 1px solid var(--line); font-size: 14px; font-weight: 500 !important; cursor: pointer;
@@ -608,7 +612,9 @@ button, input, select { min-height: 44px; }
 .remote-range { display: flex !important; align-items: center; gap: 11px; margin: 0 !important; }
 .remote-range img { width: 18px; height: 18px; }
 .remote-range input[type=range] { flex: 1; min-height: 28px; width: auto; padding: 0; accent-color: var(--accent); }
-.remote-extra { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 13px; }
+.remote-extra { border-top: 1px solid var(--line); padding-top: 13px; }
+.remote-extra > summary { cursor: pointer; font-size: 13px; font-weight: 650; color: var(--accent-ink); }
+.remote-extra-body { display: flex; flex-direction: column; gap: 12px; padding-top: 13px; }
 .remote-label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .remote-offsets { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
 .remote-offsets button { min-height: 42px; font-size: 12px; border-radius: 7px; }
