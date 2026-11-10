@@ -23,9 +23,15 @@ dependencies = [
 dev = [
     "pre-commit>=4,<5",
     "pre-commit-hooks>=6,<7",
+    "pyright==1.1.414",
     "pytest>=8,<10",
     "ruff>=0.14,<1",
 ]
+
+[tool.pyright]
+include = ["vc_ktv"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

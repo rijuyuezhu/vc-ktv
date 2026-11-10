@@ -21,7 +21,7 @@ DEADLINE = 16.0
 
 
 def _candidate(
-    title: str, source: str, raw: str, url: str, artist: str = ""
+    title: str, source: str, raw: str | None, url: str, artist: str = ""
 ) -> dict | None:
     """Only validate that a source supplied usable lyric lines."""
     if not title.strip() or not isinstance(raw, str):

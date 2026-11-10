@@ -66,7 +66,7 @@ def make_karaoke_video(
     style = style or Style(font="Noto Sans CJK SC", mode="double", auto_complete=True)
     render_options = render_options or RenderOptions()
     emit = progress or (lambda message: None)
-    status = {"status": "running", "stage": "extract"}
+    status: dict[str, object] = {"status": "running", "stage": "extract"}
     metadata_path = work_dir / "run.json"
 
     def stage(name: str, message: str):

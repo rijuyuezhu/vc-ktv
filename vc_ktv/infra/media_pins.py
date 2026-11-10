@@ -45,6 +45,8 @@ class MediaPins:
             os.close(gate)
 
     def _recover(self):
+        if fcntl is None:  # Unsupported on Windows.
+            return
         for marker in self.root.glob(".vc-ktv-pin-owner-*.lock"):
             match = _OWNER.fullmatch(marker.name)
             if not match or match[1] == self.token:

@@ -292,6 +292,7 @@ class Events:
 
     def _finish_close(self):
         current = self.metadata()
+        assert self.active_id is not None and current is not None
         # Commit before changing any on-disk event state, so a failed DB
         # commit cannot leave an active session marked as closed.
         if self.current_store:

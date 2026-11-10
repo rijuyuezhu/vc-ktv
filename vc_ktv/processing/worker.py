@@ -10,6 +10,7 @@ import sqlite3
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from vc_ktv.infra.disk_budget import (
@@ -102,7 +103,7 @@ class AutoPrep:
         self.probe = probe
         self.download = download
         self.netease_download = download_netease_video
-        self.netease_cookies = lambda: None
+        self.netease_cookies: Callable[[], dict[str, str] | None] = lambda: None
         self.enhance = enhance
         self.stop_signal = threading.Event()
         self.worker: threading.Thread | None = None

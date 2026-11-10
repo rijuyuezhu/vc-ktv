@@ -6,6 +6,7 @@ TIFA can omit zero-width phones, and an entire word disappears from its texts
 Manual TextGrid import remains strict and unaffected.
 """
 
+from collections.abc import Sequence
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from vc_ktv.rendering.textgrid_import import chars
 
 
 def reconcile_lyrics(
-    grid_path: Path, pronounced_lines: list[str], output: Path
+    grid_path: Path, pronounced_lines: Sequence[str], output: Path
 ) -> dict:
     """Write a label-only repaired TextGrid preserving model acoustic bounds.
 
@@ -35,7 +36,7 @@ def reconcile_lyrics(
     token_for_actual = []
     for i, entry in enumerate(timed):
         token_for_actual.extend([i] * len(chars(str(entry.mark))[0]))
-    owners = [None] * len(expected)
+    owners: list[int | None] = [None] * len(expected)
     differences = []
     for tag, a, b, c, d in SequenceMatcher(
         None, expected, actual, autojunk=False
@@ -97,6 +98,8 @@ def reconcile_lyrics(
 
     repaired = [""] * len(timed)
     for char, owner in zip(expected, owners, strict=False):
+        if owner is None:
+            raise ValueError("TIFA 无法恢复缺失文字的时间戳")
         repaired[owner] += char
     changed = 0
     for entry, label in zip(timed, repaired, strict=False):

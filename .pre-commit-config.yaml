@@ -59,6 +59,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^(static/.*\.js|tests/.*\.cjs|eslint\.config\.mjs|package(-lock)?\.json)$
+      - id: pyright
+        name: Pyright (owned Python, Standard)
+        entry: uv run --no-sync pyright
+        language: system
+        pass_filenames: false
+        files: ^(vc_ktv/.*\.py|pyproject\.toml)$
       - id: ruff-format
         name: Ruff format
         entry: uv run --no-sync ruff format
