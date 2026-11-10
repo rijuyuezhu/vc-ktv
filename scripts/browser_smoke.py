@@ -352,6 +352,48 @@ def check_ui(
     page.locator("#account-menu summary").click()
     assert page.locator(".account-dropdown").inner_text().strip() == "退出登录"
     page.locator("#account-menu summary").click()
+    assert page.locator("#admin-queue-panel").is_visible()
+    assert page.locator("#admin-current").is_visible()
+    assert page.locator("#admin-current .current-label").text_content() == "正在播放"
+    assert page.locator("#admin-queue-panel h3").all_text_contents() == [
+        "🎵 待播放",
+        "⏳ 准备中",
+    ]
+    admin_state = admin.request.get(f"{base}/api/admin/state").json()
+    assert (
+        page.locator("#admin-queue-count").text_content()
+        == f"{len(admin_state['queue'])} 首可播"
+    )
+    assert page.locator("#admin-queue-ready .song-row").count() == len(
+        admin_state["queue"]
+    )
+    assert page.locator("#admin-queue-waiting .song-row").count() == len(
+        admin_state["waiting"]
+    )
+    assert page.locator("#admin-current .song-row").count() == int(
+        admin_state["current"] is not None
+    )
+    assert page.locator("#manage-status").count() == 0
+    page.locator('#admin-queue-panel a[href="#played"]').click()
+    page.locator("#page-played").wait_for(state="visible")
+    history = admin.request.get(f"{base}/api/songs/history?admin_view=true")
+    assert history.status == 200
+    assert page.locator("#page-played .song-row").count() == len(
+        history.json()["songs"]
+    )
+    page.locator("#page-played .song-row").first.click()
+    page.locator("#page-song").wait_for(state="visible")
+    assert page.locator("#subpage-back").get_attribute("href") == "#played"
+    page.locator("#subpage-back").click()
+    page.locator("#page-played").wait_for(state="visible")
+    page.locator("#subpage-back").click()
+    page.locator("#admin-queue-panel").wait_for(state="visible")
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 780})
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+        assert page.locator('#admin-queue-panel a[href="#played"]').is_visible()
+    page.set_viewport_size({"width": 1280, "height": 720})
+    print("PASS administrator queue parity, song history, details and mobile layout")
     page.locator("#admin-settings-link").click()
     page.locator('a[href="#stats"]').click()
     page.wait_for_function(
@@ -501,6 +543,13 @@ def check_ui(
     )
     assert response.status == 200, response.text()
     assert response.json()["bytes"] == video.stat().st_size
+    admin_page = admin.pages[0]
+    admin_page.wait_for_function(
+        'document.querySelectorAll("#admin-queue-ready .song-row").length === 1',
+        timeout=10000,
+    )
+    assert admin_page.locator("#admin-queue-ready .song-row").first.is_visible()
+    assert admin_page.locator("#admin-queue-waiting .song-row").count() == 0
     tv_link = admin.request.get(base + "/api/admin/tv-link")
     assert tv_link.status == 200
     print("PASS administrator login and real synthetic MP4 upload")
@@ -540,6 +589,14 @@ def check_ui(
         "(v) => ({url:v.currentSrc,width:v.videoWidth,height:v.videoHeight})"
     )
     assert (media["width"], media["height"]) == (320, 180)
+    admin_page.wait_for_function(
+        'document.querySelectorAll("#admin-current .song-row").length === 1',
+        timeout=6000,
+    )
+    assert admin_page.locator("#admin-current .song-row").first.is_visible()
+    assert (
+        admin_page.locator("#admin-current .current-label").text_content() == "正在播放"
+    )
     partial = tv.request.get(media["url"], headers={"Range": "bytes=0-1023"})
     assert partial.status == 206 and len(partial.body()) == 1024
 

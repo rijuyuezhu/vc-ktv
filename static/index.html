@@ -197,10 +197,13 @@
             </aside>
           </div>
         </section>
-        <section class="panel">
-          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">☷</span> 队列管理</h2></div>
-
-          <div id="manage-status" class="song-list"></div>
+        <section class="panel queue-panel" id="admin-queue-panel">
+          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">☷</span> 队列管理</h2><a href="#played" class="mini">歌曲记录 ›</a><span id="admin-queue-count" class="small-tag">0 首可播</span></div>
+          <div id="admin-current" class="current-card"><span class="current-label">正在播放</span><p>暂无正在播放的歌曲</p></div>
+          <h3><span aria-hidden="true">🎵</span> 待播放</h3>
+          <div id="admin-queue-ready" class="song-list"><div class="empty">暂无歌曲</div></div>
+          <h3><span aria-hidden="true">⏳</span> 准备中</h3>
+          <div id="admin-queue-waiting" class="song-list"><div class="empty">暂无歌曲</div></div>
         </section>
         <section class="panel full-width" id="event-settings-panel">
           <div class="settings-fields">

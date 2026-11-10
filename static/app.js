@@ -77,24 +77,33 @@ function compactSong(song, order) {
   if (["下载失败", "字幕失败"].includes(status.textContent)) status.classList.add("failed");
   appendText(row, "span", "›", "song-chevron").setAttribute("aria-hidden", "true");
   row.onclick = () => {
+    const fromPlayed = currentRoute() === "played";
     window.location.hash = "song-" + song.id;
+    window.history.replaceState({ ...window.history.state, fromPlayed }, "");
   };
   return row;
 }
-function fillList(id, songs, mode = "row") {
-  const key = JSON.stringify([mode, songs]);
+function fillList(id, songs) {
+  const key = JSON.stringify(songs);
   if (listKeys.get(id) === key) return;
   listKeys.set(id, key);
   const target = $(id);
   target.replaceChildren();
   if (!songs.length) {
-    appendText(target, "div", mode === "admin" ? "当前没有待处理的歌曲" : "暂无歌曲", "empty");
+    appendText(target, "div", "暂无歌曲", "empty");
     return;
   }
   songs.forEach((s, i) => target.append(compactSong(s, i + 1)));
 }
+function renderCurrent(id, song) {
+  const target = $(id);
+  target.replaceChildren();
+  appendText(target, "span", "正在播放", "current-label");
+  if (song) target.append(compactSong(song, "▶"));
+  else appendText(target, "p", "暂无正在播放的歌曲");
+}
 async function refreshSongHistory() {
-  const data = await api("/api/songs/history");
+  const data = await api("/api/songs/history" + (isAdminPath() ? "?admin_view=true" : ""));
   const key = JSON.stringify(data);
   if (playedKey === key) return;
   playedKey = key;
@@ -432,10 +441,7 @@ async function refresh() {
           $("queue-count").textContent = state.queue.length + " 首可播";
           fillList("queue-ready", state.queue);
           fillList("queue-waiting", state.waiting);
-          const current = $("current-guest");
-          current.replaceChildren();
-          if (state.current) current.append(compactSong(state.current, "▶"));
-          else appendText(current, "p", "暂无正在播放的歌曲");
+          renderCurrent("current-guest", state.current);
         }
       } else {
         guestStateKey = null;
@@ -478,6 +484,7 @@ async function refresh() {
         const key = JSON.stringify([
           adm.waiting,
           adm.queue,
+          adm.current,
           adm.guests,
           activeState,
           adm.playback_mode
@@ -486,8 +493,10 @@ async function refresh() {
         await adminPlayback.syncFromAdminState(adm, changed);
         if (changed) {
           adminStateKey = key;
-          const pending = [...adm.queue, ...adm.waiting];
-          fillList("manage-status", pending, "status");
+          $("admin-queue-count").textContent = adm.queue.length + " 首可播";
+          renderCurrent("admin-current", adm.current);
+          fillList("admin-queue-ready", adm.queue);
+          fillList("admin-queue-waiting", adm.waiting);
           // All song operations live in the full-page song detail.
 
           const stats = $("stats");
