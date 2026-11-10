@@ -64,14 +64,6 @@ textarea { resize: vertical; }
 .subtle:hover { color: var(--ink); }
 .wide { width: 100%; margin-top: 19px; }
 .hidden { display: none !important; }
-.preview { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
-.song-preview { display: flex; gap: 14px; align-items: flex-start; }
-.song-preview img { width: 126px; aspect-ratio: 16/10; object-fit: cover; border-radius: 7px; background: var(--surface-2); }
-.preview-info { display: flex; flex-direction: column; gap: 3px; }
-.preview-info strong { line-height: 1.35; }
-.preview-info span { color: var(--muted); font-size: 12px; }
-.preview-actions { display: flex; align-items: center; gap: 14px; margin-top: 14px; flex-wrap: wrap; }
-#embed-container iframe { width: 100%; aspect-ratio: 16/9; margin-top: 15px; border: 0; border-radius: 7px; background: #111827; }
 .current-card { min-height: 89px; margin-bottom: 20px; padding: 15px; border: 1px solid #d4d7ff; border-radius: 9px; background: var(--accent-soft); }
 .current-label { color: var(--accent-ink); font-size: 12px; font-weight: 750; letter-spacing: .3px; }
 .current-card p { margin: 6px 0 0; color: #555c89; }
@@ -111,23 +103,43 @@ textarea { resize: vertical; }
 dialog { width: 100%; max-width: min(620px,95vw); padding: 22px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--ink); box-shadow: 0 18px 60px #17191d30; }
 dialog::backdrop { background: #17191d99; }
 footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: center; }
-.advanced { margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--line); }
-.advanced summary { margin-bottom: 13px; color: var(--accent-ink); font-size: 12px; font-weight: 650; cursor: pointer; }
-.advanced[open] summary { color: var(--ink); }
-.advanced .input-row { margin: 12px 0; }
 .guest-lyrics-dialog { max-width: min(720px,96vw); max-height: 88vh; overflow-y: auto; }
 .netease-review-dialog { width: min(720px,96vw); max-height: 88vh; overflow-y: auto; }
 .netease-review-lines { display: flex; flex-direction: column; gap: 5px; max-height: 32vh; overflow-y: auto; margin: 8px 0 16px; padding: 2px; }
 .netease-review-line { display: flex; align-items: start; gap: 10px; text-align: left; width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--muted); font: inherit; font-size: 15px; white-space: pre-wrap; overflow-wrap: anywhere; cursor: pointer; }
 .netease-review-line.kept { background: #fff0a8; color: #493c00; border-color: #dfbb43; }
-.lyric-options { display: flex; flex-direction: column; gap: 12px; margin: 18px 0; }
-.lyric-option { display: flex; flex-direction: column; gap: 9px; padding: 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
-.lyric-option-header { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-.lyric-option-header strong { min-width: 120px; flex: 1; overflow-wrap: anywhere; }
-.lyric-option-header span { color: var(--muted); font-size: 13px; }
-.lyric-option summary { color: var(--accent-ink); font-size: 14px; cursor: pointer; }
-.lyric-option pre { overflow-y: auto; max-height: 250px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: #3f4651; font: 12px/1.7 "Noto Sans CJK SC", sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
-.lyric-option .btn { align-self: flex-start; }
+.choice-card { border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface-2); color: var(--ink); text-align: left; }
+.choice-card:hover { border-color: var(--accent); }
+.choice-card[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.lyric-options { display: flex; flex-direction: column; gap: 9px; margin: 12px 0; }
+.lyric-option { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 12px 14px; }
+.lyric-option-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lyric-option-header strong { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 16px; }
+.lyric-option-header span, .lyric-artist { color: var(--muted); font-size: 12px; }
+.lyric-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: pre-line; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.guest-lyrics-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(720px,96vw); max-height: 88dvh; }
+.guest-lyrics-head { flex: 0 0 auto; flex-wrap: wrap; gap: 8px; }
+.guest-lyrics-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.guest-lyrics-actions .btn { min-height: 36px; padding: 7px 10px; font-size: 12px; }
+.guest-lyrics-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; }
+#guest-lyrics-song { font-weight: 650; overflow-wrap: anywhere; }
+.guest-lyrics-search { margin: 10px 0; }
+.guest-lyrics-search .btn { flex: 0 0 46px; font-size: 23px; line-height: 1; }
+#guest-lyrics-status:empty { display: none; }
+.guest-lyrics-extras { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+.guest-lyrics-extras .btn { min-height: 36px; padding: 7px 10px; font-size: 13px; }
+.guest-lyrics-extras > label { display: inline-flex; align-items: center; justify-content: center; margin: 0; color: var(--muted); }
+.visually-hidden { position: absolute; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.guest-lyrics-footer { flex: 0 0 auto; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); background: var(--surface); }
+.guest-lyrics-footer .btn { width: 100%; }
+.guest-lyrics-footer .btn:disabled { cursor: not-allowed; }
+.bilibili-preview-dialog { width: min(760px,96vw); max-height: 88dvh; overflow-y: auto; }
+.bilibili-preview-dialog .section-head { margin-bottom: 12px; }
+#bilibili-preview-song { font-weight: 600; overflow-wrap: anywhere; }
+#bilibili-preview-player { display: block; width: 100%; aspect-ratio: 16/9; border: 0; border-radius: 8px; background: #111827; }
+#bilibili-preview-official { display: inline-block; margin-top: 8px; font-size: 13px; }
+.bilibili-preview-parts { display: grid; gap: 7px; max-height: 26dvh; margin-top: 14px; overflow-y: auto; }
+.bili-part { min-height: 46px; padding: 10px 12px; overflow-wrap: anywhere; }
 .song-item .lyric-pick { max-width: 98px; white-space: normal; }
 :where(a,button,input,select,textarea,summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 760px) {
@@ -139,7 +151,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
   .tabs a { padding: 8px 10px; font-size: 12px; }
   .panel { padding: 17px; }
   .hero { margin: 13px 4px 20px; }
-  .song-preview img { width: 98px; }
   .song-actions { flex-direction: column; }
   .control-row .btn { padding: 10px; }
   .full-width { grid-column: auto; }
@@ -174,7 +185,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .fold-panel[open] > summary { margin-bottom: 15px; }
 #guest-profile { padding-block: 12px; }
 #guest-access { max-width: 760px; }
-#request-panel > .advanced { margin-top: 14px; }
 .status { white-space: normal; }
 .archive-list { padding-top: 8px; }
 @media (max-width: 760px) {
@@ -310,15 +320,13 @@ button, input, select { min-height: 44px; }
 .alignment-card .alignment-note { color: var(--muted); font-size: 13px; }
 .alignment-card .choice-action { width: 100%; margin-top: auto; white-space: normal; }
 .offset-details { margin-bottom: 4px; font-size: 13px; }
-.offset-details summary, .upload-help summary { cursor: pointer; color: var(--accent-ink); }
+.offset-details summary { cursor: pointer; color: var(--accent-ink); }
 .offset-details label { margin-top: 8px; }
 .offset-details input { margin-top: 3px; }
-.upload-help { margin-top: 8px; font-size: 13px; }
-.upload-help p { margin: 6px 0 0; }
 .guest-lyrics-dialog .section-head { flex-wrap: wrap; }
 /* Give every mobile dialog most of the visible viewport, with its own scroll. */
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
-  dialog, .guest-lyrics-dialog, .netease-review-dialog {
+  dialog, .guest-lyrics-dialog, .netease-review-dialog, .bilibili-preview-dialog {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
     height: 94vh;
@@ -329,6 +337,8 @@ button, input, select { min-height: 44px; }
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  .bilibili-preview-dialog { height: auto; max-height: 94dvh; }
+  .guest-lyrics-dialog[open] { overflow: hidden; }
   /* Fixed dialog height is useful only when its active section fills it. */
   .netease-review-dialog[open] { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .netease-review-dialog > .section-head { flex: 0 0 auto; }
@@ -348,7 +358,6 @@ button, input, select { min-height: 44px; }
   .alignment-card .choice-action { padding: 9px 6px; font-size: 13px; }
   .offset-details { font-size: 12px; }
   .offset-details label { font-size: 12px; }
-  .lyric-option .btn { width: 100%; }
   .song-item { row-gap: 8px; }
   .song-item .mini { min-height: 40px; }
   .song-actions { flex-direction: row; }

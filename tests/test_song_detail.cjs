@@ -237,6 +237,27 @@ async function harness(admin = false) {
   };
 }
 
+test("Bilibili lyric re-selection previews its original P, NetEase has no Bilibili preview", async () => {
+  const h = await harness();
+  try {
+    h.state.song = baseSong({ page: 2 });
+    await h.refreshSongDetail();
+    await button(h.byId("page-song"), "更换歌词").onclick();
+    assert.deepEqual(h.opened[0][3], {
+      bvid: "BV12xxxyyyy",
+      page: 2,
+      title: "演唱歌曲"
+    });
+    h.state.song = baseSong({ source_type: "netease", bvid: "", page: 1 });
+    h.invalidateSongDetail();
+    await h.refreshSongDetail();
+    await button(h.byId("page-song"), "更换歌词").onclick();
+    assert.equal(h.opened[1][3], null);
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("guest song detail keeps source links, download actions, lyric selection and cancellation", async () => {
   const h = await harness();
   try {
@@ -251,7 +272,18 @@ test("guest song detail keeps source links, download actions, lyric selection an
     await button(page, "复制 BV").onclick();
     assert.deepEqual(h.copied, ["BV12xxxyyyy"]);
     await button(page, "更换歌词").onclick();
-    assert.deepEqual(h.opened, [[17, "演唱歌曲", "演唱歌曲"]]);
+    assert.deepEqual(h.opened, [
+      [
+        17,
+        "演唱歌曲",
+        "演唱歌曲",
+        {
+          bvid: "BV12xxxyyyy",
+          page: 1,
+          title: "演唱歌曲"
+        }
+      ]
+    ]);
     await button(page, "取消点歌").onclick();
     assert.deepEqual(h.cancelled, [17]);
     assert.equal(

@@ -41,6 +41,14 @@ def serve() -> None:
             "uploader": "Offline Fixture",
             "cover": "",
             "duration": 8,
+            "pages": (
+                [
+                    {"page": 1, "part": "日语版《恋の魔法ポーション》"},
+                    {"page": 2, "part": "中文版《恋爱色魔法》"},
+                ]
+                if bvid == "BV1pX4y1a7Cd"
+                else [{"page": 1, "part": "Synthetic Browser Song"}]
+            ),
         }
 
     app.state.lookup = fixture_lookup
@@ -159,7 +167,16 @@ def check_ui(
                     "unfiltered_ticket": "test-original-ticket",
                     "timed_lrc": "[00:00.00]第一行\n[00:01.00]第二行",
                     "timing_ticket": "test-timing-ticket",
-                }
+                },
+                {
+                    "source": "网易云音乐",
+                    "url": "synthetic://alternate-lyrics",
+                    "title": "Synthetic Alternate Lyrics",
+                    "text": "第一行\n第二行\n第三行\n第四行\n第五行\n第六行",
+                    "ticket": "test-alternate-ticket",
+                    "timed_lrc": "[00:00.00]第一行\n[00:01.00]第二行",
+                    "timing_ticket": "test-alternate-timing",
+                },
             ]
         route.fulfill(
             status=200,
@@ -168,6 +185,15 @@ def check_ui(
         )
 
     page.route("**/api/songs/*/lyrics/candidates*", lyric_candidates)
+    # Isolate iframe playback from the third-party Bilibili network.
+    page.route(
+        "https://player.bilibili.com/**",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="text/html",
+            body="<html><body>Preview fixture</body></html>",
+        ),
+    )
     page.goto(base, wait_until="domcontentloaded")
     page.locator("#join-code").fill(code)
     page.locator("#join-btn").click()
@@ -205,13 +231,105 @@ def check_ui(
     assert result.text_content() == "Synthetic NetEase Song"
     page.locator("#source-tab-bilibili").click()
     print("PASS source switching and NetEase search results")
+
+    # A real two-P BVID is used with offline metadata; navigating Back creates
+    # no order, and a ?p=2 link is retained through final submission.
+    page.locator("#bvid").fill("BV1pX4y1a7Cd")
+    page.locator("#quick-submit-btn").click()
+    page.locator("#bilibili-preview-dialog").wait_for(state="visible")
+    assert page.locator(".bili-part").count() == 2
+    assert "page=1" in page.locator("#bilibili-preview-player").get_attribute("src")
+    page.locator('.bili-part[data-page="2"]').click()
+    assert "page=2" in page.locator("#bilibili-preview-player").get_attribute("src")
+    assert (
+        page.locator('.bili-part[data-page="2"]').get_attribute("aria-pressed")
+        == "true"
+    )
+    page.locator("#bilibili-preview-back").click()
+    page.locator("#bilibili-preview-dialog").wait_for(state="hidden")
+    assert not page.locator("#bilibili-preview-player").get_attribute("src")
+    assert guest.request.get(f"{base}/api/state").json()["waiting"] == []
+
+    page.locator("#bvid").fill("https://www.bilibili.com/video/BV1pX4y1a7Cd/?p=2")
+    page.locator("#quick-submit-btn").click()
+    page.locator("#bilibili-preview-dialog").wait_for(state="visible")
+    assert (
+        page.locator('.bili-part[data-page="2"]').get_attribute("aria-pressed")
+        == "true"
+    )
+    page.locator("#bilibili-preview-confirm").click()
+    page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    multi = guest.request.get(f"{base}/api/state").json()["waiting"]
+    assert (
+        len(multi) == 1 and multi[0]["bvid"] == "BV1pX4y1a7Cd" and multi[0]["page"] == 2
+    )
+    assert not page.locator("#bilibili-preview-player").get_attribute("src")
+    page.locator("#guest-lyrics-preview").click()
+    page.locator("#bilibili-preview-dialog").wait_for(state="visible")
+    assert "page=2" in page.locator("#bilibili-preview-player").get_attribute("src")
+    assert page.locator("#bilibili-preview-confirm").is_hidden()
+    page.locator("#bilibili-preview-back").click()
+    assert page.locator("#guest-lyrics-dialog").is_visible()
+
+    # Submit a fast provider-timed selection through the new single-choice footer.
+    # Synthetic lyric tickets are intentionally fulfilled by the fixture route.
+    selected_lyrics = []
+
+    def accept_lyric_selection(route):
+        selected_lyrics.append(route.request.post_data_json)
+        route.fulfill(status=200, content_type="application/json", body="{}")
+
+    page.route("**/api/songs/*/lyrics/select", accept_lyric_selection)
+    page.locator(".lyric-option").first.wait_for(state="visible")
+    page.locator(".lyric-option").first.click()
+    page.locator("#guest-lyrics-select").click()
+    page.locator("#netease-review-dialog").wait_for(state="visible")
+    page.locator("#netease-alignment-choice .netease-accordion-toggle").click()
+    page.locator("#netease-review-timed").click()
+    page.locator("#netease-review-dialog").wait_for(state="hidden")
+    assert len(selected_lyrics) == 1
+    assert selected_lyrics[0]["timing_mode"] == "provider"
+    assert selected_lyrics[0]["source"] == "网易云音乐"
+    assert guest.request.post(f"{base}/api/songs/{multi[0]['id']}/cancel").status == 200
+    print("PASS two-P preview, ?p=2 submit, lyric preview and timed selection")
+
     page.locator("#bvid").fill("BV0000000001")
     page.locator("#quick-submit-btn").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
-    page.get_by_role("button", name="逐行校正并使用").click()
+    assert not page.locator("#bilibili-preview-dialog").is_visible()
+    assert page.locator("#guest-lyrics-select").is_disabled()
+    page.locator(".lyric-option").nth(1).wait_for(state="visible")
+    first, second = (
+        page.locator(".lyric-option").nth(0),
+        page.locator(".lyric-option").nth(1),
+    )
+    first.click()
+    assert first.get_attribute("aria-pressed") == "true"
+    second.click()
+    assert first.get_attribute("aria-pressed") == "false"
+    assert second.get_attribute("aria-pressed") == "true"
+    assert page.locator("#guest-lyrics-select").is_enabled()
+    assert page.locator(".lyric-option button").count() == 0
+    excerpt = second.locator(".lyric-excerpt")
+    assert excerpt.evaluate("el => getComputedStyle(el).webkitLineClamp") == "2"
+    assert excerpt.evaluate(
+        "el => parseFloat(getComputedStyle(el).fontSize)"
+    ) < second.locator("strong").evaluate(
+        "el => parseFloat(getComputedStyle(el).fontSize)"
+    )
+    assert excerpt.evaluate(
+        "el => el.getBoundingClientRect().height <= 2 * parseFloat(getComputedStyle(el).lineHeight) + 1"
+    )
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 780})
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+        assert page.locator("#guest-lyrics-select").is_visible()
+        assert page.locator("#guest-lyrics-select").bounding_box()["y"] < 780
+    page.locator("#guest-lyrics-select").click()
     page.locator("#netease-review-dialog").wait_for(state="visible")
     page.locator("#netease-review-back").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    assert second.get_attribute("aria-pressed") == "true"
     page.locator("#guest-lyrics-skip").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="hidden")
     state = guest.request.get(f"{base}/api/state")

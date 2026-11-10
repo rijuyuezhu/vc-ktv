@@ -60,11 +60,40 @@ async function harness() {
     return nodes.get(id);
   };
   let rejectOrder = false;
+  let pageCount = 1;
+  const choices = [];
+  let previewClosed = 0;
+  const videoPreview = {
+    choose(info, page, submit) {
+      choices.push({ info, page, submit });
+    },
+    close() {
+      previewClosed++;
+    }
+  };
   global.document = { getElementById: byId, createElement: element };
   global.setTimeout = () => 1;
   global.clearTimeout = () => {};
   global.fetch = async (uri, opts = {}) => {
     calls.push({ uri, opts });
+    if (uri.startsWith("/api/preview?")) {
+      const raw = new URLSearchParams(uri.split("?")[1]).get("bvid");
+      const bvid = raw.match(/BV[0-9A-Za-z]{10}/)?.[0] || raw;
+      return {
+        ok: true,
+        json: async () => ({
+          bvid,
+          title: "B Track",
+          page: 1,
+          pages: Array.from({ length: pageCount }, (_, i) => ({
+            page: i + 1,
+            part: `Part ${i + 1}`
+          }))
+        })
+      };
+    }
+    if (uri === "/api/songs" && rejectOrder)
+      return { ok: false, status: 409, json: async () => ({ detail: "submission failed" }) };
     if (uri === "/api/netease/songs") {
       if (rejectOrder)
         return { ok: false, status: 409, json: async () => ({ detail: "submission failed" }) };
@@ -90,12 +119,20 @@ async function harness() {
     refresh: async () => {
       refreshes++;
     },
-    openLyricPicker: async (...args) => pickers.push(args)
+    openLyricPicker: async (...args) => pickers.push(args),
+    videoPreview
   });
   return {
     byId,
     calls,
     pickers,
+    choices,
+    get previewClosed() {
+      return previewClosed;
+    },
+    set pageCount(value) {
+      pageCount = value;
+    },
     get refreshes() {
       return refreshes;
     },
@@ -146,17 +183,66 @@ test("NetEase rejected order preserves search input and results to retry", async
     h.cleanup();
   }
 });
-test("Bilibili both quick and preview submissions clear their own input", async () => {
+test("Bilibili single-P request goes straight to lyric picker", async () => {
   const h = await harness();
   try {
     h.byId("bvid").value = "BV1234567890";
     await h.byId("quick-submit-btn").onclick();
     assert.equal(h.byId("bvid").value, "");
-    h.byId("bvid").value = "BV9876543210";
-    await h.byId("preview-btn").onclick();
-    await h.byId("submit-btn").onclick();
+    assert.equal(h.choices.length, 0);
+    assert.equal(h.refreshes, 1);
+    assert.equal(h.calls.filter(({ uri }) => uri === "/api/songs").length, 1);
+    assert.deepEqual(h.pickers, [
+      [
+        5,
+        "B Track",
+        "B Track",
+        {
+          bvid: "BV1234567890",
+          page: 1,
+          title: "B Track"
+        }
+      ]
+    ]);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("Bilibili multi-P waits for selection and respects the link's ?p", async () => {
+  const h = await harness();
+  try {
+    h.pageCount = 2;
+    h.byId("bvid").value = "https://www.bilibili.com/video/BV1pX4y1a7Cd/?p=2";
+    await h.byId("quick-submit-btn").onclick();
+    assert.equal(h.choices.length, 1);
+    assert.equal(h.choices[0].page, 2);
+    assert.equal(h.choices[0].info.bvid, "BV1pX4y1a7Cd");
+    assert.equal(h.calls.filter(({ uri }) => uri === "/api/songs").length, 0);
+    assert.equal(h.byId("bvid").value, "https://www.bilibili.com/video/BV1pX4y1a7Cd/?p=2");
+    await h.choices[0].submit(2);
+    const submitted = h.calls.filter(({ uri }) => uri === "/api/songs");
+    assert.equal(submitted.length, 1);
+    assert.deepEqual(JSON.parse(submitted[0].opts.body), { bvid: "BV1pX4y1a7Cd", page: 2 });
     assert.equal(h.byId("bvid").value, "");
-    assert.equal(h.refreshes, 2);
+    assert.equal(h.previewClosed, 1);
+    assert.equal(h.pickers[0][3].page, 2);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("Bilibili failed multi-P order retains the input and selection", async () => {
+  const h = await harness();
+  try {
+    h.pageCount = 2;
+    h.byId("bvid").value = "BV1pX4y1a7Cd";
+    await h.byId("quick-submit-btn").onclick();
+    h.rejectOrder = true;
+    await assert.rejects(h.choices[0].submit(2), /submission failed/);
+    assert.equal(h.byId("bvid").value, "BV1pX4y1a7Cd");
+    assert.equal(h.previewClosed, 0);
+    assert.equal(h.pickers.length, 0);
   } finally {
     h.cleanup();
   }
