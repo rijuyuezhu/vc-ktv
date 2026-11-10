@@ -275,6 +275,21 @@ def check_ui(
     assert quality.input_value() == "1080"
     assert codec.input_value() == "av1"
 
+    # Keep later synthetic source upload byte-identical: AV1 was only a
+    # settings persistence test, not an encoding benchmark.
+    quality.select_option("720")
+    codec.select_option("default")
+    with page.expect_response(
+        lambda response: (
+            "/api/admin/settings" in response.url and response.request.method == "PUT"
+        )
+    ) as restored:
+        page.locator("#settings-save-btn").click()
+    assert restored.value.status == 200
+    restored_settings = admin.request.get(base + "/api/admin/settings").json()
+    assert restored_settings["video_quality"] == 720
+    assert restored_settings["original_codec_mode"] == "default"
+
     page.goto(base + "/admin/#settings-queue", wait_until="networkidle")
     page.locator("#queue-settings-save").wait_for(state="visible")
     page.locator("#pause-orders").check()

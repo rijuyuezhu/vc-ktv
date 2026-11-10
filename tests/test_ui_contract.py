@@ -57,6 +57,8 @@ def test_song_detail_and_manual_lyric_editor_have_one_owner():
     assert "export function setupSongDetail({" in detail
     assert "const {refreshSongDetail,invalidateSongDetail}=setupSongDetail({" in main
     assert "invalidateSongDetail();playedKey=null;" in main
+    assert main.index("const isAdminPath=") < main.index("setupSongDetail({")
+    assert "function addSourceTag(parent,song){" in main
     assert "async function refreshSongDetail()" in detail
     assert "async function editLyrics(songId, songTitle)" in detail
     assert "const key=JSON.stringify([song,isAdminPath()])" in detail
