@@ -109,7 +109,7 @@ def test_cache_retry_publishes_atomically_without_rerender(tmp_path, monkeypatch
         assert admin.post(url).json()["status"] == "already_ready"
     assert source.read_bytes() == original
     assert baked.read_bytes() == rendered
-    assert not list(archive.glob("tv-cache-retry-*"))
+    assert not list(app.state.store.root.glob(f"vc-ktv-{song_id}-cache-retry-*"))
 
 
 def test_failed_cache_retry_keeps_baked_and_can_retry(tmp_path, monkeypatch):
@@ -315,7 +315,7 @@ def test_cache_retry_failed_atomic_install_preserves_previous_cache(
         wait_for_retry(app)
         assert existing.read_bytes() == b"PREVIOUS CACHE"
         assert baked.read_bytes() == b"BAKED"
-        assert not list(archive.glob("tv-cache-retry-*"))
+        assert not list(app.state.store.root.glob(f"vc-ktv-{song_id}-cache-retry-*"))
 
 
 def test_service_shutdown_stops_cache_retry_without_autoprep(tmp_path, monkeypatch):

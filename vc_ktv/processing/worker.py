@@ -231,8 +231,9 @@ class AutoPrep:
         try:
             with budget_scope(budget, cancelled):
                 check_current_budget()
+                # Match the existing event-close cleanup pattern after a hard crash.
                 with tempfile.TemporaryDirectory(
-                    prefix="tv-cache-retry-", dir=archive
+                    prefix=f"vc-ktv-{song_id}-cache-retry-", dir=self.store.root
                 ) as tmp:
                     staging = Path(tmp)
                     duration = self.probe(source)
