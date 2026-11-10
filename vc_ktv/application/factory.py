@@ -131,7 +131,7 @@ def create_app(
                 lifecycle.worker.stop()
             netease_login.close()
 
-    app = FastAPI(title="VC KTV", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="VC-KTV", version="0.5.0", lifespan=lifespan)
     app.state.auth = auth
     app.state.archive = archive
     app.state.lyric_selection = lyric_selection

@@ -71,10 +71,12 @@ def test_api_fallback_uses_public_dash_and_video_audio(monkeypatch, tmp_path):
     )
 
     def ffmpeg(cmd, **kw):
+        assert cmd[0] == "/custom/ffmpeg"
         assert "-c" in cmd and "copy" in cmd
         Path(cmd[-1]).write_bytes(b"valid-remux")
         return subprocess.CompletedProcess(cmd, 0)
 
+    monkeypatch.setenv("KTV_FFMPEG", "/custom/ffmpeg")
     monkeypatch.setattr(bilibili_media.subprocess, "run", ffmpeg)
     output = bilibili_media.public_media_download("BV0000000002", 1, tmp_path)
     assert output.read_bytes() == b"valid-remux"

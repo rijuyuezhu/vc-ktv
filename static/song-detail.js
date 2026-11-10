@@ -51,7 +51,7 @@ export function setupSongDetail({
       btn.type="button";btn.onclick=()=>copyValue(value,what);
     };
     if(song.downloadable)link("下载成片","/api/songs/"+song.id+"/download","download");
-    if(song.source_downloadable)link(song.source_type==="netease"?"下载原始视频":"下载原片",
+    if(song.source_downloadable)link(song.source_type==="netease"?"下载源视频":"下载原片",
       "/api/songs/"+song.id+"/download/source","download");
     if(song.bvid)copy("复制 BV",song.bvid,"BV 号");
     const url=sourceUrl(song);

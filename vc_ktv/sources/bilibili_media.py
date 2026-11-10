@@ -7,6 +7,7 @@ No cookies, paid streams, encryption circumvention, or third-party mirrors.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -161,7 +162,7 @@ def public_media_download(
                     output = destdir / "source.mp4"
                     subprocess.run(
                         [
-                            "ffmpeg",
+                            os.environ.get("KTV_FFMPEG", "ffmpeg"),
                             "-nostdin",
                             "-hide_banner",
                             "-loglevel",

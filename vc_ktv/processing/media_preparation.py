@@ -101,7 +101,7 @@ def normalize_hevc_source(path: Path, *, force_h264: bool = False) -> Path:
     """Normalize incompatible video codecs before the original is published."""
     result = subprocess.run(
         [
-            "ffprobe",
+            os.environ.get("KTV_FFPROBE", "ffprobe"),
             "-v",
             "error",
             "-select_streams",
@@ -355,7 +355,7 @@ def probe_media(file: Path) -> float:
     try:
         proc = subprocess.run(
             [
-                "ffprobe",
+                os.environ.get("KTV_FFPROBE", "ffprobe"),
                 "-v",
                 "error",
                 "-show_format",

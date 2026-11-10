@@ -264,3 +264,18 @@ def test_admin_option_defaults_off_persists_and_resets_between_events(tmp_path):
             client.post("/api/admin/events", json={"name": "second"}).status_code == 200
         )
         assert client.get("/api/admin/settings").json()["force_h264_originals"] is False
+
+
+def test_normalization_uses_custom_ffprobe(monkeypatch, tmp_path):
+    original = tmp_path / "source.mp4"
+    original.write_bytes(b"fake-media")
+    commands = []
+
+    def probe(cmd, **kwargs):
+        commands.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="h264\n")
+
+    monkeypatch.setenv("KTV_FFPROBE", "/custom/ffprobe")
+    monkeypatch.setattr("vc_ktv.processing.media_preparation.subprocess.run", probe)
+    assert normalize_hevc_source(original) == original
+    assert commands[0][0] == "/custom/ffprobe"

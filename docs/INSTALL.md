@@ -74,5 +74,8 @@ uv run --no-sync python -m vc_ktv
 | `VC_KTV_PREP_WORKERS` | `1` | 普通 Worker 数量（1–4，可处理 GPU 对齐） |
 | `VC_KTV_FAST_WORKERS` | `0` | 额外 CPU Fast Worker 数量（0–2，只处理来源时间轴任务；生产推荐 2） |
 | `VC_KTV_PIPELINE_ROOT` | `~/.local/share/vc-ktv/pipeline` | 模型路径 |
+| `KTV_FFMPEG` / `KTV_FFPROBE` | `ffmpeg` / `ffprobe` | 自定义媒体工具路径 |
+
+GPU 对齐的高级参数：`VC_KTV_PIPELINE_MODE` 默认为 `quality`，还可使用 `fast`、`global`、`global-kim`；`VC_KTV_KIM_SINGLE_FLIGHT=1` 可让 Kim 音频分离任务串行执行。
 
 常驻部署和升级操作见 [部署与升级](RELEASE.md)。

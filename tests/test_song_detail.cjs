@@ -229,7 +229,7 @@ test("NetEase song details retain source and guest replay navigation",async()=>{
     const page=h.byId("page-song");
     const links=all(page,x=>x.tagName==="A");
     assert.ok(links.some(x=>x.href==="https://music.163.com/#/song?id=5832"));
-    assert.ok(find(page,x=>x.tagName==="A"&&x.textContent==="下载原始视频"));
+    assert.ok(find(page,x=>x.tagName==="A"&&x.textContent==="下载源视频"));
     assert.equal(find(page,x=>x.textContent==="复制 BV"),null);
     await button(page,"↻ 再来一首").onclick();
     assert.equal(global.window.location.hash,"song-18");
