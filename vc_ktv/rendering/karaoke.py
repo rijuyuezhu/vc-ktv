@@ -49,9 +49,9 @@ def parse_lrc(text: str) -> list[dict]:
                     raise ValueError("逐字开始时间之前出现无内容的时间标记")
             if not units:
                 continue
-            if any(b[0] <= a[0] for a, b in zip(units, units[1:])):
+            if any(b[0] <= a[0] for a, b in zip(units, units[1:], strict=False)):
                 raise ValueError("逐字时间戳必须严格递增")
-            for i, ((when, _), end) in enumerate(zip(units, ends)):
+            for i, ((when, _), end) in enumerate(zip(units, ends, strict=False)):
                 next_start = units[i + 1][0] if i + 1 < len(units) else None
                 if end is not None and (
                     end <= when or (next_start is not None and end > next_start)
@@ -169,7 +169,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return {
         "lines": len(lines),
         "timed_units": timed_units,
-        "line_only": len([l for l in lines if not l["units"]]),
+        "line_only": sum(not line["units"] for line in lines),
         "lead": lead,
     }
 

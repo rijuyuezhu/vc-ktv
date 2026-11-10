@@ -96,10 +96,10 @@ def reconcile_lyrics(
             owners[j] = before if before is not None else after
 
     repaired = [""] * len(timed)
-    for char, owner in zip(expected, owners):
+    for char, owner in zip(expected, owners, strict=False):
         repaired[owner] += char
     changed = 0
-    for entry, label in zip(timed, repaired):
+    for entry, label in zip(timed, repaired, strict=False):
         if str(entry.mark) != label:
             changed += 1
             entry.mark = label

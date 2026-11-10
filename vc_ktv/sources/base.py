@@ -1,8 +1,9 @@
 """Only the differences between media platforms belong in SongSource."""
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)

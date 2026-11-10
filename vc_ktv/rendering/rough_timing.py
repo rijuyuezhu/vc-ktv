@@ -62,7 +62,7 @@ def approximate_timeline(
     min_gap = min(0.01, (right - left) / (len(source) + 1) * 0.35)
     cumulative = 0.0
     lines = []
-    for i, (text, weight) in enumerate(zip(source, weights)):
+    for i, (text, weight) in enumerate(zip(source, weights, strict=False)):
         cumulative += weight
         end = (
             right

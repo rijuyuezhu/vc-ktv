@@ -2,7 +2,7 @@
 let video=document.getElementById("video");
 let standby=document.getElementById("preload");
 const cover=document.getElementById("cover");
-const status=document.getElementById("status");
+const statusEl=document.getElementById("status");
 const start=document.getElementById("start");
 const error=document.getElementById("error");
 const panel=document.getElementById("controls");
@@ -138,15 +138,15 @@ function playAfterBuffer(song){
     const ahead=bufferedAhead(element);
     if(ahead>=target||performance.now()-startedAt>=START_BUFFER_WAIT_MS||element.error){
       cancelWarmup();
-      showSongLabel(status,song);
-      try{await element.play();}catch(e){
+      showSongLabel(statusEl,song);
+      try{await element.play();}catch{
         if(activeId!==song.id||video!==element)return;
         plainStatus("请点击画面以允许播放声音");
         cover.classList.remove("hidden");start.textContent="▶ 恢复播放";
       }
     }else{
-      showSongLabel(status,song);
-      status.textContent+="  缓冲中 "+Math.floor(ahead)+"/"+Math.ceil(target)+" 秒";
+      showSongLabel(statusEl,song);
+      statusEl.textContent+="  缓冲中 "+Math.floor(ahead)+"/"+Math.ceil(target)+" 秒";
       warmupTimer=setTimeout(tick,250);
     }
   };
@@ -166,7 +166,7 @@ panel.onpointerleave=()=>{
   clearTimeout(panelTimer);
   panelTimer=setTimeout(()=>{if(!panel.matches(":focus-within"))hidePanel();},4000);
 };
-function plainStatus(message){status.textContent=message;status.removeAttribute("data-provider");}
+function plainStatus(message){statusEl.textContent=message;statusEl.removeAttribute("data-provider");}
 function songLabel(song){return song.title+"  "+(song.nickname||"");}
 function showSongLabel(element,song){
   element.textContent=songLabel(song);
@@ -220,8 +220,8 @@ async function syncQueue(){
     if(state.current)showSongLabel(nowPlaying,state.current);
     else{nowPlaying.textContent="暂无正在播放的歌曲";nowPlaying.removeAttribute("data-provider");}
     if(!started){
-      if(state.current)showSongLabel(status,state.current);
-      else{status.textContent="等待播放";status.removeAttribute("data-provider");}
+      if(state.current)showSongLabel(statusEl,state.current);
+      else{statusEl.textContent="等待播放";statusEl.removeAttribute("data-provider");}
     }
     if(playbackMode!=="tv")controlError.textContent="当前未选择电视播放";
     else if(controlError.textContent==="当前未选择电视播放")controlError.textContent="";
@@ -407,13 +407,13 @@ async function next(){
     }
     preloadFailed=null;
     lastProbe=-Infinity;
-    showSongLabel(status,answer.active);
+    showSongLabel(statusEl,answer.active);
     cover.classList.add("hidden");
     updateControls();
     syncQueue();
     if(smoothPlayback)playAfterBuffer(answer.active);
     else{
-      try{await video.play();}catch(e){
+      try{await video.play();}catch{
         plainStatus("请点击画面以允许播放声音");
         cover.classList.remove("hidden");start.textContent="▶ 恢复播放";
       }

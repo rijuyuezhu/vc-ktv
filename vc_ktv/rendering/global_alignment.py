@@ -32,10 +32,12 @@ def timeline_from_lrc(
     lines = []
     warnings = []
     previous_end = 0.0
-    for index, (text, row) in enumerate(zip(source, rows)):
+    for index, (text, row) in enumerate(zip(source, rows, strict=False)):
         units = []
         cursor = 0
-        for j, ((start, value), end) in enumerate(zip(row["units"], row["ends"])):
+        for j, ((start, value), end) in enumerate(
+            zip(row["units"], row["ends"], strict=False)
+        ):
             if end is None:
                 raise ValueError("整首对齐缺少字词结束时间")
             units.append(
@@ -203,7 +205,9 @@ def align_full_song(
         # Only units containing restored characters need estimated provenance;
         # the remaining TIFA timings remain genuine model measurements.
         offset = 0
-        for line, reading, mapping in zip(timeline.lines, spoken.splitlines(), spans):
+        for line, reading, mapping in zip(
+            timeline.lines, spoken.splitlines(), spans, strict=False
+        ):
             _, positions = chars(reading)
             for item in repaired["diff"]:
                 for global_index in range(

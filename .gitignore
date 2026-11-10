@@ -37,3 +37,6 @@ hosts.yml
 # OS and editor
 .DS_Store
 .idea/
+
+# JavaScript development dependencies
+node_modules/
