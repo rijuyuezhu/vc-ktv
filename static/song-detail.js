@@ -107,7 +107,14 @@ export function setupSongDetail({
     if (!isAdmin) {
       if (song.mine && editable && song.prep_state !== "aligning")
         songAction(actions, song.lyric_selected ? "更换歌词" : "选择歌词", () =>
-          openLyricPicker(song.id, song.title, song.lyric_query)
+          openLyricPicker(
+            song.id,
+            song.title,
+            song.lyric_query,
+            song.source_type === "bilibili" && song.bvid
+              ? { bvid: song.bvid, page: song.page || 1, title: song.title }
+              : null
+          )
         );
       if (song.mine && ["waiting", "ready", "rendering"].includes(song.status))
         songAction(actions, "取消点歌", () => cancelGuestSong(song.id), "subtle");
