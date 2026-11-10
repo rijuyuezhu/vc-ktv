@@ -47,6 +47,12 @@ repos:
         language: system
         pass_filenames: false
         files: ^vc_ktv/.*\.py$
+      - id: prettier
+        name: Prettier (JavaScript)
+        entry: node node_modules/prettier/bin/prettier.cjs --write "static/*.js" "tests/*.cjs" eslint.config.mjs package.json
+        language: system
+        pass_filenames: false
+        files: ^(static/.*\.js|tests/.*\.cjs|eslint\.config\.mjs|package\.json|\.prettierrc\.json)$
       - id: eslint
         name: ESLint (JavaScript)
         entry: node node_modules/eslint/bin/eslint.js static tests
