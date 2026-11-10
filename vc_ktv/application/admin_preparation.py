@@ -1,5 +1,6 @@
 """Administrator preparation operations and file/SQLite consistency rules."""
 
+import json
 import logging
 import secrets
 import shutil
@@ -21,10 +22,72 @@ from vc_ktv.rendering.textgrid_import import convert_textgrid
 class AdminPreparationService:
     """Change event-local media, lyric and preparation state."""
 
-    def __init__(self, store, orders, probe):
+    def __init__(self, store, orders, probe, *, media=None, worker=None):
         self.store = store
         self.orders = orders
         self.probe = probe
+        self.media = media
+        self.worker = worker
+
+    def retry_tv_cache(self, song_id: int):
+        """Supplement only a missing/stale playback cache; never touch subtitles."""
+        store = self.store
+        with store.lock:
+            row = store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if row is None:
+                bail(404, "歌曲不存在")
+            if row["status"] != "ready" or row["prep_state"] != "done":
+                bail(409, "仅可补做已就绪歌曲的电视缓存")
+            if not store.settings()["tv_html_overlay"]:
+                bail(409, "请先开启电视 HTML 字幕模式")
+            song = dict(row)
+            bundle = self.media.overlay_bundle(song)
+            if bundle is None:
+                bail(409, "当前歌曲没有可用的字幕元数据")
+            archive = self.media.overlay_archive(bundle)
+            source_name = store.replay_assets(song).get("source_file")
+            source = store.media / Path(source_name or "").name
+            if not source.is_file():
+                bail(409, "原片不存在")
+            bandwidth = store.settings()["max_bandwidth_mbps"]
+            if (
+                source.stat().st_size * 8
+                <= float(row["duration"]) * bandwidth * 800_000
+            ):
+                return {"ok": True, "status": "not_needed"}
+            cache = archive / "tv-source.mp4"
+            try:
+                metadata = json.loads((archive / "attempt.json").read_text())
+            except (OSError, ValueError, TypeError) as error:
+                bail(409, f"字幕记录不可用：{error}")
+            if (
+                cache.is_file()
+                and cache.stat().st_size >= 1024
+                and metadata.get("tv_source_ready") is not False
+                and float(metadata.get("max_bandwidth_mbps", 0)) <= bandwidth
+            ):
+                return {"ok": True, "status": "already_ready"}
+            if getattr(store, "disk_budget", None) is not None:
+                try:
+                    store.disk_budget.check()
+                except DiskBudgetExceeded as error:
+                    bail(409, str(error))
+            native = None
+            if (
+                store.settings()["original_codec_mode"] == "av1"
+                and song.get("source_type") in (None, "bilibili")
+                and Path(source_name or "").name.startswith(f"{song_id}-original-")
+            ):
+                native = (song["bvid"], int(song["page"]))
+            try:
+                self.worker().retry_tv_cache(
+                    song_id, source, archive, song["media_file"], bandwidth, native
+                )
+            except RuntimeError as error:
+                bail(409, str(error))
+        return {"ok": True, "status": "started"}
 
     def retry_subtitles(self, song_id: int):
         store = self.store

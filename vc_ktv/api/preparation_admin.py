@@ -14,6 +14,11 @@ from vc_ktv.application.schemas import Lyrics, RenderRequest
 def create_preparation_admin_router(*, preparation, require_admin, manual):
     router = APIRouter()
 
+    @router.post("/api/admin/songs/{song_id}/tv-cache/retry")
+    def retry_tv_cache(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        return preparation.retry_tv_cache(song_id)
+
     @router.post("/api/admin/songs/{song_id}/subtitles/retry")
     def retry_subtitles(song_id: int, vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)

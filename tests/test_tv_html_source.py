@@ -184,11 +184,14 @@ def test_large_original_requires_matching_bitrate_cache(tmp_path):
             ).fetchone()
         )
         assert app.state.media.overlay_source(song) is None
-        (archive / "tv-source.mp4").write_bytes(b"COMPRESSED")
+        (archive / "tv-source.mp4").write_bytes(b"COMPRESSED" * 200)
         assert app.state.media.overlay_source(song) == archive / "tv-source.mp4"
         active = guest.get("/api/tv/state", params={"token": token}).json()["active"]
         assert active["html_overlay"] is not None
-        assert guest.get(active["html_overlay"]["source_url"]).content == b"COMPRESSED"
+        assert (
+            guest.get(active["html_overlay"]["source_url"]).content
+            == b"COMPRESSED" * 200
+        )
         res = admin.put(
             "/api/admin/settings",
             json={
@@ -447,10 +450,13 @@ def test_virtual_replay_retains_source_bitrate_cache_and_isolates_upload(tmp_pat
         assert active["id"] == replay_id
         assert active["html_overlay"] is None  # Fast fallback, without cache.
         cache = archive / "tv-source.mp4"
-        cache.write_bytes(b"COMPRESSED")
+        cache.write_bytes(b"COMPRESSED" * 200)
         active = guest.get("/api/tv/state", params={"token": token}).json()["active"]
         assert active["html_overlay"] is not None
-        assert guest.get(active["html_overlay"]["source_url"]).content == b"COMPRESSED"
+        assert (
+            guest.get(active["html_overlay"]["source_url"]).content
+            == b"COMPRESSED" * 200
+        )
         assert guest.get(active["html_overlay"]["timeline_url"]).status_code == 200
         # A different bitrate setting must invalidate inherited cache.
         assert (
