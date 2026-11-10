@@ -21,7 +21,7 @@ function tvHarness(){
         buffered:{length:1,start:()=>0,end:()=>element.bufferEnd},
         classList:{add(name){classes.add(name);},remove(name){classes.delete(name);},contains(name){return classes.has(name);}},
         replaceChildren(){},append(){},
-        addEventListener(){},matches(){return false;},
+        listeners:{},addEventListener(name,fn){this.listeners[name]=fn;},matches(){return false;},
         setAttribute(k,v){attrs.set(k,v);},
         getAttribute(k){return attrs.get(k)||null;},
         hasAttribute(k){return attrs.has(k);},
@@ -276,4 +276,114 @@ test("failed TV poll releases slot and next poll can recover",async()=>{
   pending[1].resolve({ok:true,async json(){return {queue:[{id:4,title:"Fresh",nickname:"C"}],current:null,playback_mode:"tv"};}});
   await second;
   assert.equal(h.el("next-up").textContent,"Fresh  C");
+});
+
+test("decoder failure without a distinct baked video stays under admin control",async()=>{
+  const h=tvHarness();
+  await h.ready();
+  let finishes=0;
+  h.setFetch(async url=>{
+    if(url.includes("/api/tv/next"))return {ok:true,async json(){return {active:{
+      id:1,title:"AV1 Original",nickname:"A",prep_state:"original",
+      media_file:"1-original.mp4",source_file:"1-original.mp4",
+      media_url:"/media/1",html_overlay:null
+    }}}};
+    if(url.includes("/api/tv/finish"))finishes++;
+    return {ok:true,async json(){return {ok:true}}};
+  });
+  h.evaluate("smoothPlayback=false");
+  await h.el("start").onclick();
+  h.el("video").listeners.error();
+  await Promise.resolve();
+  assert.equal(finishes,0);
+  assert.equal(h.evaluate("activeId"),1);
+  assert.match(h.el("status").textContent,/管理员/);
+  assert.equal(h.el("cover").classList.contains("hidden"),false);
+});
+
+test("failed TV finish waits for acknowledgement before advancing",async()=>{
+  const h=tvHarness();
+  await h.ready();
+  let finishes=0,nexts=0,current=1;
+  h.setFetch(async url=>{
+    if(url.includes("/api/tv/next")){
+      nexts++;
+      return {ok:true,async json(){return {active:{id:current||2,title:"Song",nickname:"A",media_url:"/media/1"}}}};
+    }
+    if(url.includes("/api/tv/finish")){
+      finishes++;
+      if(finishes===1)return {ok:false,status:503,async json(){return {detail:"unavailable"}}};
+      current=2;
+      return {ok:true,async json(){return {ok:true}}};
+    }
+    if(url.includes("/api/tv/state"))return {ok:true,async json(){return {current:{id:current},queue:[],playback_mode:"tv"}}};
+    return {ok:true,async json(){return {ok:true}}};
+  });
+  h.evaluate("smoothPlayback=false");
+  await h.el("start").onclick();
+  await h.evaluate("complete('skip')");
+  assert.equal(finishes,1);
+  assert.equal(nexts,1);
+  assert.equal(h.evaluate("activeId"),1);
+  assert.match(h.el("status").textContent,/待确认/);
+  await h.advance(2501);
+  for(let i=0;i<25;i++)await Promise.resolve();
+  assert.equal(finishes,2);
+  assert.equal(nexts,2);
+  assert.equal(h.evaluate("activeId"),2);
+});
+
+test("lost finish response reconciles server state without settling twice",async()=>{
+  const h=tvHarness();
+  await h.ready();
+  let finishes=0,nexts=0,current=1;
+  h.setFetch(async url=>{
+    if(url.includes("/api/tv/next")){
+      nexts++;
+      return {ok:true,async json(){return {active:{id:current||2,title:"Song",nickname:"A",media_url:"/media/1"}}}};
+    }
+    if(url.includes("/api/tv/finish")){
+      finishes++;current=2;
+      return {ok:false,status:503,async json(){return {detail:"response lost"}}};
+    }
+    if(url.includes("/api/tv/state"))return {ok:true,async json(){return {current:{id:current},queue:[],playback_mode:"tv"}}};
+    return {ok:true,async json(){return {ok:true}}};
+  });
+  h.evaluate("smoothPlayback=false");
+  await h.el("start").onclick();
+  await h.evaluate("complete()");
+  assert.equal(finishes,1);
+  assert.equal(nexts,2);
+  await h.advance(3000);
+  assert.equal(finishes,1);
+  assert.equal(h.evaluate("activeId"),2);
+});
+
+test("late subtitle response cannot restart a song already skipped",async()=>{
+  const h=tvHarness();
+  await h.ready();
+  let releaseOverlay=null,nextCalls=0;
+  h.setFetch(async url=>{
+    if(url.includes("/api/tv/next")){
+      nextCalls++;
+      return {ok:true,async json(){return {active:nextCalls===1?{
+        id:1,title:"Previous",nickname:"A",media_url:"/media/1",
+        source_file:"orig.mp4",media_file:"baked.mp4",
+        html_overlay:{timeline_url:"/test-timeline",source_url:"/media/1/source"}
+      }:null}}};
+    }
+    if(url.includes("/test-timeline")){
+      return new Promise(resolve=>{releaseOverlay=()=>resolve({ok:true,async json(){return {timeline:{},plan:{},style:{}}}});});
+    }
+    return {ok:true,async json(){return {ok:true}}};
+  });
+  h.evaluate("smoothPlayback=false");
+  const begin=h.el("start").onclick();
+  for(let i=0;i<12&&!releaseOverlay;i++)await Promise.resolve();
+  assert.equal(typeof releaseOverlay,"function");
+  await h.evaluate("complete('skip')");
+  releaseOverlay();
+  await begin;
+  assert.equal(h.calls.plays.length,0);
+  assert.equal(h.evaluate("activeId"),null);
 });

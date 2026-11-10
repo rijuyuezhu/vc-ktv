@@ -67,6 +67,8 @@ let activeId=null;
 let started=false;
 let inFlight=false;
 let finishing=false;
+let pendingFinish=null;
+let finishRetryTimer=null;
 let preloaded=null;
 let preloadFailed=null;
 let preloadInFlight=false;
@@ -187,7 +189,7 @@ function clock(seconds){
   return Math.floor(seconds/60)+":"+String(Math.floor(seconds%60)).padStart(2,"0");
 }
 function updateControls(){
-  const available=activeId!==null&&playbackMode==="tv"&&!finishing;
+  const available=activeId!==null&&playbackMode==="tv"&&!finishing&&!pendingFinish;
   for(const button of [pauseResume,restart,skip,replayNext])button.disabled=!available;
   replayNext.disabled=!available||replayInFlight;
   const pauseTitle=video.paused?"继续":"暂停";
@@ -253,6 +255,8 @@ async function handleRemote(command){
   lastRemoteSeq=command.seq;
   let failure="";
   try{
+    if(pendingFinish&&command.song_id!==null)
+      throw Error("播放结束待确认");
     if(command.song_id!==null && command.song_id!==activeId)
       throw Error("歌曲已切换");
     switch(command.action){
@@ -298,6 +302,7 @@ async function api(path,method="GET",body=null){
   return result;
 }
 function losePrimary(message="主屏权限已撤回，请管理员重新连接"){
+  clearTimeout(finishRetryTimer);finishRetryTimer=null;pendingFinish=null;
   token=null;started=false;activeId=null;inFlight=false;
   cancelWarmup();clearPreload();resetOverlay();activeBakedUrl=null;
   for(const element of [video,standby]){
@@ -381,8 +386,12 @@ async function next(){
     if(!answer.active){plainStatus("正在等待下一首歌……");cover.classList.remove("hidden");return;}
     activeId=answer.active.id;
     cancelWarmup();
-    activeBakedUrl=answer.active.media_url;
     const useOverlay=await loadOverlay(answer.active);
+    if(!token||activeId!==answer.active.id||pendingFinish){
+      resetOverlay();return;
+    }
+    activeBakedUrl=useOverlay&&answer.active.media_file!==answer.active.source_file
+      ?answer.active.media_url:null;
     const sourceUrl=useOverlay?mediaSource(answer.active):answer.active.media_url;
     if(preloaded&&Boolean(preloaded.html_overlay)===useOverlay&&
        preloadKey(preloaded)===preloadKey(answer.active)&&!standby.error){
@@ -411,20 +420,47 @@ async function next(){
     }
   }catch(e){fail(e);}finally{inFlight=false;}
 }
-async function complete(reason=""){
-  if(activeId===null||finishing)return;
+async function settleFinish(){
+  if(!pendingFinish||finishing||!token)return;
   finishing=true;
-  cancelWarmup();
-  resetOverlay();activeBakedUrl=null;
-  const id=activeId;
+  const {id,reason}=pendingFinish;
+  let settled=false;
+  try{
+    await api("/api/tv/finish","POST",{song_id:id,reason});
+    settled=true;
+  }catch(e){
+    if(e.status===401||e.status===403){losePrimary(e.message);return;}
+    try{
+      const state=await api("/api/tv/state");
+      settled=state.current?.id!==id; // A lost response may follow a committed finish.
+    }catch(lookupError){
+      if(lookupError.status===401||lookupError.status===403){
+        losePrimary(lookupError.message);return;
+      }
+    }
+    if(!settled){
+      plainStatus("播放结束待确认，正在重试");
+      if(finishRetryTimer===null){
+        finishRetryTimer=setTimeout(()=>{
+          finishRetryTimer=null;settleFinish();
+        },2500);
+      }
+    }
+  }finally{finishing=false;updateControls();}
+  if(!settled)return;
+  pendingFinish=null;
+  clearTimeout(finishRetryTimer);finishRetryTimer=null;
   activeId=null;
-  video.removeAttribute("src");
-  video.load();
-  try{await api("/api/tv/finish","POST",{song_id:id,reason});}
-  catch(e){if(!String(e.message).includes("当前播放已变化"))fail(e);}
-  finally{finishing=false;}
   await next();
   syncQueue();
+}
+async function complete(reason=""){
+  if(activeId===null||pendingFinish)return;
+  pendingFinish={id:activeId,reason};
+  cancelWarmup();resetOverlay();activeBakedUrl=null;
+  video.pause();video.removeAttribute("src");video.load();
+  updateControls();
+  await settleFinish();
 }
 for(const element of [video,standby]){
   element.addEventListener("ended",()=>{if(element===video)complete();});
@@ -434,13 +470,18 @@ for(const element of [video,standby]){
       clearPreload();
       return;
     }
-    if(activeId!==null){
+    if(activeId!==null&&!pendingFinish){
       if(activeOverlay&&activeBakedUrl){
         const fallback=activeBakedUrl;const position=video.currentTime;
         resetOverlay();activeBakedUrl=null;video.src=fallback;
         video.addEventListener("loadedmetadata",()=>{video.currentTime=position;video.play().catch(fail);},{once:true});
         plainStatus("原片不可播放，已回退烧录版");
-      }else{plainStatus("媒体无法播放，正在跳过这一首……");complete("skip");}
+      }else{
+        video.pause();
+        plainStatus("视频无法播放，请管理员更换 H.264 视频或跳过");
+        cover.classList.remove("hidden");
+        start.textContent="▶ 重试播放";
+      }
     }
   });
   element.addEventListener("timeupdate",()=>{if(element===video){checkPreload();updateControls();}});
@@ -448,10 +489,11 @@ for(const element of [video,standby]){
   element.addEventListener("pause",()=>{if(element===video)updateControls();});
 }
 start.onclick=async()=>{
-  if(!token)return;
+  if(!token||pendingFinish)return;
   started=true;error.textContent="";
   if(activeId!==null){
     cancelWarmup();cover.classList.add("hidden");
+    if(video.error)video.load();
     try{await video.play();}catch(e){fail(e);}return;
   }
   await next();
@@ -463,23 +505,23 @@ setInterval(async()=>{
 setInterval(checkPreload,8000);
 
 pauseResume.onclick=async()=>{
-  if(activeId===null||playbackMode!=="tv")return;
+  if(activeId===null||playbackMode!=="tv"||pendingFinish)return;
   if(video.paused){cancelWarmup();try{await video.play();}catch(e){controlError.textContent=e.message;}}
   else video.pause();
   showPanel();updateControls();
 };
 restart.onclick=async()=>{
-  if(activeId===null||finishing||playbackMode!=="tv")return;
+  if(activeId===null||finishing||pendingFinish||playbackMode!=="tv")return;
   cancelWarmup();video.currentTime=0;
   try{await video.play();}catch(e){controlError.textContent=e.message;}
   showPanel();updateControls();
 };
 skip.onclick=()=>{
-  if(activeId===null||finishing||playbackMode!=="tv")return;
+  if(activeId===null||finishing||pendingFinish||playbackMode!=="tv")return;
   complete("skip");showPanel();
 };
 replayNext.onclick=async()=>{
-  if(activeId===null||finishing||replayInFlight||playbackMode!=="tv")return;
+  if(activeId===null||finishing||pendingFinish||replayInFlight||playbackMode!=="tv")return;
   replayInFlight=true;updateControls();
   try{
     await api("/api/tv/replay-next","POST",{song_id:activeId});

@@ -509,6 +509,8 @@ def probe_media(file: Path) -> float:
             for s in streams
         ):
             raise ValueError("未找到有效的视频轨道")
+        if not any(s.get("codec_type") == "audio" for s in streams):
+            raise ValueError("视频缺少音轨")
         duration = float(data["format"]["duration"])
         if duration <= 0:
             raise ValueError("视频时长必须在 1 秒至 1 小时之间")
