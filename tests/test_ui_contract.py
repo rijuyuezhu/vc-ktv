@@ -437,6 +437,8 @@ def test_guest_request_tabs_include_netease_search_and_share():
     for source in ("bilibili", "netease"):
         assert f'id="source-tab-{source}" role="tab"' in html
         assert f'id="source-panel-{source}" role="tabpanel"' in html
+    assert '<label for="netease-song-query">歌名、歌手或网易云分享链接</label>' in html
+    assert '<label for="bvid">' in html
     assert 'id="netease-search-form"' in html
     assert 'id="netease-search-results"' in html
     assert "selectSongSource(source)" in js
