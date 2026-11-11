@@ -109,6 +109,11 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 dialog { width: 100%; max-width: min(620px,95vw); padding: 22px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--ink); box-shadow: 0 18px 60px #17191d30; }
 dialog::backdrop { background: #17191d99; }
+/* One heading, metadata and return/close treatment for lyric/video dialogs. */
+.dialog-head { flex: 0 0 auto; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.dialog-head h2 { min-width: 0; }
+.dialog-meta { flex: 0 0 auto; margin: 6px 0 12px; color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+
 footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: center; }
 .guest-lyrics-dialog { max-width: min(720px,96vw); max-height: 88vh; overflow-y: auto; }
 .netease-review-dialog { width: min(720px,96vw); max-height: 88vh; overflow-y: auto; }
@@ -123,32 +128,23 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .lyric-option { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 12px 14px; }
 .lyric-preview-btn { position: absolute; top: 9px; right: 10px; z-index: 1; padding: 5px 9px; font-size: 12px; }
 .guest-lyric-preview-dialog[open] { display: flex; flex-direction: column; width: min(720px,96vw); max-height: 88dvh; overflow: hidden; }
-.guest-lyric-preview-dialog .section-head { flex: 0 0 auto; margin-bottom: 12px; }
-#guest-lyric-preview-info { flex: 0 0 auto; overflow-wrap: anywhere; }
 .guest-lyric-preview-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 12px; border-radius: 8px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; overscroll-behavior: contain; }
 .lyric-option-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 64px; }
 .lyric-option-header strong { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 16px; }
 .lyric-option-header span, .lyric-artist { color: var(--muted); font-size: 12px; }
 .lyric-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: pre-line; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; line-height: 1.55; }
 .guest-lyrics-dialog[open] { display: flex; flex-direction: column; overflow: hidden; width: min(720px,96vw); max-height: 88dvh; }
-.guest-lyrics-head { flex: 0 0 auto; flex-wrap: wrap; gap: 8px; }
 .guest-lyrics-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.guest-lyrics-actions .btn { min-height: 36px; padding: 7px 10px; font-size: 12px; }
 .guest-lyrics-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 3px; }
-#guest-lyrics-song { font-weight: 650; overflow-wrap: anywhere; }
 .guest-lyrics-search { margin: 10px 0; }
 .guest-lyrics-search .btn { flex: 0 0 46px; font-size: 23px; line-height: 1; }
-#guest-lyrics-status:empty { display: none; }
 .guest-lyrics-extras { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
-.guest-lyrics-extras .btn { min-height: 36px; padding: 7px 10px; font-size: 13px; }
 .guest-lyrics-extras > label { display: inline-flex; align-items: center; justify-content: center; margin: 0; color: var(--muted); }
 .visually-hidden { position: absolute; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .guest-lyrics-footer { flex: 0 0 auto; margin-top: 6px; padding-top: 12px; border-top: 1px solid var(--line); background: var(--surface); }
 .guest-lyrics-footer .btn { width: 100%; }
 .guest-lyrics-footer .btn:disabled { cursor: not-allowed; }
 .bilibili-preview-dialog { width: min(760px,96vw); max-height: 88dvh; overflow-y: auto; }
-.bilibili-preview-dialog .section-head { margin-bottom: 12px; }
-#bilibili-preview-song { font-weight: 600; overflow-wrap: anywhere; }
 #bilibili-preview-player { display: block; width: 100%; aspect-ratio: 16/9; border: 0; border-radius: 8px; background: #111827; }
 #bilibili-preview-official { display: inline-block; margin-top: 8px; font-size: 13px; }
 .bilibili-preview-parts { display: grid; gap: 7px; max-height: 26dvh; margin-top: 14px; overflow-y: auto; }
@@ -274,9 +270,7 @@ button, input, select { min-height: 44px; }
 .auth-single .link-switch { margin-top: 6px; }
 .queue-panel .section-head { flex-wrap: wrap; row-gap: 8px; }
 .queue-panel h3 { margin: 20px 0 10px; }
-.review-help { font-size: 14px; }
 .review-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin: 8px 0; font-size: 14px; font-weight: 650; }
-.review-toolbar .btn { min-height: 36px; padding: 5px 11px; font-size: 13px; }
 .review-check { flex: none; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 5px; background: var(--line); color: var(--muted); font-size: 13px; font-weight: 800; }
 .netease-review-line.kept .review-check { background: #fff; color: #735900; }
 .review-line-text { flex: 1; }
@@ -304,7 +298,6 @@ button, input, select { min-height: 44px; }
 .offset-details summary { cursor: pointer; color: var(--accent-ink); }
 .offset-details label { margin-top: 8px; }
 .offset-details input { margin-top: 3px; }
-.guest-lyrics-dialog .section-head { flex-wrap: wrap; }
 /* Give every mobile dialog most of the visible viewport, with its own scroll. */
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
   dialog, .guest-lyrics-dialog, .guest-lyric-preview-dialog, .netease-review-dialog, .bilibili-preview-dialog {
@@ -563,15 +556,10 @@ button, input, select { min-height: 44px; }
   background: var(--surface-2);
 }
 .remote-buttons { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 7px; }
-.remote-buttons button, .remote-offsets button {
-  display: grid; place-items: center; padding: 8px 4px; min-height: 48px;
-  border: 1px solid var(--line-strong); border-radius: 9px;
-  background: var(--surface); color: var(--ink); cursor: pointer;
+.remote-buttons .btn, .remote-offsets .btn {
+  display: grid; place-items: center; min-width: 0; min-height: 48px;
+  padding: 8px 4px; border-radius: 9px;
 }
-.remote-buttons button:hover, .remote-offsets button:hover {
-  border-color: var(--accent); background: var(--accent-soft);
-}
-.remote-buttons button:disabled, .remote-offsets button:disabled { opacity: .35; cursor: default; }
 /* An in-flight command remains visually present rather than flashing the whole remote gray. */
 .playback-remote.remote-pending .remote-buttons button:disabled,
 .playback-remote.remote-pending .remote-offsets button:disabled { opacity: 1; }
@@ -586,7 +574,7 @@ button, input, select { min-height: 44px; }
 .remote-extra { display: flex; flex-direction: column; gap: 12px; border-top: 1px solid var(--line); padding-top: 13px; }
 .remote-label { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
 .remote-offsets { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
-.remote-offsets button { min-height: 42px; font-size: 12px; border-radius: 7px; }
+.remote-offsets .btn { min-height: 42px; font-size: 12px; border-radius: 7px; }
 .remote-opacity { flex-direction: column; align-items: stretch !important; gap: 7px; font-size: 12px !important; color: var(--muted); }
 .remote-toggle { display: inline-flex !important; align-items: center; gap: 8px; margin: 0 !important; font-size: 12px !important; font-weight: 500 !important; }
 .remote-toggle input { min-height: auto; }
@@ -621,7 +609,8 @@ button, input, select { min-height: 44px; }
 
 /* Archive pages share the same song rows/details and the routed header. */
 .brand:hover { color: var(--ink); text-decoration: none; }
-.icon-back { display: inline-grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; padding: 0; font-size: 29px; line-height: 1; }
+.icon-back, .icon-close { display: inline-grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; padding: 0; font-size: 29px; line-height: 1; }
+.icon-close { font-size: 25px; }
 #subpage-action { margin-left: auto; font-size: 13px; }
 .archive-entry { width: 100%; text-align: left; justify-content: space-between; }
 .archive-entry strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }

@@ -241,6 +241,14 @@ export function setupSongDetail({
       return "";
     }
   }
+  function showPublicPrepError(song) {
+    return (
+      !song.skip_subtitles &&
+      song.prep_error &&
+      ["unavailable", "original"].includes(song.prep_state)
+    );
+  }
+
   function renderSongSummary(panel, song) {
     const header = appendText(panel, "div", "", "detail-header");
     const coverUrl = songCoverUrl(song.cover);
@@ -267,12 +275,11 @@ export function setupSongDetail({
     const state = appendText(panel, "div", "", "detail-state");
     appendText(state, "strong", songState(song));
     if (song.priority_next) appendText(state, "span", "下一首优先", "detail-note");
-    if (
-      !song.skip_subtitles &&
-      song.prep_error &&
-      ["unavailable", "original"].includes(song.prep_state)
-    )
-      appendText(state, "span", song.prep_error, "detail-note");
+    if (showPublicPrepError(song))
+      appendText(state, "span", song.prep_error, "ui-status ui-status-error").setAttribute(
+        "role",
+        "alert"
+      );
   }
 
   function renderArchivedSong(target, song) {
@@ -320,7 +327,8 @@ export function setupSongDetail({
       const entries = Object.entries(names).filter(([name]) => song.stage_seconds?.[name] != null);
       const running =
         song.status !== "cancelled" && ["downloading", "aligning"].includes(song.prep_state);
-      if (entries.length || running || (song.prep_error && !song.skip_subtitles)) {
+      const privateError = song.prep_error && !song.skip_subtitles && !showPublicPrepError(song);
+      if (entries.length || running || privateError) {
         const details = appendText(panel, "details", "", "timing-details");
         details.open = timingWasOpen;
         appendText(details, "summary", "制作详情");
@@ -339,8 +347,11 @@ export function setupSongDetail({
             "stage-current-time"
           );
         }
-        if (song.prep_error && !song.skip_subtitles)
-          appendText(details, "p", song.prep_error, "muted");
+        if (privateError)
+          appendText(details, "span", song.prep_error, "ui-status ui-status-error").setAttribute(
+            "role",
+            "alert"
+          );
       }
     }
     if (isAdminPath() && song.status === "ready") {

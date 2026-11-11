@@ -365,6 +365,62 @@ test("original media skip, replay and upload retain their exact API methods", as
   }
 });
 
+test("preparation errors reuse the shared alert style without duplicate detail paragraphs", async () => {
+  const h = await harness(true);
+  try {
+    h.state.song = baseSong({
+      status: "waiting",
+      prep_state: "unavailable",
+      prep_error: "下载失败"
+    });
+    await h.refreshSongDetail();
+    const page = h.byId("page-song");
+    const messages = all(
+      page,
+      (node) => node.textContent === "下载失败" && node.classList.contains("ui-status-error")
+    );
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].getAttribute("role"), "alert");
+    assert.equal(
+      all(page, (node) => node.tagName === "P" && node.textContent === "下载失败").length,
+      0
+    );
+    h.state.song = baseSong({
+      status: "waiting",
+      prep_state: "unavailable",
+      prep_error: "下载失败",
+      skip_subtitles: true
+    });
+    await h.refreshSongDetail();
+    assert.equal(all(page, (node) => node.classList.contains("ui-status-error")).length, 0);
+    h.state.song = baseSong({
+      status: "waiting",
+      prep_state: "aligning",
+      prep_error: "内部错误",
+      stage_seconds: {}
+    });
+    await h.refreshSongDetail();
+    const adminDetails = find(page, (node) => node.classList.contains("timing-details"));
+    assert.ok(adminDetails);
+    assert.equal(
+      all(
+        adminDetails,
+        (node) => node.textContent === "内部错误" && node.classList.contains("ui-status-error")
+      ).length,
+      1
+    );
+    assert.equal(
+      all(
+        page,
+        (node) => node.textContent === "内部错误" && node.classList.contains("ui-status-error")
+      ).length,
+      1
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
 test("unchanged detail updates running elapsed time without destroying DOM; invalidation refreshes", async () => {
   const h = await harness(true);
   try {
