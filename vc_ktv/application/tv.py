@@ -74,6 +74,14 @@ class TVSessionService:
             ) or not self.owner_valid(active):
                 bail(401, "此页面不再是主屏，可能已由另一设备接管")
 
+    def renew_control(self, token: str) -> str:
+        """Extend the same controlling TV nonce, only while it is still valid."""
+        self.require_tv(token)
+        identity = self.auth.read_signed(token, "tv-control")
+        if not identity:
+            bail(401, "主屏权限已失效，请管理员重新连接")
+        return self.auth.sign("tv-control", identity, 8 * 3600)
+
     def management(self, principal: dict) -> dict:
         if not self.events.active_id:
             return {"active": False, "owner_role": None, "can_manage": False}

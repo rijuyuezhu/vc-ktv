@@ -72,6 +72,8 @@ const pair = tvParams.get("pair");
 // Keep the control token in this page only: duplicating a TV tab must not
 // clone its authority. A refreshed TV needs a new pairing link from admin.
 let token = null;
+let renewedAt = 0;
+let renewing = false;
 let activeId = null;
 let started = false;
 let inFlight = false;
@@ -381,13 +383,16 @@ async function handleRemote(command) {
   return true;
 }
 async function api(path, method = "GET", body = null) {
-  const options = { method, cache: "no-store" };
+  const options = {
+    method,
+    cache: "no-store",
+    headers: { Authorization: "Bearer " + (token || "") }
+  };
   if (body) {
-    options.headers = { "Content-Type": "application/json" };
+    options.headers["Content-Type"] = "application/json";
     options.body = JSON.stringify(body);
   }
-  const join = path.includes("?") ? "&" : "?";
-  const response = await fetch(path + join + "token=" + encodeURIComponent(token || ""), options);
+  const response = await fetch(path, options);
   const result = await response.json();
   if (!response.ok) {
     const err = new Error(result.detail || "请求失败");
@@ -404,6 +409,7 @@ function losePrimary(message = "主屏权限已撤回，请管理员重新连接
   finishRetryTimer = null;
   pendingFinish = null;
   token = null;
+  renewedAt = 0;
   started = false;
   activeId = null;
   inFlight = false;
@@ -425,7 +431,7 @@ function losePrimary(message = "主屏权限已撤回，请管理员重新连接
 }
 function connectRemoteStream() {
   if (!token || remoteStream || typeof EventSource !== "function") return;
-  const stream = new EventSource("/api/tv/events?token=" + encodeURIComponent(token));
+  const stream = new EventSource("/api/tv/events");
   remoteStream = stream;
   for (const name of ["ready", "update"]) {
     stream.addEventListener(name, () => {
@@ -454,6 +460,7 @@ async function connectPrimary() {
     const result = await response.json();
     if (!response.ok) throw Error(result.detail || "主屏配对失败");
     token = result.token;
+    renewedAt = performance.now();
     error.textContent = "";
     start.textContent = "▶ 开始";
     connectRemoteStream();
@@ -461,6 +468,25 @@ async function connectPrimary() {
     if (token) start.disabled = false;
   } catch (e) {
     losePrimary(e.message || String(e));
+  }
+}
+async function renewPrimary() {
+  if (!token || renewing) return;
+  renewing = true;
+  try {
+    const updated = await api("/api/tv/renew", "POST");
+    if (!token) return;
+    token = updated.token;
+    renewedAt = performance.now();
+    // Existing EventSource still holds the old token from its initial cookie.
+    remoteStream?.close();
+    remoteStream = null;
+    remoteStreamReady = false;
+    connectRemoteStream();
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) losePrimary(e.message);
+  } finally {
+    renewing = false;
   }
 }
 function fail(e) {
@@ -775,6 +801,9 @@ volume.oninput = () => {
 setInterval(() => {
   if (!remoteStreamReady || performance.now() - lastQueuePollAt >= 1000) syncQueue();
 }, 350);
+setInterval(() => {
+  if (token && performance.now() - renewedAt >= 30 * 60 * 1000) renewPrimary();
+}, 60000);
 setInterval(async () => {
   if (!remoteStreamReady || !token || queueInFlight) return;
   try {
