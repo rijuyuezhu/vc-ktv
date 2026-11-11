@@ -2,7 +2,7 @@
 
 import asyncio
 
-from fastapi import APIRouter, Cookie, HTTPException, Request
+from fastapi import APIRouter, Cookie, Header, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -44,9 +44,36 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
             },
         )
 
+    def tv_credential(token: str | None, authorization: str | None) -> str:
+        # Header-based control avoids publishing bearer tokens in access logs;
+        # accept legacy query parameters until old TV pages have refreshed.
+        if authorization:
+            if not authorization.startswith("Bearer "):
+                raise HTTPException(401, "主屏认证方式无效")
+            return authorization[len("Bearer ") :]
+        if token:
+            return token
+        raise HTTPException(401, "请先连接主屏")
+
+    def set_event_cookie(response: Response, token: str) -> None:
+        response.set_cookie(
+            "vc_tv_events",
+            token,
+            max_age=8 * 3600,
+            path="/api/tv/events",
+            httponly=True,
+            secure=True,
+            samesite="strict",
+        )
+
     @router.get("/api/tv/events")
-    async def tv_events(request: Request, token: str):
-        return await events(request, "tv", lambda: tv.require_tv(token))
+    async def tv_events(
+        request: Request,
+        token: str | None = None,
+        vc_tv_events: str | None = Cookie(default=None),
+    ):
+        credential = tv_credential(token or vc_tv_events, None)
+        return await events(request, "tv", lambda: tv.require_tv(credential))
 
     @router.get("/api/admin/tv/events")
     async def admin_events(
@@ -77,8 +104,12 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
         return tv.send_command(principal, body.action, body.song_id, body.value)
 
     @router.post("/api/tv/report")
-    def tv_report(body: TVRemoteReport, token: str):
-        tv.require_tv(token)
+    def tv_report(
+        body: TVRemoteReport,
+        token: str | None = None,
+        authorization: str | None = Header(default=None),
+    ):
+        tv.require_tv(tv_credential(token, authorization))
         return tv.report(body.ack_seq, body.model_dump())
 
     @router.get("/api/admin/tv-link")
@@ -86,8 +117,20 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
         return tv.link(tv.auth.require_admin(vc_admin), replace)
 
     @router.post("/api/tv/activate")
-    def tv_activate(body: TVPair):
-        return tv.activate(body.pair)
+    def tv_activate(body: TVPair, response: Response):
+        result = tv.activate(body.pair)
+        set_event_cookie(response, result["token"])
+        return result
+
+    @router.post("/api/tv/renew")
+    def tv_renew(
+        response: Response,
+        token: str | None = None,
+        authorization: str | None = Header(default=None),
+    ):
+        updated = tv.renew_control(tv_credential(token, authorization))
+        set_event_cookie(response, updated)
+        return {"token": updated}
 
     @router.post("/api/admin/tv/revoke")
     def tv_revoke(vc_admin: str | None = Cookie(default=None)):
@@ -98,20 +141,30 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
         return tv.restore_current(tv.auth.require_admin(vc_admin))
 
     @router.get("/api/tv/state")
-    def tv_state(token: str, request: Request):
-        tv.require_tv(token)
+    def tv_state(
+        request: Request,
+        token: str | None = None,
+        authorization: str | None = Header(default=None),
+    ):
+        tv.require_tv(tv_credential(token, authorization))
         return state_response(request, tv.state(media))
 
     @router.post("/api/tv/replay-next")
-    def tv_replay_next(body: Finish, token: str):
-        tv.require_tv(token)
+    def tv_replay_next(
+        body: Finish,
+        token: str | None = None,
+        authorization: str | None = Header(default=None),
+    ):
+        tv.require_tv(tv_credential(token, authorization))
         with store.lock:
             tv.require_tv_mode()
             return playback.schedule_replay(body.song_id, current_only=True)
 
     @router.get("/api/tv/preload")
-    def tv_preload(token: str):
-        tv.require_tv(token)
+    def tv_preload(
+        token: str | None = None, authorization: str | None = Header(default=None)
+    ):
+        tv.require_tv(tv_credential(token, authorization))
         with store.lock:
             if store.playback_mode() != "tv" or not store.current():
                 return {"candidate": None}
@@ -135,16 +188,22 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
             }
 
     @router.post("/api/tv/next")
-    def tv_next(token: str):
-        tv.require_tv(token)
+    def tv_next(
+        token: str | None = None, authorization: str | None = Header(default=None)
+    ):
+        tv.require_tv(tv_credential(token, authorization))
         with store.lock:
             tv.require_tv_mode()
             playback.claim_next()
             return {"active": media.active_view()}
 
     @router.post("/api/tv/finish")
-    def tv_finish(body: Finish, token: str):
-        tv.require_tv(token)
+    def tv_finish(
+        body: Finish,
+        token: str | None = None,
+        authorization: str | None = Header(default=None),
+    ):
+        tv.require_tv(tv_credential(token, authorization))
         with store.lock:
             tv.require_tv_mode()
             return playback.finish(body.song_id, skipped=body.reason == "skip")
