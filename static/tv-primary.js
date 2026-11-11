@@ -1,7 +1,7 @@
 import { $, api, toast, guarded } from "./ui-common.js";
 // Primary-screen lifecycle and status polling for the administrator page.
 // Backend owns the actual single-primary and administrator permission rules.
-export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls }) {
+export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls, refresh }) {
   let tvPrimaryState = null;
   let tvRemoteState = null;
   let remoteStatusInFlight = null;
@@ -80,7 +80,7 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
   }
   async function refreshTVPrimary() {
     const tv = await api("/api/admin/tv");
-    const { playbackMode } = getPlayback();
+    const { playbackMode, currentAdminSong } = getPlayback();
     tvPrimaryState = tv;
     if (playbackMode !== "tv" || !tv.active) closeRemoteStream();
     const controls = $("tv-primary-management");
@@ -96,6 +96,10 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
       $(id).classList.toggle("hidden", !showActions);
     }
     $("tv-revoke-btn").classList.toggle("hidden", !showActions || !tv.active);
+    $("tv-restore-current-btn").classList.toggle(
+      "hidden",
+      !showActions || tv.active || !currentAdminSong || playbackMode !== "tv"
+    );
     $("tv-link-btn").textContent = tv.active ? "▣ 更换主屏" : "▣ 打开主屏";
     $("tv-copy-btn").textContent = tv.active ? "⧉ 复制更换链接" : "⧉ 复制主屏链接";
   }
@@ -136,11 +140,18 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
     }, $("tv-copy-btn"));
   $("tv-revoke-btn").onclick = () =>
     guarded(async () => {
-      if (!confirm("撤回主屏？当前歌曲保留，等待重新连接。")) return;
-      await api("/api/admin/tv/revoke", "POST");
-      await refreshTVPrimary();
-      toast("主屏已撤回");
+      if (!confirm("撤回主屏？当前歌曲将退回待播队列，重新播放时从头开始。")) return;
+      const result = await api("/api/admin/tv/revoke", "POST");
+      await refresh();
+      toast(result.requeued_song_id ? "主屏已撤回，当前歌曲已退回待播" : "主屏已撤回");
     }, $("tv-revoke-btn"));
+  $("tv-restore-current-btn").onclick = () =>
+    guarded(async () => {
+      if (!confirm("将当前歌曲退回待播队列？重新播放时将从头开始。")) return;
+      await api("/api/admin/tv/restore-current", "POST");
+      await refresh();
+      toast("当前歌曲已退回待播");
+    }, $("tv-restore-current-btn"));
   return {
     refreshTVPrimary,
     pollTVRemoteStatus,
