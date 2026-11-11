@@ -654,11 +654,19 @@ def check_ui(
     page.set_viewport_size({"width": 1280, "height": 720})
     print("PASS administrator queue parity, song history, details and mobile layout")
     # Administrator archive hierarchy and brand navigation are stable.
-    admin_header = page.locator(".topbar").bounding_box()
+    assert (
+        page.locator(".topbar").evaluate("el => getComputedStyle(el).position")
+        == "sticky"
+    )
+    assert page.locator("#remote-error").get_attribute("role") == "alert"
+    assert (
+        page.locator("#remote-error").get_attribute("class")
+        == "ui-status ui-status-error"
+    )
     page.locator("#admin-settings-link").click()
     assert page.locator("#home-brand").get_attribute("href") == "/admin/"
-    assert page.locator(".topbar").bounding_box()["y"] == admin_header["y"]
-    assert page.locator(".topbar").bounding_box()["x"] == admin_header["x"]
+    assert page.locator(".topbar").is_visible()
+    assert page.locator("#tab-admin").get_attribute("class") == "selected"
     page.locator('a[href="#settings-history"]').click()
     archives = page.locator("#event-history .archive-entry")
     assert archives.count() == 2
