@@ -14,7 +14,7 @@ def test_partial_active_pointer_write_does_not_poison_restart(tmp_path, monkeypa
     original_write = Path.write_text
 
     def fail_pointer_write(path, contents, *args, **kwargs):
-        if path == events.pointer:
+        if path.parent == root and path.name.startswith(".active-session-"):
             original_write(path, "", *args, **kwargs)
             raise OSError("simulated partial pointer write")
         return original_write(path, contents, *args, **kwargs)
