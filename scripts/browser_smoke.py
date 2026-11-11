@@ -686,6 +686,37 @@ def check_ui(
     assert page.locator("#admin-queue-ready .song-row").count() == len(
         admin_state["queue"]
     )
+    # Progress fields change frequently. Reuse the song row even when its
+    # visible status label changes, and poll more often while it is preparing.
+    waiting_row = page.locator("#admin-queue-waiting .song-row").first
+    waiting_row.wait_for(state="visible")
+    waiting_id = waiting_row.get_attribute("data-song-id")
+    waiting_row.evaluate("el => el.dataset.keepRow = 'yes'")
+    requests = []
+
+    def synthetic_progress(route):
+        result = route.fetch()
+        data = result.json()
+        requests.append(1)
+        for song in data["waiting"]:
+            if str(song["id"]) == waiting_id:
+                song["prep_state"] = "downloading"
+                song["prep_stage_at"] = 10000 + len(requests)
+        route.fulfill(response=result, json=data)
+
+    page.route("**/api/admin/state", synthetic_progress)
+    with page.expect_response(lambda response: "/api/admin/state" in response.url):
+        page.evaluate("window.dispatchEvent(new Event('hashchange'))")
+    page.locator(
+        f'#admin-queue-waiting .song-row[data-song-id="{waiting_id}"] .song-state'
+    ).filter(has_text="制作中").wait_for(state="visible")
+    assert waiting_row.get_attribute("data-keep-row") == "yes"
+    count = len(requests)
+    page.wait_for_timeout(2550)
+    assert len(requests) >= count + 2, "Preparation should use the fast refresh cadence"
+    assert waiting_row.get_attribute("data-keep-row") == "yes"
+    page.unroute("**/api/admin/state", synthetic_progress)
+    print("PASS preparing-song fast refresh and stable queue row identity")
     assert page.locator("#admin-queue-waiting .song-row").count() == len(
         admin_state["waiting"]
     )
