@@ -17,6 +17,7 @@ export function setupArchiveNavigation({
   refresh,
   navigate,
   getArchiveOrigin,
+  showReorderAction,
   canRequestSong,
   canManageArchives
 }) {
@@ -207,31 +208,33 @@ export function setupArchiveNavigation({
           await refresh();
         }, select);
     }
-    const section = appendText(panel, "section", "", "detail-section");
-    appendText(section, "h3", "歌曲操作");
-    const row = appendText(section, "div", "", "detail-tools");
-    const repeat = actionButton(row, "↻ 再点一首", async () => {
-      const info =
-        song.source_type === "netease"
-          ? song.source_id
-            ? await api("/api/netease/songs", "POST", { ref: String(song.source_id) })
-            : null
-          : song.bvid
-            ? await api("/api/songs", "POST", { bvid: song.bvid, page: song.page || 1 })
-            : null;
-      if (!info) throw Error("这首歌没有可用的来源");
-      toast("已加入队列，请选择歌词");
-      await refresh();
-      await openLyricPicker(
-        info.id,
-        info.title,
-        info.lyric_query,
-        song.bvid ? { bvid: song.bvid, page: song.page || 1, title: song.title } : null
-      );
-    });
-    repeat.title = canRequestSong() ? "在当前场次重新点歌" : "请先加入当前场次";
-    if (!(song.source_type === "netease" ? song.source_id : song.bvid) || !canRequestSong())
-      repeat.disabled = true;
+    if (showReorderAction()) {
+      const section = appendText(panel, "section", "", "detail-section");
+      appendText(section, "h3", "歌曲操作");
+      const row = appendText(section, "div", "", "detail-tools");
+      const repeat = actionButton(row, "↻ 再点一首", async () => {
+        const info =
+          song.source_type === "netease"
+            ? song.source_id
+              ? await api("/api/netease/songs", "POST", { ref: String(song.source_id) })
+              : null
+            : song.bvid
+              ? await api("/api/songs", "POST", { bvid: song.bvid, page: song.page || 1 })
+              : null;
+        if (!info) throw Error("这首歌没有可用的来源");
+        toast("已加入队列，请选择歌词");
+        await refresh();
+        await openLyricPicker(
+          info.id,
+          info.title,
+          info.lyric_query,
+          song.bvid ? { bvid: song.bvid, page: song.page || 1, title: song.title } : null
+        );
+      });
+      repeat.title = canRequestSong() ? "在当前场次重新点歌" : "请先加入当前场次";
+      if (!(song.source_type === "netease" ? song.source_id : song.bvid) || !canRequestSong())
+        repeat.disabled = true;
+    }
   }
   async function load(force = false) {
     const route = window.location.hash.replace(/^#\/?/, "");

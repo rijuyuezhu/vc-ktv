@@ -379,6 +379,11 @@ def check_ui(
         page.locator("#page-archive-song .detail-header h2").inner_text() == "归档歌曲"
     )
     assert page.locator("#page-archive-song a[href*='download']").count() == 0
+    assert (
+        page.locator("#page-archive-song")
+        .get_by_role("button", name="↻ 再点一首")
+        .is_visible()
+    )
     assert page.locator("#page-archive-song .detail-tools button").count() >= 2
     # Browser Back/Forward must retain the nested archive context.
     page.go_back()
@@ -749,6 +754,18 @@ def check_ui(
     page.locator("#page-archive-event .song-row").first.click()
     page.locator("#page-archive-song").wait_for(state="visible")
     assert page.locator("#page-archive-song a[href*='download']").count() == 0
+    assert (
+        page.locator("#page-archive-song")
+        .get_by_role("button", name="↻ 再点一首")
+        .count()
+        == 0
+    )
+    assert (
+        page.locator("#page-archive-song")
+        .get_by_role("heading", name="歌曲操作")
+        .count()
+        == 0
+    )
     assert page.locator("#page-archive-song").get_by_label("记录状态").is_visible()
     assert page.locator("#page-archive-song .archive-status-field > label").count() == 1
     page.locator("#page-archive-song").get_by_label("记录状态").select_option("skipped")

@@ -164,6 +164,7 @@ const archiveNav = setupArchiveNavigation({
   refresh,
   navigate,
   getArchiveOrigin: () => window.history.state?.archiveOrigin || archiveOrigin,
+  showReorderAction: () => !isAdminPath(),
   canRequestSong: () => (isAdminPath() ? adminCanOrder : guestAuthenticated),
   canManageArchives: () => isAdminPath() && admin && adminRole === "global"
 });
