@@ -238,25 +238,33 @@ function updateControls() {
   progress.textContent = clock(video.currentTime) + " / " + clock(video.duration);
 }
 let queueInFlight = false;
+let lastRemoteReportAt = -Infinity;
+let nextListKey = null;
 async function syncQueue() {
   if (!token || queueInFlight) return;
   queueInFlight = true;
   try {
     const state = await api("/api/tv/state");
     playbackMode = state.playback_mode || "tv";
+    const handled =
+      playbackMode === "tv" && state.remote_command && (await handleRemote(state.remote_command));
     const queue = (state.queue || []).slice(0, 3);
     updateNextSong(queue[0]);
-    nextList.replaceChildren();
-    if (!queue.length) {
-      const empty = document.createElement("li");
-      empty.textContent = "暂无下一首可播放歌曲";
-      nextList.append(empty);
-    }
-    for (const [index, song] of queue.entries()) {
-      const li = document.createElement("li");
-      li.textContent = index + 1 + ". " + songLabel(song);
-      li.setAttribute("data-provider", song.source_type === "netease" ? "netease" : "bilibili");
-      nextList.append(li);
+    const listKey = JSON.stringify(queue.map((s) => [s.id, s.title, s.nickname, s.source_type]));
+    if (listKey !== nextListKey) {
+      nextListKey = listKey;
+      nextList.replaceChildren();
+      if (!queue.length) {
+        const empty = document.createElement("li");
+        empty.textContent = "暂无下一首可播放歌曲";
+        nextList.append(empty);
+      }
+      for (const [index, song] of queue.entries()) {
+        const li = document.createElement("li");
+        li.textContent = index + 1 + ". " + songLabel(song);
+        li.setAttribute("data-provider", song.source_type === "netease" ? "netease" : "bilibili");
+        nextList.append(li);
+      }
     }
     if (state.current) showSongLabel(nowPlaying, state.current);
     else {
@@ -274,8 +282,7 @@ async function syncQueue() {
     else if (controlError.textContent === "当前未选择电视播放") controlError.textContent = "";
     if (preloaded && (!queue.length || preloaded.id !== queue[0].id)) clearPreload();
     updateControls();
-    if (playbackMode === "tv" && state.remote_command) await handleRemote(state.remote_command);
-    await reportRemote();
+    if (!handled) await reportRemote();
   } catch (e) {
     if (e.status === 401 || e.status === 403) losePrimary(e.message);
     else controlError.textContent = e.message || String(e);
@@ -299,8 +306,11 @@ function remoteReport(error = "") {
     error: String(error || "").slice(0, 150)
   };
 }
-async function reportRemote(message = "") {
+async function reportRemote(message = "", force = false) {
   if (!token) return;
+  const now = performance.now();
+  if (!force && !message && now - lastRemoteReportAt < 1000) return;
+  lastRemoteReportAt = now;
   await api("/api/tv/report", "POST", remoteReport(message));
 }
 async function handleRemote(command) {
@@ -354,7 +364,8 @@ async function handleRemote(command) {
   } catch (e) {
     failure = e.message || String(e);
   }
-  await reportRemote(failure);
+  await reportRemote(failure, true);
+  return true;
 }
 async function api(path, method = "GET", body = null) {
   const options = { method, cache: "no-store" };
@@ -725,7 +736,8 @@ volume.oninput = () => {
   video.volume = standby.volume = Number(volume.value) / 100;
   showPanel();
 };
-setInterval(syncQueue, 1000);
+// Read commands promptly; send ordinary status/heartbeat reports only once per second.
+setInterval(syncQueue, 350);
 if (pair) connectPrimary();
 else losePrimary("请从管理员页面重新打开主屏链接");
 updateControls();
