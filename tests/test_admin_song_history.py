@@ -84,12 +84,17 @@ def test_current_song_records_accept_administrators_without_guest_login(tmp_path
             "songs": [],
             "archived": False,
         }
-        archived = guest.get("/api/songs/history").json()
-        assert archived["archived"] is True
+        assert guest.get("/api/songs/history").status_code == 401
+        assert (
+            owner.put(
+                f"/api/admin/events/{event['id']}/visibility?public=true"
+            ).status_code
+            == 200
+        )
+        assert guest.get(f"/api/events/{event['id']}/songs").status_code == 401
+        # A global administrator can browse archived events without a guest cookie.
+        archived = owner.get(f"/api/events/{event['id']}/songs").json()
         assert [row["id"] for row in archived["songs"]] == [1, 2, 3, 4]
-        # Both login cookies may coexist: guest archives still work on the user page.
-        owner.cookies.set("vc_guest", guest.cookies.get("vc_guest"))
-        assert owner.get("/api/songs/history").json() == archived
         assert owner.get("/api/songs/history?admin_view=true").json() == {
             "songs": [],
             "archived": False,

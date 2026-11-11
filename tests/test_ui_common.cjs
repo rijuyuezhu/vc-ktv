@@ -20,7 +20,14 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
     clearTimeout: global.clearTimeout
   };
   const calls = [];
-  const toastElement = { textContent: "", className: "" };
+  const attrs = {};
+  const toastElement = {
+    textContent: "",
+    className: "",
+    setAttribute(key, val) {
+      attrs[key] = val;
+    }
+  };
   const created = [];
   global.fetch = async (url, options) => {
     calls.push([url, options]);
@@ -68,9 +75,13 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
     toast("完成");
     assert.equal(toastElement.textContent, "完成");
     assert.equal(toastElement.className, "show");
+    assert.equal(attrs.role, "status");
+    assert.equal(attrs["aria-live"], "polite");
     error(new Error("失败"));
     assert.equal(toastElement.className, "show error");
     assert.equal(toastElement.textContent, "失败");
+    assert.equal(attrs.role, "alert");
+    assert.equal(attrs["aria-live"], "assertive");
   } finally {
     Object.assign(global, before);
   }

@@ -4,8 +4,6 @@ import hashlib
 import hmac
 import ipaddress
 import os
-import sqlite3
-from urllib.parse import quote
 
 from fastapi import Request, Response
 
@@ -184,37 +182,3 @@ class AuthService:
             samesite="strict",
             path="/",
         )
-
-    def archived_guest_event(self, token: str | None) -> dict | None:
-        identity = self.read_signed(token, "guest")
-        if not identity or ":" not in identity:
-            return None
-        event_id, user_id = identity.split(":", 1)
-        if event_id == self.events.active_id:
-            return None
-        with self.events.lock:
-            event = next(
-                (
-                    e
-                    for e in self.events.list()
-                    if e["id"] == event_id and e["status"] == "closed"
-                ),
-                None,
-            )
-            if not event:
-                return None
-            try:
-                path = self.events.database_path(event_id)
-                with sqlite3.connect(
-                    f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
-                ) as db:
-                    row = db.execute(
-                        "SELECT username FROM users WHERE id=?", (user_id,)
-                    ).fetchone()
-            except sqlite3.Error:
-                return None
-            return (
-                {"id": event_id, "name": event["name"], "username": row[0]}
-                if row
-                else None
-            )

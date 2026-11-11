@@ -5,14 +5,14 @@ from fastapi.testclient import TestClient
 from vc_ktv.application.factory import create_app
 
 
-def test_guest_auth_router_keeps_signed_cookie_and_archived_event(tmp_path):
+def test_guest_auth_router_keeps_signed_cookie_without_legacy_archive(tmp_path):
     app = create_app(
         root=tmp_path / "room",
         password="test-admin",
         secret=b"guest-auth-router",
         auto_prepare=False,
     )
-    first = app.state.events.create("First event", "001234")
+    app.state.events.create("First event", "001234")
     with TestClient(app) as guest, TestClient(app) as admin:
         assert guest.get("/api/entry").json()["authenticated"] is False
         assert (
@@ -61,5 +61,4 @@ def test_guest_auth_router_keeps_signed_cookie_and_archived_event(tmp_path):
         archive = guest.get("/api/entry").json()
         assert archive["event"] is None
         assert archive["authenticated"] is False
-        assert archive["archived_event"]["id"] == first["id"]
-        assert archive["archived_event"]["username"] == "Singer"
+        assert "archived_event" not in archive

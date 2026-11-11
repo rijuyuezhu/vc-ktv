@@ -59,9 +59,9 @@ export function setupSongDetail({
     icon.className = "action-icon";
     parent.prepend(icon);
   }
-  function detailMediaActions(panel, song) {
+  function detailMediaActions(panel, song, archive = false) {
     const section = appendText(panel, "section", "", "detail-section");
-    appendText(section, "h3", "视频与来源");
+    appendText(section, "h3", archive ? "来源" : "视频与来源");
     const row = appendText(section, "div", "", "detail-tools");
     const link = (label, url, icon, external = false) => {
       const a = appendText(row, "a", label, "btn neutral");
@@ -78,8 +78,9 @@ export function setupSongDetail({
       btn.type = "button";
       btn.onclick = () => copyValue(value, what);
     };
-    if (song.downloadable) link("下载成片", "/api/songs/" + song.id + "/download", "download");
-    if (song.source_downloadable)
+    if (!archive && song.downloadable)
+      link("下载成片", "/api/songs/" + song.id + "/download", "download");
+    if (!archive && song.source_downloadable)
       link(
         song.source_type === "netease" ? "下载源视频" : "下载原片",
         "/api/songs/" + song.id + "/download/source",
@@ -244,23 +245,7 @@ export function setupSongDetail({
       return "";
     }
   }
-  async function refreshSongDetail() {
-    const id = Number(currentRoute().slice(5));
-    if (!Number.isInteger(id) || id <= 0) return;
-    const song = await api("/api/songs/" + id + "/detail");
-    const key = JSON.stringify([song, isAdminPath()]);
-    if (detailKey === key) {
-      const running = $("page-song").querySelector(".stage-current-time");
-      if (running && song.prep_stage_at)
-        running.textContent =
-          Math.max(0, Math.floor(Date.now() / 1000 - song.prep_stage_at)) + " 秒";
-      return;
-    }
-    detailKey = key;
-    const target = $("page-song");
-    const timingWasOpen = Boolean(target.querySelector(".timing-details")?.open);
-    target.replaceChildren();
-    const panel = appendText(target, "section", "", "panel song-detail-panel");
+  function renderSongSummary(panel, song) {
     const header = appendText(panel, "div", "", "detail-header");
     const coverUrl = songCoverUrl(song.cover);
     if (coverUrl) {
@@ -292,6 +277,34 @@ export function setupSongDetail({
       ["unavailable", "original"].includes(song.prep_state)
     )
       appendText(state, "span", song.prep_error, "detail-note");
+  }
+
+  function renderArchivedSong(target, song) {
+    target.replaceChildren();
+    const panel = appendText(target, "section", "", "panel song-detail-panel");
+    renderSongSummary(panel, song);
+    detailMediaActions(panel, song, true);
+    return panel;
+  }
+
+  async function refreshSongDetail() {
+    const id = Number(currentRoute().slice(5));
+    if (!Number.isInteger(id) || id <= 0) return;
+    const song = await api("/api/songs/" + id + "/detail");
+    const key = JSON.stringify([song, isAdminPath()]);
+    if (detailKey === key) {
+      const running = $("page-song").querySelector(".stage-current-time");
+      if (running && song.prep_stage_at)
+        running.textContent =
+          Math.max(0, Math.floor(Date.now() / 1000 - song.prep_stage_at)) + " 秒";
+      return;
+    }
+    detailKey = key;
+    const target = $("page-song");
+    const timingWasOpen = Boolean(target.querySelector(".timing-details")?.open);
+    target.replaceChildren();
+    const panel = appendText(target, "section", "", "panel song-detail-panel");
+    renderSongSummary(panel, song);
     detailMediaActions(panel, song);
     const actions = detailActions(song, isAdminPath());
     if (actions) {
@@ -418,5 +431,5 @@ export function setupSongDetail({
       await refresh();
     }, $("lyrics-save"));
 
-  return { refreshSongDetail, invalidateSongDetail };
+  return { refreshSongDetail, invalidateSongDetail, renderArchivedSong };
 }

@@ -83,7 +83,6 @@ textarea { resize: vertical; }
 .full-width { grid-column: 1/-1; }
 .result-list { display: flex; flex-direction: column; gap: 8px; margin-top: 13px; }
 .result-list a { padding: 9px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); }
-.login-panel { max-width: 610px; }
 .player-shell { position: relative; display: grid; place-items: center; overflow: hidden; aspect-ratio: 16/9; border: 1px solid var(--line-strong); border-radius: 9px; background: #0b1020; }
 .player-shell video { width: 100%; height: 100%; background: #000; }
 .player-shell #player-empty { position: absolute; padding: 20px; color: #b5c1d0; font-size: 12px; text-align: center; pointer-events: none; }
@@ -97,9 +96,22 @@ textarea { resize: vertical; }
 .stat small { color: var(--muted); }
 .upload-label { display: block; font-size: 13px; }
 .song-item input[type=file] { display: none; }
-#toast { position: sticky; top: 80px; z-index: 5; display: none; max-width: 690px; margin: auto; padding: 11px 16px; border: 1px solid #d4d7ff; border-radius: 8px; background: var(--accent-soft); color: var(--accent-ink); box-shadow: 0 8px 20px #17191d12; }
-#toast.show { display: block; }
-#toast.error { border-color: #efcbd0; background: var(--danger-soft); color: var(--danger); }
+#toast {
+  position: fixed; z-index: 200; top: calc(env(safe-area-inset-top, 0px) + 76px);
+  left: 50%; width: max-content; max-width: min(440px, calc(100vw - 24px));
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border: 1px solid var(--line-strong); border-radius: 11px;
+  background: var(--surface); color: var(--ink); box-shadow: 0 10px 35px #18213820;
+  font-size: 13px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere;
+  opacity: 0; visibility: hidden; pointer-events: none;
+  transform: translate(-50%, -7px); transition: opacity .15s ease, transform .15s ease, visibility .15s ease;
+}
+#toast::before { content: "✓"; display: grid; place-items: center; flex: 0 0 24px; width: 24px; height: 24px; border-radius: 50%; background: var(--ok-soft); color: var(--ok); font-size: 13px; }
+#toast.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+#toast.error { border-color: #f0c6cd; }
+#toast.error::before { content: "!"; background: var(--danger-soft); color: var(--danger); }
+@media (max-width: 420px) { #toast { top: calc(env(safe-area-inset-top, 0px) + 66px); } }
+@media (prefers-reduced-motion: reduce) { #toast { transition: none; } }
 dialog { width: 100%; max-width: min(620px,95vw); padding: 22px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--ink); box-shadow: 0 18px 60px #17191d30; }
 dialog::backdrop { background: #17191d99; }
 footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: center; }
@@ -174,8 +186,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .settings-fields > div { flex: 1 1 260px; }
 .settings-fields select { width: 100%; max-width: 450px; padding: 9px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px; }
 .archive-list { display: flex; flex-direction: column; gap: 8px; }
-.archive-item { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.archive-item span { overflow-wrap: anywhere; }
 
 /* Simple surfaces and calm typography: keep the primary action obvious. */
 .hero { margin: 8px 0 21px; }
@@ -190,7 +200,6 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .fold-panel > summary { cursor: pointer; font-size: 17px; font-weight: 700; list-style-position: inside; }
 .fold-panel[open] > summary { margin-bottom: 15px; }
 #guest-profile { padding-block: 12px; }
-#guest-access { max-width: 760px; }
 .status { white-space: normal; }
 .archive-list { padding-top: 8px; }
 @media (max-width: 760px) {
@@ -259,8 +268,7 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .page-links { display: grid; gap: 10px; }
 .link-switch { border: 0; background: none; color: var(--accent-ink); text-decoration: underline; }
 .auth-single { max-width: 400px; margin: auto; }
-.auth-single h3 { margin: 8px 0 14px; font-size: 20px; color: var(--ink); }
-#guest-access { max-width: 540px; }
+.auth-single h3 { margin: 6px 0 15px; font-size: 17px; color: var(--ink); }
 @media (max-width:760px) {
   .subpage-head h1 { font-size: 20px; }
   .topinner { padding: 9px 12px; }
@@ -368,7 +376,6 @@ button, input, select { min-height: 44px; }
   .song-item { row-gap: 8px; }
   .song-item .mini { min-height: 40px; }
   .song-actions { flex-direction: row; }
-  .auth-single h3 { font-size: 20px; }
 }
 
 /* Source tabs and a single NetEase song/search/share entry point. */
@@ -550,7 +557,6 @@ button, input, select { min-height: 44px; }
   padding: 14px 0; border-top: 1px solid var(--line); font-size: 14px; font-weight: 500 !important; cursor: pointer;
 }
 .setting-toggle input { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: var(--accent); }
-.settings-note { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 #event-settings-panel .style-preview { margin: 17px 0 21px; }
 .brand-icon { width: 18px; height: 18px; display: inline-block; vertical-align: middle; }
 .song-source-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 9px; }
@@ -560,7 +566,6 @@ button, input, select { min-height: 44px; }
   #account-name { max-width: 95px; font-size: 12px; }
   .account-menu summary { min-width: 0; padding: 7px 5px; }
   .top-actions { gap: 2px; }
-  .topinner { flex-wrap: wrap; }
   .top-actions { margin-left: auto; }
   .tabs a { padding-inline: 8px; }
   #event-settings-panel, #event-queue-settings-panel { padding: 17px; }
@@ -667,36 +672,55 @@ button, input, select { min-height: 44px; }
 .playback-remote.manual .manual-replay-label { display:inline; font-size:13px; }
 
 
-/* Archive management: compact, deliberate controls without explanatory cards. */
-.archive-item { align-items: center; gap: 15px; padding: 12px 2px; }
-.archive-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 170px; }
-.archive-info strong { font-size: 14px; font-weight: 650; overflow-wrap: anywhere; }
-.archive-info small { color: var(--muted); font-size: 12px; }
-.archive-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
-.archive-actions .btn { min-height: 40px; padding: 8px 12px; font-size: 12px; text-decoration: none; }
-.archive-actions .archive-delete { color: var(--danger); }
-.archive-actions .archive-delete:hover { color: var(--danger); background: var(--danger-soft); }
-@media (max-width: 600px) {
-  .archive-item { align-items: stretch; }
-  .archive-actions { width: 100%; }
-  .archive-actions .btn { flex: 1 1 auto; text-align: center; justify-content: center; }
-}
 /* The settings subpage already has a title; do not repeat it inside the card. */
 #page-settings-history #event-archive-panel > summary,
 #page-stats #performance-panel > summary { display: none; }
 
-.archive-item { flex-wrap: wrap; }
-.archive-songs { flex: 1 0 100%; display: grid; gap: 4px; min-width: 0; }
-.archive-song {
-  display: grid; grid-template-columns: 26px minmax(0,1fr) auto;
-  align-items: center; gap: 8px; padding: 10px;
-  background: var(--surface-2); border-radius: 8px;
+/* Archive pages share the same song rows/details and the routed header. */
+.brand { color: var(--ink); text-decoration: none; flex-shrink: 0; }
+.brand:hover { color: var(--ink); text-decoration: none; }
+.topinner { min-height: 64px; flex-wrap: nowrap; }
+.icon-back { display: inline-grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; padding: 0; font-size: 29px; line-height: 1; }
+#subpage-action { margin-left: auto; font-size: 13px; }
+.archive-entry { width: 100%; text-align: left; justify-content: space-between; }
+.archive-entry strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.archive-entry small { color: var(--muted); }
+.archive-event-tools { margin: 14px 0; flex-wrap: wrap; }
+.archive-song-list { margin-top: 18px; }
+.archive-status-select { flex: 0 1 210px; min-height: 44px; }
+@media (max-width: 760px) {
+  .top-actions { min-width: 0; }
+  #subpage-action { padding: 8px; font-size: 12px; }
+  .archive-entry { flex-wrap: wrap; }
 }
-.archive-number { font-size: 12px; color: var(--muted); }
-.archive-song-copy { display: grid; gap: 3px; min-width: 0; }
-.archive-song-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
-.archive-song .song-meta { font-size: 12px; }
+@media (max-width: 420px) {
+  .topinner { gap: 4px; padding: 8px; }
+  .brand { gap: 5px; }
+  .brand strong { font-size: 14px; letter-spacing: 0; }
+  .top-actions { gap: 1px; }
+  .tabs { gap: 1px; }
+  .tabs a { padding: 6px 4px; font-size: 12px; }
+  #account-name { max-width: 50px; }
+  .account-menu summary { gap: 2px; padding: 5px 2px; }
+}
+@media (max-width: 340px) {
+  #account-name { display: none; }
+  .brandicon { width: 30px; height: 30px; }
+}
 
-/* An archived song is a read-only record, not a dead-looking control. */
-.song-row:disabled { opacity: 1; cursor: default; }
-.song-row:disabled:hover { background: var(--surface); border-color: var(--line); }
+/* Shared compact fields, contextual state and non-displacing notifications. */
+.ui-field { display: grid; gap: 6px; margin-top: 17px; }
+.ui-field > label { margin: 0; font-size: 13px; font-weight: 650; }
+.ui-hint, .ui-hint-inline { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ui-hint { margin: 6px 0 10px; }
+.ui-hint-inline { margin-left: 8px; font-weight: 400; }
+.ui-status-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 3px 0 16px; }
+.ui-status { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 30px; margin: 0 0 12px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.ui-status-row .ui-status { margin: 0; }
+.ui-status:empty { display: none; }
+#guest-access, #login-box { margin-inline: auto; max-width: 540px; width: 100%; }
+#guest-access .section-head, #login-box .section-head { margin-bottom: 14px; }
+#login-box .input-row { align-items: stretch; }
+#login-box .input-row > .btn { min-width: 90px; }
+#guest-access .auth-single { padding-top: 8px; }
+#guest-access .auth-single .ui-field > label { color: var(--muted); }

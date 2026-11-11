@@ -37,14 +37,12 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
         vc_guest: str | None = Cookie(default=None),
     ):
         event = events.metadata()
-        archive = auth.archived_guest_event(vc_guest)
         if not event:
             return {
                 "event": None,
                 "joined": False,
                 "authenticated": False,
                 "username": None,
-                "archived_event": archive,
             }
         user = auth.current_user(vc_guest)
         joined = bool(user or auth.read_signed(vc_join, "entry") == events.active_id)
@@ -53,7 +51,6 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
             "joined": joined,
             "authenticated": bool(user),
             "username": user["name"] if user else None,
-            "archived_event": archive if not user else None,
         }
 
     @router.post("/api/join")
