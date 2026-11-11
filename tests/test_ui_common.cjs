@@ -84,7 +84,7 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
     }
   };
   global.setTimeout = (_, delay) => {
-    assert.equal(delay, 4800);
+    assert.ok([4800, 12000, 30000].includes(delay), `unexpected timeout ${delay}`);
     return 7;
   };
   global.clearTimeout = () => {};
@@ -155,5 +155,48 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
     assert.equal(attrs["aria-live"], "assertive");
   } finally {
     Object.assign(global, before);
+  }
+});
+
+test("hung reads and writes time out, releasing guarded controls without retrying", async () => {
+  const { api, guarded } = await loadUI();
+  const previous = {
+    fetch: global.fetch,
+    setTimeout: global.setTimeout,
+    clearTimeout: global.clearTimeout,
+    document: global.document
+  };
+  const calls = [];
+  const toastNode = { textContent: "", setAttribute() {}, className: "" };
+  global.document = { getElementById: () => toastNode };
+  global.setTimeout = (fn, delay) => {
+    if (delay === 12000 || delay === 30000) queueMicrotask(fn);
+    return 1;
+  };
+  global.clearTimeout = () => {};
+  global.fetch = async (url, opts) => {
+    calls.push([url, opts.method]);
+    return new Promise((_, reject) => {
+      opts.signal.addEventListener(
+        "abort",
+        () => reject(new DOMException("stalled", "AbortError")),
+        {
+          once: true
+        }
+      );
+    });
+  };
+  try {
+    await assert.rejects(api("/hung"), /网络响应超时/);
+    const button = { disabled: false };
+    await guarded(() => api("/commit", "POST", { value: 1 }), button);
+    assert.equal(button.disabled, false);
+    assert.match(toastNode.textContent, /服务器可能已执行操作/);
+    assert.deepEqual(calls, [
+      ["/hung", "GET"],
+      ["/commit", "POST"]
+    ]);
+  } finally {
+    Object.assign(global, previous);
   }
 });
