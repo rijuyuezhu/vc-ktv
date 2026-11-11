@@ -172,10 +172,10 @@
             </div>
             <aside class="playback-remote" aria-label="播放遥控器">
               <div class="remote-buttons">
-                <button id="remote-pause" type="button" aria-label="暂停或继续" title="暂停或继续"><img src="/icons/pause.svg" alt=""></button>
-                <button id="remote-restart" type="button" aria-label="从头重播" title="从头重播"><img src="/icons/rotate-ccw.svg" alt=""></button>
-                <button id="remote-skip" type="button" aria-label="跳过" title="跳过"><img src="/icons/skip-forward.svg" alt=""></button>
-                <button id="remote-replay" type="button" aria-label="下一首重唱" title="下一首重唱"><img src="/icons/repeat-2.svg" alt=""><span class="manual-replay-label">重唱</span></button>
+                <button id="remote-pause" class="btn neutral" type="button" aria-label="暂停或继续" title="暂停或继续"><img src="/icons/pause.svg" alt=""></button>
+                <button id="remote-restart" class="btn neutral" type="button" aria-label="从头重播" title="从头重播"><img src="/icons/rotate-ccw.svg" alt=""></button>
+                <button id="remote-skip" class="btn neutral" type="button" aria-label="跳过" title="跳过"><img src="/icons/skip-forward.svg" alt=""></button>
+                <button id="remote-replay" class="btn neutral" type="button" aria-label="下一首重唱" title="下一首重唱"><img src="/icons/repeat-2.svg" alt=""><span class="manual-replay-label">重唱</span></button>
               </div>
               <span id="remote-command-status" class="remote-command-status" role="status" aria-live="polite"></span>
               <span id="remote-progress" class="remote-progress">0:00 / 0:00</span>
@@ -186,12 +186,12 @@
               <div id="tv-remote-extra" class="remote-extra hidden">
                 <div class="remote-label">字幕偏移 <span id="remote-offset-value">+0.0s</span></div>
                 <div class="remote-offsets">
-                  <button type="button" data-admin-offset="-50">−5s</button>
-                  <button type="button" data-admin-offset="-10">−1s</button>
-                  <button type="button" data-admin-offset="-1">−0.1s</button>
-                  <button type="button" data-admin-offset="1">+0.1s</button>
-                  <button type="button" data-admin-offset="10">+1s</button>
-                  <button type="button" data-admin-offset="50">+5s</button>
+                  <button class="btn neutral" type="button" data-admin-offset="-50">−5s</button>
+                  <button class="btn neutral" type="button" data-admin-offset="-10">−1s</button>
+                  <button class="btn neutral" type="button" data-admin-offset="-1">−0.1s</button>
+                  <button class="btn neutral" type="button" data-admin-offset="1">+0.1s</button>
+                  <button class="btn neutral" type="button" data-admin-offset="10">+1s</button>
+                  <button class="btn neutral" type="button" data-admin-offset="50">+5s</button>
                 </div>
                 <label class="remote-range remote-opacity" for="remote-opacity">
                   <span>信息框透明度</span>
@@ -371,21 +371,21 @@
   </template>
   <footer>VC-KTV</footer>
   <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog" aria-labelledby="guest-lyrics-title">
-    <div class="section-head guest-lyrics-head">
+    <div class="section-head dialog-head">
       <h2 id="guest-lyrics-title">选择歌词</h2>
       <div class="guest-lyrics-actions">
         <button id="guest-lyrics-preview" class="btn subtle" type="button" hidden>▶ 预览视频</button>
         <button id="guest-lyrics-cancel" class="btn subtle" type="button">取消点歌</button>
-        <form method="dialog"><button class="btn subtle" type="submit">稍后</button></form>
+        <form method="dialog"><button class="btn subtle icon-close" type="submit" aria-label="稍后" title="稍后">×</button></form>
       </div>
     </div>
     <div class="guest-lyrics-content">
-      <p id="guest-lyrics-song" class="muted"></p>
+      <p id="guest-lyrics-song" class="dialog-meta"></p>
       <div class="input-row guest-lyrics-search">
         <input id="guest-lyrics-query" placeholder="搜索歌曲名称" aria-label="歌词搜索关键词">
         <button id="guest-lyrics-search" class="btn neutral" type="button" aria-label="搜索歌词">⌕</button>
       </div>
-      <p id="guest-lyrics-status" class="muted" aria-live="polite"></p>
+      <div id="guest-lyrics-status" class="ui-status" role="status" aria-live="polite"></div>
       <div id="guest-lyrics-results" class="lyric-options" aria-live="polite"></div>
       <div class="guest-lyrics-extras">
         <button id="guest-lyrics-more" class="btn subtle" type="button">更多来源</button>
@@ -397,30 +397,30 @@
     <div class="guest-lyrics-footer"><button id="guest-lyrics-select" class="btn primary" type="button" disabled>选择</button></div>
   </dialog>
   <dialog id="guest-lyric-preview-dialog" class="guest-lyric-preview-dialog" aria-labelledby="guest-lyric-preview-title">
-    <div class="section-head">
+    <div class="section-head dialog-head">
       <h2 id="guest-lyric-preview-title">完整歌词</h2>
-      <button id="guest-lyric-preview-close" class="btn subtle" type="button">关闭</button>
+      <button id="guest-lyric-preview-close" class="btn subtle icon-back" type="button" aria-label="返回" title="返回">‹</button>
     </div>
-    <p id="guest-lyric-preview-info" class="muted"></p>
+    <p id="guest-lyric-preview-info" class="dialog-meta"></p>
     <pre id="guest-lyric-preview-text" class="guest-lyric-preview-text"></pre>
   </dialog>
   <dialog id="bilibili-preview-dialog" class="bilibili-preview-dialog" aria-labelledby="bilibili-preview-title">
-    <div class="section-head"><h2 id="bilibili-preview-title">选择分 P</h2><button id="bilibili-preview-back" class="btn subtle icon-back" type="button" aria-label="返回" title="返回">‹</button></div>
-    <p id="bilibili-preview-song" class="muted"></p>
+    <div class="section-head dialog-head"><h2 id="bilibili-preview-title">选择分 P</h2><button id="bilibili-preview-back" class="btn subtle icon-back" type="button" aria-label="返回" title="返回">‹</button></div>
+    <p id="bilibili-preview-song" class="dialog-meta"></p>
     <iframe id="bilibili-preview-player" title="B站官方视频预览" allow="autoplay;fullscreen;picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
     <a id="bilibili-preview-official" target="_blank" rel="noopener noreferrer">在 B 站查看</a>
     <div id="bilibili-preview-parts" class="bilibili-preview-parts" aria-label="选择视频分 P"></div>
     <button id="bilibili-preview-confirm" class="btn primary wide" type="button">下一步：选择歌词</button>
   </dialog>
   <dialog id="netease-review-dialog" class="netease-review-dialog" aria-labelledby="netease-review-title">
-    <div class="section-head">
+    <div class="section-head dialog-head">
       <h2 id="netease-review-title">网易云歌词</h2>
       <button id="netease-review-back" class="btn subtle icon-back" type="button" aria-label="返回" title="返回">‹</button>
     </div>
     <section id="netease-line-review" class="netease-review-section is-open">
       <button class="netease-accordion-toggle" type="button" aria-expanded="true" aria-controls="netease-review-content">✏️ 校正歌词 <span id="netease-review-count" aria-live="polite"></span><span class="accordion-state" aria-hidden="true"></span></button>
       <div id="netease-review-content" class="review-content">
-        <p class="muted review-help">点击歌词行切换是否保留。黄色 ✓ 为保留，灰色 ✕ 为删除。</p>
+        <p class="ui-hint">点击歌词行切换保留状态</p>
         <div class="review-toolbar"><button id="netease-review-select-all" class="btn subtle" type="button">全部保留</button></div>
         <div id="netease-review-lines" class="netease-review-lines"></div>
       </div>
@@ -430,22 +430,20 @@
       <div id="netease-alignment-cards" class="alignment-cards" hidden>
         <section id="netease-review-provider" class="alignment-card" hidden>
           <div class="alignment-heading"><strong>⚡ 快速使用</strong><span>网易云原时间轴</span></div>
-          <p>采用原逐句时间，速度快，适合同一录音版本。</p>
-          <p class="alignment-note">逐字效果为估算，翻唱或改编版可能不同步。</p>
+          <p class="alignment-note">直接采用原时间轴，速度快；翻唱可能不同步</p>
           <details class="offset-details"><summary>⏱ 调整时间偏移（默认 0 秒）</summary><label for="netease-review-offset">时间偏移（秒，视频更晚则填正数）</label><input id="netease-review-offset" type="number" step="0.1" value="0"></details>
           <button id="netease-review-timed" class="btn primary choice-action" type="button">使用原时间轴</button>
         </section>
         <section id="netease-review-ai-card" class="alignment-card">
           <div class="alignment-heading"><strong>✨ AI 精细对齐</strong><span>重新分析这首视频</span></div>
-          <p>按视频演唱重新对齐，适合翻唱。</p>
-          <p class="alignment-note">逐字定位更细，但制作较慢，也可能有误。</p>
+          <p class="alignment-note">按视频重新对齐，更精细但制作较慢</p>
           <button id="netease-review-align" class="btn primary choice-action" type="button">AI 重新对齐</button>
         </section>
       </div>
     </section>
   </dialog>
   <dialog id="lyrics-dialog">
-    <form method="dialog"><div class="section-head"><h2>编辑参考歌词</h2><button class="btn subtle">关闭</button></div></form>
+    <form method="dialog"><div class="section-head dialog-head"><h2>编辑参考歌词</h2><button class="btn subtle icon-close" type="submit" aria-label="关闭" title="关闭">×</button></div></form>
 
     <div class="input-row"><input id="lyric-source-title" placeholder="VCPedia 页面名称，如 勾指起誓"><button id="lyric-source-btn" class="btn neutral">获取候选</button></div>
     <div id="lyric-source-results" class="result-list"></div>

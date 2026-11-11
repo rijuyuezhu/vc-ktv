@@ -442,6 +442,11 @@ def check_ui(
     page.locator("#bvid").fill("BV1pX4y1a7Cd")
     page.locator("#quick-submit-btn").click()
     page.locator("#bilibili-preview-dialog").wait_for(state="visible")
+    assert (
+        page.locator("#bilibili-preview-dialog")
+        .get_by_role("button", name="返回")
+        .is_visible()
+    )
     assert page.locator(".bili-part").count() == 2
     assert "page=1" in page.locator("#bilibili-preview-player").get_attribute("src")
     page.locator('.bili-part[data-page="2"]').click()
@@ -466,6 +471,17 @@ def check_ui(
     )
     page.locator("#bilibili-preview-confirm").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    assert (
+        page.locator("#guest-lyrics-dialog")
+        .get_by_role("heading", name="选择歌词")
+        .is_visible()
+    )
+    assert (
+        page.locator("#guest-lyrics-dialog")
+        .get_by_role("button", name="稍后")
+        .is_visible()
+    )
+    assert page.locator("#guest-lyrics-status").get_attribute("role") == "status"
     multi = guest.request.get(f"{base}/api/state").json()["waiting"]
     assert (
         len(multi) == 1 and multi[0]["bvid"] == "BV1pX4y1a7Cd" and multi[0]["page"] == 2
@@ -518,6 +534,7 @@ def check_ui(
     previews.first.click()
     preview_dialog = page.locator("#guest-lyric-preview-dialog")
     preview_dialog.wait_for(state="visible")
+    assert preview_dialog.get_by_role("button", name="返回").is_visible()
     assert (
         page.locator("#guest-lyric-preview-info").inner_text()
         == "Synthetic Lyrics / 网易云音乐"
@@ -569,6 +586,11 @@ def check_ui(
         assert preview_dialog.bounding_box()["y"] >= 0
         page.locator("#guest-lyric-preview-close").click()
         preview_dialog.wait_for(state="hidden")
+        assert (
+            page.locator("#guest-lyrics-dialog")
+            .get_by_role("button", name="稍后")
+            .is_visible()
+        )
         assert second.get_attribute("aria-pressed") == "true"
         assert page.locator("#guest-lyrics-select").is_enabled()
     print(
@@ -576,6 +598,15 @@ def check_ui(
     )
     page.locator("#guest-lyrics-select").click()
     page.locator("#netease-review-dialog").wait_for(state="visible")
+    assert (
+        page.locator("#netease-review-dialog")
+        .get_by_role("button", name="返回")
+        .is_visible()
+    )
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 780})
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+        assert page.locator("#netease-review-dialog").bounding_box()["width"] <= width
     page.locator("#netease-review-back").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
     assert second.get_attribute("aria-pressed") == "true"
@@ -878,6 +909,22 @@ def check_ui(
     assert "复制更换链接" in admin_page.locator("#tv-copy-btn").text_content()
     assert admin_page.locator("#tv-revoke-btn").is_visible()
     assert admin_page.locator("#remote-opacity").is_enabled()
+    assert admin_page.locator("#remote-pause").get_attribute("aria-label") in (
+        "暂停",
+        "继续",
+    )
+    assert (
+        admin_page.locator("#remote-restart").get_attribute("aria-label") == "从头重播"
+    )
+    for width in (320, 390):
+        admin_page.set_viewport_size({"width": width, "height": 780})
+        assert admin_page.evaluate("document.documentElement.scrollWidth") <= width
+        assert admin_page.locator("#remote-replay").is_visible()
+        assert admin_page.locator("#tv-remote-extra .remote-offsets").is_visible()
+        assert admin_page.locator("#remote-replay").evaluate(
+            "el => el.getBoundingClientRect().height >= 44"
+        )
+    admin_page.set_viewport_size({"width": 1280, "height": 720})
     admin_page.locator("#remote-opacity").evaluate(
         '(control) => {control.value="20";control.dispatchEvent(new Event("change"));}'
     )
