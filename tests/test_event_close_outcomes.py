@@ -200,12 +200,20 @@ def test_guest_and_admin_can_read_closed_history_without_other_room_access(tmp_p
         assert live.json()["archived"] is False
         assert [s["id"] for s in live.json()["songs"]] == [1, 4, 3, 2]
         assert admin.post("/api/admin/events/close").status_code == 200
-        assert guest.get("/api/entry").json()["archived_event"]["id"] == room["id"]
+        assert "archived_event" not in guest.get("/api/entry").json()
         # Archives created before frozen ordering still have a useful order.
         with sqlite3.connect(root / "sessions" / room["id"] / "room.sqlite3") as db:
             db.execute("UPDATE songs SET archive_order=NULL")
+        assert guest.get("/api/songs/history").status_code == 401
+        assert (
+            admin.put(
+                f"/api/admin/events/{room['id']}/visibility?public=true"
+            ).status_code
+            == 200
+        )
         assert [
-            row["id"] for row in guest.get("/api/songs/history").json()["songs"]
+            row["id"]
+            for row in guest.get(f"/api/events/{room['id']}/songs").json()["songs"]
         ] == [1, 4, 3, 2]
         assert [
             row["id"]
@@ -213,9 +221,8 @@ def test_guest_and_admin_can_read_closed_history_without_other_room_access(tmp_p
                 "songs"
             ]
         ] == [1, 4, 3, 2]
-        archived = guest.get("/api/songs/history")
+        archived = guest.get(f"/api/events/{room['id']}/songs")
         assert archived.status_code == 200
-        assert archived.json()["archived"] is True
         assert [s["id"] for s in archived.json()["songs"]] == [1, 4, 3, 2]
         assert [s["status"] for s in archived.json()["songs"]] == [
             "played",
@@ -229,8 +236,8 @@ def test_guest_and_admin_can_read_closed_history_without_other_room_access(tmp_p
         assert (
             admin.post("/api/admin/events", json={"name": "下一场"}).status_code == 200
         )
-        assert guest.get("/api/songs/history").json()["archived"] is True
-        assert guest.get("/api/entry").json()["archived_event"]["id"] == room["id"]
+        assert guest.get("/api/songs/history").status_code == 401
+        assert "archived_event" not in guest.get("/api/entry").json()
 
 
 def test_failed_close_restores_songs_and_fair_order(tmp_path, monkeypatch):

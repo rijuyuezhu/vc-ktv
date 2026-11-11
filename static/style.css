@@ -700,3 +700,36 @@ button, input, select { min-height: 44px; }
 /* An archived song is a read-only record, not a dead-looking control. */
 .song-row:disabled { opacity: 1; cursor: default; }
 .song-row:disabled:hover { background: var(--surface); border-color: var(--line); }
+
+/* Archive pages share the same song rows/details and the routed header. */
+.brand { color: var(--ink); text-decoration: none; flex-shrink: 0; }
+.brand:hover { color: var(--ink); text-decoration: none; }
+.topinner { min-height: 64px; flex-wrap: nowrap; }
+.icon-back { display: inline-grid; flex: 0 0 42px; place-items: center; width: 42px; height: 42px; padding: 0; font-size: 29px; line-height: 1; }
+#subpage-action { margin-left: auto; font-size: 13px; }
+.archive-entry { width: 100%; text-align: left; justify-content: space-between; }
+.archive-entry strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.archive-entry small { color: var(--muted); }
+.archive-event-tools { margin: 14px 0; flex-wrap: wrap; }
+.archive-song-list { margin-top: 18px; }
+.archive-status-select { flex: 0 1 210px; min-height: 44px; }
+@media (max-width: 760px) {
+  .topinner { flex-wrap: nowrap; }
+  .top-actions { min-width: 0; }
+  #subpage-action { padding: 8px; font-size: 12px; }
+  .archive-entry { flex-wrap: wrap; }
+}
+@media (max-width: 420px) {
+  .topinner { gap: 4px; padding: 8px; }
+  .brand { gap: 5px; }
+  .brand strong { font-size: 14px; letter-spacing: 0; }
+  .top-actions { gap: 1px; }
+  .tabs { gap: 1px; }
+  .tabs a { padding: 6px 4px; font-size: 12px; }
+  #account-name { max-width: 50px; }
+  .account-menu summary { gap: 2px; padding: 5px 2px; }
+}
+@media (max-width: 340px) {
+  #account-name { display: none; }
+  .brandicon { width: 30px; height: 30px; }
+}

@@ -1,9 +1,7 @@
 """Read-only song history and per-song detail endpoints."""
 
 import json
-import sqlite3
 from pathlib import Path
-from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie
 
@@ -18,7 +16,6 @@ def create_history_router(
     current_user,
     admin_principal,
     require_user,
-    archived_guest_event,
 ) -> APIRouter:
     router = APIRouter()
     store = app.state.store
@@ -34,49 +31,8 @@ def create_history_router(
         principal = admin_principal(vc_admin)
         if admin_view and not principal:
             bail(401, "需要管理员登录")
-        archive = (
-            archived_guest_event(vc_guest) if not user and not admin_view else None
-        )
-        if not user and not archive and not principal:
+        if not user and not principal:
             require_user(vc_guest)
-        if archive:
-            with events.lock:
-                path = events.database_path(archive["id"])
-                with sqlite3.connect(
-                    f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
-                ) as db:
-                    db.row_factory = sqlite3.Row
-                    columns = {
-                        column[1] for column in db.execute("PRAGMA table_info(songs)")
-                    }
-                    frozen = (
-                        "archive_order" in columns
-                        and db.execute(
-                            "SELECT 1 FROM songs WHERE archive_order IS NOT NULL LIMIT 1"
-                        ).fetchone()
-                    )
-                    order = (
-                        "s.archive_order,s.id"
-                        if frozen
-                        else """CASE
-                           WHEN s.status IN ('played','skipped') THEN 0
-                           WHEN s.status IN ('playing','closed_interrupted') THEN 1
-                           WHEN s.status='cancelled' THEN 3 ELSE 2 END,
-                           s.played_at,s.requested_at,s.id"""
-                    )
-                    songs = [
-                        dict(row)
-                        for row in db.execute(
-                            """SELECT s.id,s.bvid,s.page,s.title,s.uploader,
-                                      s.status,s.source_type,s.source_id,
-                                      s.prep_state,s.skip_subtitles,
-                                      g.name AS nickname
-                               FROM songs s JOIN guests g ON g.id=s.requester
-                               ORDER BY """
-                            + order
-                        )
-                    ]
-            return {"songs": songs, "archived": True}
         if not events.active_id:
             return {"songs": [], "archived": False}
         with store.lock:

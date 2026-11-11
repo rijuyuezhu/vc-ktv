@@ -61,6 +61,23 @@ def create_event_admin_router(
                 body.original_codec_mode,
             )
 
+    @router.put("/api/admin/events/{event_id}/visibility")
+    def set_archive_visibility(
+        event_id: str, public: bool, vc_admin: str | None = Cookie(default=None)
+    ):
+        return archive.set_visibility(event_id, public, vc_admin)
+
+    @router.put("/api/admin/events/{event_id}/songs/{song_id}/status")
+    def set_archive_song_status(
+        event_id: str,
+        song_id: int,
+        status: Literal[
+            "played", "skipped", "cancelled", "closed_unplayed", "closed_interrupted"
+        ],
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        return archive.update_status(event_id, song_id, status, vc_admin)
+
     @router.post("/api/admin/events/{event_id}/release-media")
     def release_event_media(event_id: str, vc_admin: str | None = Cookie(default=None)):
         require_global_admin(vc_admin)

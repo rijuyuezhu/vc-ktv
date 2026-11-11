@@ -11,7 +11,7 @@
 <body>
   <header class="topbar">
     <div class="topinner">
-      <div class="brand"><div class="brandicon" aria-hidden="true">♫</div><strong>VC-KTV</strong></div>
+      <a id="home-brand" class="brand" href="/"><div class="brandicon" aria-hidden="true">♫</div><strong>VC-KTV</strong></a>
       <div class="top-actions">
         <nav class="tabs" aria-label="页面导航"><a id="tab-guest" class="selected" href="/">♫ 点歌</a><a id="tab-admin" href="/admin/">⚙ 管理</a></nav>
         <details id="account-menu" class="account-menu hidden">
@@ -38,7 +38,6 @@
       <section class="panel full-width" id="guest-access">
         <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 加入本场</h2></div>
         <p class="muted" id="guest-entry-description">正在连接……</p>
-        <a id="guest-past-link" class="btn neutral hidden" href="#played">上场记录</a>
         <form id="entry-code" class="hidden">
           <label for="join-code">六位加入码</label>
           <div class="input-row">
@@ -318,8 +317,8 @@
     </div>
     <section id="subpage" class="subpage hidden" aria-labelledby="subpage-title">
       <div class="section-head subpage-head">
-        <a id="subpage-back" href="#" class="btn neutral" aria-label="返回">‹ 返回</a>
-        <h1 id="subpage-title">详情</h1>
+        <a id="subpage-back" href="#" class="btn neutral icon-back" aria-label="返回" title="返回">‹</a>
+        <h1 id="subpage-title">详情</h1><a id="subpage-action" class="btn neutral hidden" href="#archive-events">其它场次 ›</a>
       </div>
       <div id="subpage-content"></div>
     </section>
@@ -360,7 +359,7 @@
     <pre id="guest-lyric-preview-text" class="guest-lyric-preview-text"></pre>
   </dialog>
   <dialog id="bilibili-preview-dialog" class="bilibili-preview-dialog" aria-labelledby="bilibili-preview-title">
-    <div class="section-head"><h2 id="bilibili-preview-title">选择分 P</h2><button id="bilibili-preview-back" class="btn subtle" type="button">返回</button></div>
+    <div class="section-head"><h2 id="bilibili-preview-title">选择分 P</h2><button id="bilibili-preview-back" class="btn subtle icon-back" type="button" aria-label="返回" title="返回">‹</button></div>
     <p id="bilibili-preview-song" class="muted"></p>
     <iframe id="bilibili-preview-player" title="B站官方视频预览" allow="autoplay;fullscreen;picture-in-picture" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
     <a id="bilibili-preview-official" target="_blank" rel="noopener noreferrer">在 B 站查看</a>
@@ -370,7 +369,7 @@
   <dialog id="netease-review-dialog" class="netease-review-dialog" aria-labelledby="netease-review-title">
     <div class="section-head">
       <h2 id="netease-review-title">网易云歌词</h2>
-      <button id="netease-review-back" class="btn subtle" type="button">返回</button>
+      <button id="netease-review-back" class="btn subtle icon-back" type="button" aria-label="返回" title="返回">‹</button>
     </div>
     <section id="netease-line-review" class="netease-review-section is-open">
       <button class="netease-accordion-toggle" type="button" aria-expanded="true" aria-controls="netease-review-content">✏️ 校正歌词 <span id="netease-review-count" aria-live="polite"></span><span class="accordion-state" aria-hidden="true"></span></button>

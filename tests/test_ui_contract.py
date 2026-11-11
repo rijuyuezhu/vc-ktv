@@ -28,7 +28,14 @@ def test_guest_and_admin_dom_references_exist():
     )
     referenced = set(re.findall(r'\$\(\s*"([a-z0-9-]+)"\s*\)', scripts))
     # The application creates these sections dynamically.
-    runtime_pages = {"page-settings", "page-played", "page-song"}
+    runtime_pages = {
+        "page-settings",
+        "page-played",
+        "page-song",
+        "page-archive-events",
+        "page-archive-event",
+        "page-archive-song",
+    }
     assert referenced <= document.ids | runtime_pages, sorted(
         referenced - document.ids - runtime_pages
     )

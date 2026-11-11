@@ -53,6 +53,46 @@ def serve() -> None:
 
     app.state.lookup = fixture_lookup
     app.state.probe = lambda _path: 8
+    # Two earlier events exercise public/private archives without touching production.
+    older = app.state.events.create("公开示例场次", "111111")
+    with app.state.events.active().lock:
+        db = app.state.events.active().db
+        db.execute("INSERT INTO guests(id,name) VALUES ('archived','历史点歌者')")
+        db.execute(
+            """INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at,
+               status,prep_state,played_at) VALUES ('BV0000000001',2,'归档歌曲','档案UP','',65,
+               'archived',10,'played','done',20)"""
+        )
+        for i in range(2, 24):
+            db.execute(
+                """INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at,
+                   status,prep_state,played_at) VALUES ('BV0000000001',1,?,'档案UP','',60,
+                   'archived',?,'played','done',?)""",
+                (f"归档补充歌曲{i}", i + 10, i + 20),
+            )
+        db.execute(
+            """INSERT INTO songs (bvid,page,title,uploader,cover,duration,requester,requested_at,
+               status,prep_state,played_at,source_type,source_id)
+               VALUES ('',1,'归档网易云歌曲','网易云歌手','',60,'archived',100,
+               'played','done',100,'netease','987654')"""
+        )
+        db.commit()
+    app.state.events.close()
+    info_path = root / "data" / "sessions" / older["id"] / "info.json"
+    info = json.loads(info_path.read_text())
+    info["public"] = True
+    info_path.write_text(json.dumps(info, ensure_ascii=False))
+    app.state.events.create("私有示例场次", "222222")
+    with app.state.events.active().lock:
+        db = app.state.events.active().db
+        db.execute("INSERT INTO guests(id,name) VALUES ('private','私有点歌者')")
+        db.execute(
+            """INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at,
+               status,prep_state) VALUES ('BV0000000002',1,'私有歌曲','UP','',55,
+               'private',10,'closed_unplayed','done')"""
+        )
+        db.commit()
+    app.state.events.close()
     app.state.events.create("Isolated Browser Smoke", os.environ["STAGE_ROOM_CODE"])
     uvicorn.run(
         app,
@@ -231,6 +271,108 @@ def check_ui(
     assert result.text_content() == "Synthetic NetEase Song"
     page.locator("#source-tab-bilibili").click()
     print("PASS source switching and NetEase search results")
+
+    # Public archive navigation retains search state, nested return paths and
+    # gives source actions without serving any archived video.
+    page.locator('#queue-panel a[href="#played"]').click()
+    page.locator("#subpage-action").click()
+    public_list = page.locator("#page-archive-events")
+    public_list.wait_for(state="visible")
+    assert public_list.locator(".archive-entry").count() == 1
+    public_list.locator("input[type=search]").fill("公开")
+    public_list.locator(".archive-entry").click()
+    page.locator("#page-archive-event .song-row").first.wait_for(state="visible")
+    assert page.locator("#page-archive-event .song-row").count() == 24
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 780})
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+    assert page.locator("#subpage-back").get_attribute("href") == "#archive-events"
+    page.locator("#page-archive-event .song-row").first.click()
+    page.locator("#page-archive-song").wait_for(state="visible")
+    assert (
+        page.locator("#subpage-back")
+        .get_attribute("href")
+        .startswith("#archive-event-")
+    )
+    assert (
+        page.locator("#page-archive-song .detail-header h2").inner_text() == "归档歌曲"
+    )
+    assert page.locator("#page-archive-song a[href*='download']").count() == 0
+    assert page.locator("#page-archive-song .detail-tools button").count() >= 2
+    # Browser Back/Forward must retain the nested archive context.
+    page.go_back()
+    page.locator("#page-archive-event").wait_for(state="visible")
+    page.go_forward()
+    page.locator("#page-archive-song").wait_for(state="visible")
+    # Reorder must submit a new current-session request, not replay old media.
+    replay_calls = []
+
+    def fake_archive_order(route):
+        replay_calls.append(route.request.post_data_json)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {"id": 999, "title": "归档歌曲", "lyric_query": "归档歌曲"}
+            ),
+        )
+
+    page.route("**/api/songs", fake_archive_order)
+    page.get_by_role("button", name="↻ 再点一首").click()
+    page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    assert replay_calls == [{"bvid": "BV0000000001", "page": 2}]
+    page.get_by_role("button", name="稍后").click()
+    page.locator("#guest-lyrics-dialog").wait_for(state="hidden")
+    page.unroute("**/api/songs", fake_archive_order)
+    assert page.locator("#page-archive-song").is_visible()
+    page.locator("#subpage-back").click()
+    page.locator("#page-archive-event").wait_for(state="visible")
+    # Returning from a lower song should restore the long playlist's scroll.
+    page.locator("#page-archive-event .song-row").last.scroll_into_view_if_needed()
+    scroll_before = page.evaluate("window.scrollY")
+    assert scroll_before > 100
+    page.locator("#page-archive-event .song-row").last.click()
+    page.locator("#page-archive-song").wait_for(state="visible")
+    page.wait_for_function(
+        'document.querySelector("#page-archive-song .detail-header h2")?.textContent === "归档网易云歌曲"'
+    )
+    netease_calls = []
+
+    def fake_netease_reorder(route):
+        netease_calls.append(route.request.post_data_json)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {"id": 998, "title": "归档网易云歌曲", "lyric_query": "归档网易云歌曲"}
+            ),
+        )
+
+    page.route("**/api/netease/songs", fake_netease_reorder)
+    page.get_by_role("button", name="↻ 再点一首").click()
+    page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    assert netease_calls == [{"ref": "987654"}]
+    page.get_by_role("button", name="稍后").click()
+    page.locator("#guest-lyrics-dialog").wait_for(state="hidden")
+    page.unroute("**/api/netease/songs", fake_netease_reorder)
+    page.locator("#subpage-back").click()
+    page.locator("#page-archive-event").wait_for(state="visible")
+    page.wait_for_function(
+        "minimum => window.scrollY >= minimum", arg=round(scroll_before * 0.75)
+    )
+    page.locator("#subpage-back").click()
+    public_list.wait_for(state="visible")
+    assert public_list.locator("input[type=search]").input_value() == "公开"
+    assert public_list.locator(".archive-entry").count() == 1
+    assert page.locator("#subpage-back").get_attribute("href") == "#played"
+    page.locator("#subpage-back").click()
+    page.locator("#page-played").wait_for(state="visible")
+    page.locator("#subpage-back").click()
+    page.locator("#request-panel").wait_for(state="visible")
+    assert page.locator("#home-brand").get_attribute("href") == "/"
+    print(
+        "PASS public archive, full song detail, source-only actions, new order, and nested back"
+    )
 
     # A real two-P BVID is used with offline metadata; navigating Back creates
     # no order, and a ?p=2 link is retained through final submission.
@@ -438,6 +580,45 @@ def check_ui(
         assert page.locator('#admin-queue-panel a[href="#played"]').is_visible()
     page.set_viewport_size({"width": 1280, "height": 720})
     print("PASS administrator queue parity, song history, details and mobile layout")
+    # Administrator archive hierarchy and brand navigation are stable.
+    admin_header = page.locator(".topbar").bounding_box()
+    page.locator("#admin-settings-link").click()
+    assert page.locator("#home-brand").get_attribute("href") == "/admin/"
+    assert page.locator(".topbar").bounding_box()["y"] == admin_header["y"]
+    assert page.locator(".topbar").bounding_box()["x"] == admin_header["x"]
+    page.locator('a[href="#settings-history"]').click()
+    archives = page.locator("#event-history .archive-entry")
+    assert archives.count() == 2
+    archives.filter(has_text="私有示例场次").click()
+    page.locator("#page-archive-event").wait_for(state="visible")
+    assert page.locator("#subpage-back").get_attribute("href") == "#settings-history"
+    assert page.locator("#page-archive-event .archive-event-tools").is_visible()
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 780})
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+    page.set_viewport_size({"width": 1280, "height": 720})
+    page.locator("#page-archive-event .song-row").first.click()
+    page.locator("#page-archive-song").wait_for(state="visible")
+    assert page.locator("#page-archive-song a[href*='download']").count() == 0
+    page.locator("#page-archive-song select.archive-status-select").select_option(
+        "skipped"
+    )
+    page.wait_for_function(
+        'document.querySelector("#page-archive-song .detail-state strong").textContent === "已跳过"'
+    )
+    page.locator("#subpage-back").click()
+    page.locator("#page-archive-event").wait_for(state="visible")
+    page.wait_for_function(
+        'document.querySelector("#page-archive-event .song-row .song-state")?.textContent === "已跳过"'
+    )
+    page.locator("#subpage-back").click()
+    page.locator("#event-history").wait_for(state="visible")
+    page.locator("#subpage-back").click()
+    page.wait_for_function(
+        'document.querySelector("#subpage-title").textContent === "设置与统计"'
+    )
+    page.locator("#home-brand").click()
+    page.locator("#admin-queue-panel").wait_for(state="visible")
     page.locator("#admin-settings-link").click()
     page.locator('a[href="#stats"]').click()
     page.wait_for_function(

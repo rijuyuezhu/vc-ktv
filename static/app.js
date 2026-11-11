@@ -1,11 +1,14 @@
 import { setupAdminPlayback } from "./admin-playback.js";
 import { setupSongDetail } from "./song-detail.js";
+import { setupArchiveNavigation } from "./archive-navigation.js";
 import { setupAdminEvents } from "./admin-events.js";
 import { setupSongRequests, setupBilibiliPreview } from "./song-requests.js";
 import { createLyricPicker } from "./lyrics.js";
 import { $, api, toast, error, guarded, duration, appendText } from "./ui-common.js";
 ("use strict");
 let admin = false;
+let adminRole = null;
+let adminCanOrder = false;
 let refreshing = false;
 let refreshQueued = false;
 let refreshFailed = false;
@@ -53,7 +56,7 @@ function addSourceTag(parent, song) {
   appendText(tag, "span", isNetease ? "网易云" : "B站");
   tag.title = isNetease ? "网易云音乐" : "哔哩哔哩";
 }
-function compactSong(song, order) {
+function compactSong(song, order, onOpen = null) {
   const row = document.createElement("button");
   row.type = "button";
   row.className = "song-item song-row song-open";
@@ -76,11 +79,7 @@ function compactSong(song, order) {
   const status = appendText(row, "span", songState(song), "song-state");
   if (["下载失败", "字幕失败"].includes(status.textContent)) status.classList.add("failed");
   appendText(row, "span", "›", "song-chevron").setAttribute("aria-hidden", "true");
-  row.onclick = () => {
-    const fromPlayed = currentRoute() === "played";
-    window.location.hash = "song-" + song.id;
-    window.history.replaceState({ ...window.history.state, fromPlayed }, "");
-  };
+  row.onclick = onOpen || (() => navigate("song-" + song.id));
   return row;
 }
 function fillList(id, songs) {
@@ -129,7 +128,7 @@ const lyricPicker = createLyricPicker({ refresh, cancelGuestSong, videoPreview }
 const { openLyricPicker } = lyricPicker;
 
 setupSongRequests({ refresh, openLyricPicker, videoPreview });
-const { refreshSongDetail, invalidateSongDetail } = setupSongDetail({
+const { refreshSongDetail, invalidateSongDetail, renderArchivedSong } = setupSongDetail({
   refresh,
   currentRoute,
   isAdminPath,
@@ -142,6 +141,41 @@ const { refreshSongDetail, invalidateSongDetail } = setupSongDetail({
 function currentRoute() {
   return window.location.hash.replace(/^#\/?/, "");
 }
+const scrollPositions = new Map();
+let lastRoute = currentRoute();
+let archiveOrigin = window.history.state?.archiveOrigin || "";
+function navigate(route, origin) {
+  scrollPositions.set(currentRoute(), window.scrollY);
+  if (origin) archiveOrigin = origin;
+  window.history.pushState(
+    {
+      archiveOrigin,
+      returnTo: "#" + currentRoute()
+    },
+    "",
+    "#" + route
+  );
+  window.dispatchEvent(new Event("hashchange"));
+}
+const archiveNav = setupArchiveNavigation({
+  compactSong,
+  renderArchivedSong,
+  openLyricPicker,
+  refresh,
+  navigate,
+  getArchiveOrigin: () => window.history.state?.archiveOrigin || archiveOrigin,
+  canRequestSong: () => (isAdminPath() ? adminCanOrder : guestAuthenticated),
+  canManageArchives: () => isAdminPath() && adminRole === "global"
+});
+$("home-brand").href = isAdminPath() ? "/admin/" : "/";
+$("home-brand").onclick = (event) => {
+  event.preventDefault();
+  window.location.hash = "";
+};
+$("subpage-action").onclick = (e) => {
+  e.preventDefault();
+  navigate("archive-events", "played");
+};
 const adminRoutes = {
   settings: ["设置与统计", null],
   "settings-playback": ["播放与视频", "event-settings-panel"],
@@ -176,7 +210,7 @@ function setupSubpages() {
   settings.id = "page-settings";
   settings.append(menu);
   root.append(settings);
-  for (const name of ["played", "song"]) {
+  for (const name of ["played", "song", "archive-events", "archive-event", "archive-song"]) {
     const wrapper = document.createElement("div");
     wrapper.id = "page-" + name;
     wrapper.className = "hidden";
@@ -199,15 +233,17 @@ function setupSubpages() {
 function showPage() {
   const isAdmin = isAdminPath();
   const route = currentRoute();
+  const archivedPage = archiveNav.parse(route)?.page;
   const page =
-    isAdmin && adminRoutes[route]
+    archivedPage ||
+    (isAdmin && adminRoutes[route]
       ? route
       : route === "played"
         ? "played"
         : /^song-[0-9]+$/.test(route)
           ? "song"
-          : "";
-  const authenticated = isAdmin ? admin : guestAuthenticated;
+          : "");
+  const authenticated = archivedPage && !isAdmin ? true : isAdmin ? admin : guestAuthenticated;
   $("guest-view").classList.toggle("hidden", isAdmin || Boolean(page && authenticated));
   $("admin-view").classList.toggle("hidden", !isAdmin);
   $("admin-panel").classList.toggle("hidden", !admin || !!page);
@@ -219,19 +255,20 @@ function showPage() {
   $("hero-title").textContent = isAdmin ? "管理 KTV" : "想唱什么？";
   $("admin-settings-link").classList.toggle("hidden", !isAdmin || !admin);
   $("hero-title").closest(".hero").classList.toggle("hidden", !!page);
-  $("subpage-title").textContent =
-    page === "played"
+  $("subpage-action").classList.toggle("hidden", page !== "played");
+  $("subpage-title").textContent = archivedPage
+    ? archiveNav.title(route)
+    : page === "played"
       ? "本场记录"
       : page === "song"
         ? "歌曲详情"
         : page
           ? adminRoutes[page][0]
           : "";
-  $("subpage-back").href =
-    page === "song"
-      ? window.history.state?.fromPlayed
-        ? "#played"
-        : "#"
+  $("subpage-back").href = archivedPage
+    ? archiveNav.parent(route)
+    : page === "song"
+      ? window.history.state?.returnTo || "#"
       : page === "settings" || page === "played"
         ? "#"
         : "#settings";
@@ -239,7 +276,7 @@ function showPage() {
   if (page !== "settings-netease") {
     leaveNeteasePage();
   }
-  for (const name of ["played", "song"])
+  for (const name of ["played", "song", "archive-events", "archive-event", "archive-song"])
     $("page-" + name).classList.toggle("hidden", page !== name);
   for (const routeName of Object.keys(adminRoutes)) {
     if (routeName !== "settings")
@@ -247,22 +284,27 @@ function showPage() {
   }
   document.title =
     "VC-KTV | " +
-    (page === "played"
-      ? "本场记录"
-      : page === "song"
-        ? "歌曲详情"
-        : page
-          ? adminRoutes[page][0]
-          : isAdmin
-            ? "管理"
-            : "点歌");
+    (archivedPage
+      ? archiveNav.title(route)
+      : page === "played"
+        ? "本场记录"
+        : page === "song"
+          ? "歌曲详情"
+          : page
+            ? adminRoutes[page][0]
+            : isAdmin
+              ? "管理"
+              : "点歌");
 }
 setupSubpages();
 window.addEventListener("hashchange", () => {
+  if (lastRoute !== currentRoute()) scrollPositions.set(lastRoute, window.scrollY);
+  lastRoute = currentRoute();
   invalidateSongDetail();
   playedKey = null;
   showPage();
   refresh();
+  requestAnimationFrame(() => window.scrollTo(0, scrollPositions.get(currentRoute()) || 0));
 });
 document.querySelectorAll("[data-password-target]").forEach((button) => {
   button.onclick = () => {
@@ -333,8 +375,13 @@ const { refreshEvents, leaveNeteasePage } = setupAdminEvents({
   refresh,
   currentRoute,
   updateAccount,
-  addSourceTag,
-  songState,
+  onAdminRole: (role) => {
+    if (adminRole !== role) {
+      adminRole = role;
+      archiveNav.clear();
+    }
+  },
+  openArchivedEvent: (id) => navigate("archive-event-" + id, "settings-history"),
   onEventChanged: () => {
     invalidateSongDetail();
     playedKey = null;
@@ -355,9 +402,7 @@ function renderEntry(entry) {
     $("auth-register").classList.remove("hidden");
   }
   $("guest-entry-description").textContent = !entry.event
-    ? entry.archived_event
-      ? "已散场：" + entry.archived_event.name
-      : "暂无活动场次"
+    ? "暂无活动场次"
     : entry.joined
       ? entry.event.name
       : entry.event.name + "  输入六位加入码";
@@ -366,18 +411,11 @@ function renderEntry(entry) {
     "hidden",
     !entry.event || !entry.joined || entry.authenticated
   );
-  const pastOnly = Boolean(!entry.authenticated && entry.archived_event);
-  guestAuthenticated = Boolean(
-    entry.authenticated || (pastOnly && (!entry.event || currentRoute() === "played"))
-  );
+  guestAuthenticated = Boolean(entry.authenticated);
   $("guest-access").classList.toggle("hidden", guestAuthenticated);
-  $("guest-past-link").classList.toggle("hidden", !pastOnly || !entry.event);
-  if (!isAdminPath())
-    updateAccount(guestAuthenticated, entry.username || entry.archived_event?.username || "");
+  if (!isAdminPath()) updateAccount(guestAuthenticated, entry.username || "");
   $("request-panel").classList.toggle("hidden", !entry.authenticated);
   $("queue-panel").classList.toggle("hidden", !entry.authenticated);
-  if (entry.archived_event && !entry.event && currentRoute() !== "played")
-    window.location.hash = "played";
   showPage();
 }
 $("entry-code").addEventListener("submit", (e) => {
@@ -445,7 +483,6 @@ async function refresh() {
         }
       } else {
         guestStateKey = null;
-        if (entry.archived_event && currentRoute() === "played") await refreshSongHistory();
       }
     }
     if (isAdminPath()) {
@@ -466,6 +503,7 @@ async function refresh() {
           Boolean(
             adminRoutes[currentRoute()] ||
             currentRoute() === "played" ||
+            archiveNav.parse(currentRoute()) ||
             /^song-[0-9]+$/.test(currentRoute())
           )
       );
@@ -475,6 +513,7 @@ async function refresh() {
           !(
             adminRoutes[currentRoute()] ||
             currentRoute() === "played" ||
+            archiveNav.parse(currentRoute()) ||
             /^song-[0-9]+$/.test(currentRoute())
           )
       );
@@ -516,6 +555,16 @@ async function refresh() {
         adminStateKey = null;
         $("subpage").classList.add("hidden");
       }
+    }
+    if (archiveNav.parse(currentRoute()) && (!isAdminPath() || admin)) {
+      if (isAdminPath() && archiveNav.parse(currentRoute()).page === "archive-song") {
+        const eligible = Boolean((await api("/api/entry")).authenticated);
+        if (adminCanOrder !== eligible) {
+          adminCanOrder = eligible;
+          archiveNav.clear();
+        }
+      }
+      await archiveNav.load();
     }
     if (refreshFailed) {
       toast("连接已恢复");

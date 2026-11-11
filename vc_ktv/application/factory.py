@@ -316,7 +316,6 @@ def create_app(
             current_user=auth.current_user,
             admin_principal=auth.admin_principal,
             require_user=auth.require_user,
-            archived_guest_event=auth.archived_guest_event,
         )
     )
 

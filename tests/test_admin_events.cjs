@@ -80,6 +80,7 @@ async function harness() {
     queueInvalidations = 0;
   const accounts = [];
   const calls = [];
+  const openedArchives = [];
   const active = { id: 7, name: "新场次", code: "123456", status: "open", legacy: false };
   const closed = {
     id: 4,
@@ -166,6 +167,7 @@ async function harness() {
       refreshes++;
     },
     currentRoute: () => route,
+    openArchivedEvent: (id) => openedArchives.push(id),
     onEventChanged: () => {
       eventChanges++;
     },
@@ -185,6 +187,7 @@ async function harness() {
     state,
     accounts,
     calls,
+    openedArchives,
     active,
     closed,
     refreshEvents,
@@ -234,30 +237,20 @@ test("event state updates its panel, account, and cache only when active event c
   }
 });
 
-test("global admin can view archive songs, export CSV, release media, and delete records", async () => {
+test("global archive rows navigate to the dedicated event detail", async () => {
   const h = await harness();
   try {
     await h.refreshEvents();
-    let row = h.byId("event-history").children[1];
-    let [info, actions, details] = row.children;
-    assert.equal(info.children[0].textContent, "旧场次");
-    assert.equal(actions.children.length, 4);
-    assert.equal(actions.children[0].href, "/api/admin/events/4/songs.csv");
-    await actions.children[1].onclick();
-    assert.equal(details.classList.contains("hidden"), false);
-    assert.equal(details.children[0].children[1].children[0].textContent, "演唱记录");
-    assert.equal(details.children[0].children[2].textContent, "已唱");
-    await actions.children[1].onclick();
-    assert.equal(details.classList.contains("hidden"), true);
-    await actions.children[2].onclick();
-    row = h.byId("event-history").children[1];
-    actions = row.children[1];
-    assert.equal(row.children[0].children[1].textContent, "已释放媒体");
-    assert.equal(actions.children.length, 3, "released archives hide release button");
-    assert.ok(h.calls.some(([m, url]) => m === "POST" && url.endsWith("/4/release-media")));
-    await actions.children[2].onclick();
-    assert.equal(h.byId("event-history").children.length, 1);
-    assert.ok(h.calls.some(([m, url]) => m === "DELETE" && url === "/api/admin/events/4"));
+    const rows = h.byId("event-history").children;
+    assert.equal(rows.length, 1, "only closed events appear in history");
+    assert.equal(rows[0].children[0].textContent, "旧场次");
+    assert.equal(rows[0].children[1].textContent, "私有");
+    rows[0].onclick();
+    assert.deepEqual(h.openedArchives, [4]);
+    assert.ok(
+      !h.calls.some(([, url]) => url.endsWith("/songs")),
+      "list does not eagerly fetch songs"
+    );
   } finally {
     h.cleanup();
   }
@@ -276,7 +269,7 @@ test("event admin has no global-only archive, accounts or NetEase controls", asy
     assert.equal(h.byId("netease-admin-panel").classList.contains("hidden"), true);
     assert.equal(h.links.get('a[href="#settings-accounts"]').classList.contains("hidden"), true);
     assert.equal(h.links.get('a[href="#settings-netease"]').classList.contains("hidden"), true);
-    assert.equal(h.byId("event-history").children[1].children[1].children.length, 2);
+    assert.equal(h.byId("event-history").children[0].textContent, "暂无历史场次");
     assert.ok(!h.calls.some(([, url]) => url === "/api/admin/netease/status"));
   } finally {
     h.cleanup();
