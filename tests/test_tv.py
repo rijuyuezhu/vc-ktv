@@ -108,7 +108,7 @@ def test_tv_preload_is_read_only_and_tracks_queue_changes(tmp_path):
         )
         token = primary_tv_token(admin)
         url = "/api/tv/preload"
-        assert guest.get(url).status_code == 422
+        assert guest.get(url).status_code == 401
         assert guest.get(url, params={"token": "wrong"}).status_code == 401
         assert guest.get(url, params={"token": token}).json()["candidate"] is None
 
