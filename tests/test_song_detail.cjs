@@ -325,7 +325,7 @@ test("role and status gate admin actions, and manual render uses editable lead t
     const upload = find(page, (x) => x.tagName === "INPUT" && x.type === "file");
     assert.ok(upload);
     assert.equal(upload.className, "visually-hidden");
-    assert.ok(upload.parent.classList.contains("detail-upload"));
+    assert.ok(upload.parent.classList.contains("upload-label"));
     assert.ok(upload.parent.parent.classList.contains("detail-tools"));
     await button(page, "重试下载").onclick();
     assert.ok(h.calls.some((x) => x.url === "/api/admin/songs/17/download/retry"));

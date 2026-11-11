@@ -169,6 +169,24 @@ def check_ui(
     base = f"http://127.0.0.1:{port}"
     errors = []
 
+    def check_file_action_focus(page, input_id):
+        # Hidden native file controls must keep a keyboard focus target and
+        # visibly focus the action the user can actually see.
+        state = page.locator(f"#{input_id}").evaluate("""el => {
+          el.focus();
+          const label = el.closest('label');
+          const style = label && getComputedStyle(label);
+          return {
+            focused: document.activeElement === el,
+            inTabOrder: el.tabIndex === 0,
+            label: !!label && el.labels.length === 1,
+            outline: style?.outlineStyle,
+            outlineWidth: parseFloat(style?.outlineWidth || '0')
+          };
+        }""")
+        assert state["focused"] and state["inTabOrder"] and state["label"]
+        assert state["outline"] == "solid" and state["outlineWidth"] >= 2
+
     guest = browser.new_context(viewport={"width": 390, "height": 844})
     page = guest.new_page()
     page.on("pageerror", lambda error: errors.append(str(error)))
@@ -471,6 +489,9 @@ def check_ui(
     )
     page.locator("#bilibili-preview-confirm").click()
     page.locator("#guest-lyrics-dialog").wait_for(state="visible")
+    # LRC upload is exposed only when GPU alignment is available.
+    if not page.locator("#guest-lyrics-upload").evaluate("el => el.hidden"):
+        check_file_action_focus(page, "guest-lyrics-upload")
     assert (
         page.locator("#guest-lyrics-dialog")
         .get_by_role("heading", name="选择歌词")
@@ -637,6 +658,9 @@ def check_ui(
     assert page.locator(".account-dropdown").inner_text().strip() == "退出登录"
     page.locator("#account-menu summary").click()
     assert page.locator("#admin-queue-panel").is_visible()
+    page.locator("#lyrics-dialog").evaluate("el => el.showModal()")
+    check_file_action_focus(page, "textgrid-file")
+    page.locator("#lyrics-dialog").evaluate("el => el.close()")
     assert page.locator("#admin-queue-panel .section-head h2").inner_text() == "☷ 队列"
     assert (
         page.locator("#admin-queue-panel a[href='#played']").get_attribute("class")
