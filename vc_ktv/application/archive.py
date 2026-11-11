@@ -17,8 +17,18 @@ class EventArchiveService:
         self.events = events
         self.auth = auth
 
-    def visible_event(self, event_id: str, token: str | None = None) -> dict:
-        principal = self.auth.admin_principal(token)
+    def require_history_viewer(
+        self, guest: str | None, admin: str | None
+    ) -> dict | None:
+        principal = self.auth.admin_principal(admin)
+        if principal is None and self.auth.current_user(guest) is None:
+            bail(401, "请先加入本场 KTV 并登录")
+        return principal
+
+    def visible_event(
+        self, event_id: str, guest: str | None, admin: str | None
+    ) -> dict:
+        principal = self.require_history_viewer(guest, admin)
         with self.events.lock:
             event = next(
                 (item for item in self.events.list() if item["id"] == event_id), None
@@ -46,7 +56,8 @@ class EventArchiveService:
                 )
             }
 
-    def public_events(self) -> list[dict]:
+    def public_events(self, guest: str | None, admin: str | None) -> list[dict]:
+        self.require_history_viewer(guest, admin)
         with self.events.lock:
             return [
                 {
@@ -57,16 +68,18 @@ class EventArchiveService:
                 if item.get("status") == "closed" and item.get("public") is True
             ]
 
-    def public_records(self, event_id: str, token: str | None = None) -> dict:
+    def public_records(
+        self, event_id: str, guest: str | None, admin: str | None
+    ) -> dict:
         with self.events.lock:
-            event = self.visible_event(event_id, token)
+            event = self.visible_event(event_id, guest, admin)
             return {"event": event, "songs": self._read_records(event_id)}
 
     def song_detail(
-        self, event_id: str, song_id: int, token: str | None = None
+        self, event_id: str, song_id: int, guest: str | None, admin: str | None
     ) -> dict:
         with self.events.lock:
-            event = self.visible_event(event_id, token)
+            event = self.visible_event(event_id, guest, admin)
             path = self.events.database_path(event_id)
             with sqlite3.connect(
                 f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
@@ -123,7 +136,14 @@ class EventArchiveService:
                 }
                 if row[0] not in allowed:
                     bail(409, "歌曲仍在进行中")
-                db.execute("UPDATE songs SET status=? WHERE id=?", (status, song_id))
+                # Preserve real play/skip times; clear dates if a correction
+                # says the track was never played. Never fabricate a time.
+                db.execute(
+                    """UPDATE songs SET status=?, played_at=CASE
+                       WHEN ? IN ('cancelled', 'closed_unplayed', 'closed_interrupted')
+                       THEN NULL ELSE played_at END WHERE id=?""",
+                    (status, status, song_id),
+                )
                 db.commit()
             # Update the on-disk CSV snapshot too; computed downloads always
             # read the DB and preserve the original frozen archive order.

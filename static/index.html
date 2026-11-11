@@ -33,28 +33,36 @@
         <a id="admin-settings-link" class="btn neutral hidden" href="#settings">设置与统计</a>
       </div>
     </section>
-    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
     <div id="guest-view" class="dashboard">
       <section class="panel full-width" id="guest-access">
         <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 加入本场</h2></div>
-        <p class="muted" id="guest-entry-description">正在连接……</p>
+        <div id="guest-entry-description" class="ui-status" role="status" aria-live="polite">正在连接……</div>
         <form id="entry-code" class="hidden">
-          <label for="join-code">六位加入码</label>
-          <div class="input-row">
-            <input id="join-code" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="六位加入码">
-            <button id="join-btn" class="btn primary" type="submit">加入 →</button>
+          <div class="ui-field">
+            <label for="join-code">六位加入码</label>
+            <div class="input-row">
+              <input id="join-code" maxlength="6" inputmode="numeric" autocomplete="off" placeholder="输入加入码">
+              <button id="join-btn" class="btn primary" type="submit">加入 →</button>
+            </div>
           </div>
         </form>
         <div id="entry-account" class="hidden">
           <div class="auth-single" id="auth-register">
             <form id="register-form">
               <h3>注册账号</h3>
-              <label for="register-name">用户名</label>
-              <input id="register-name" maxlength="24" autocomplete="username" placeholder="本场显示的名字">
-              <label for="register-password">密码</label>
-              <div class="password-field"><input id="register-password" type="password" minlength="6" autocomplete="new-password" placeholder="至少 6 个字符"><button type="button" class="password-toggle" data-password-target="register-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
-              <label for="register-confirm">重复密码</label>
-              <div class="password-field"><input id="register-confirm" type="password" autocomplete="new-password"><button type="button" class="password-toggle" data-password-target="register-confirm" aria-label="显示重复密码" aria-pressed="false">显示</button></div>
+              <div class="ui-field">
+                <label for="register-name">用户名</label>
+                <input id="register-name" maxlength="24" autocomplete="username" placeholder="本场显示的名字">
+              </div>
+              <div class="ui-field">
+                <label for="register-password">密码 <span class="ui-hint-inline">至少 6 个字符</span></label>
+                <div class="password-field"><input id="register-password" type="password" minlength="6" autocomplete="new-password" placeholder="设置密码"><button type="button" class="password-toggle" data-password-target="register-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
+              </div>
+              <div class="ui-field">
+                <label for="register-confirm">确认密码</label>
+                <div class="password-field"><input id="register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码"><button type="button" class="password-toggle" data-password-target="register-confirm" aria-label="显示重复密码" aria-pressed="false">显示</button></div>
+              </div>
               <button id="register-btn" type="submit" class="btn primary wide">注册并进入</button>
               <button id="show-user-login" type="button" class="btn link-switch wide">已有账号？登录</button>
             </form>
@@ -62,10 +70,14 @@
           <div class="auth-single hidden" id="auth-login">
             <form id="user-login-form">
               <h3>登录账号</h3>
-              <label for="user-login-name">用户名</label>
-              <input id="user-login-name" maxlength="24" autocomplete="username">
-              <label for="user-login-password">密码</label>
-              <div class="password-field"><input id="user-login-password" type="password" autocomplete="current-password"><button type="button" class="password-toggle" data-password-target="user-login-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
+              <div class="ui-field">
+                <label for="user-login-name">用户名</label>
+                <input id="user-login-name" maxlength="24" autocomplete="username" placeholder="用户名">
+              </div>
+              <div class="ui-field">
+                <label for="user-login-password">密码</label>
+                <div class="password-field"><input id="user-login-password" type="password" autocomplete="current-password" placeholder="密码"><button type="button" class="password-toggle" data-password-target="user-login-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
+              </div>
               <button id="user-login-btn" type="submit" class="btn primary wide">登录</button>
               <button id="show-user-register" type="button" class="btn link-switch wide">没有账号？注册</button>
             </form>
@@ -105,19 +117,24 @@
     </div>
     <div id="admin-view" class="hidden">
       <form id="login-box" class="panel login-panel">
-        <h2><span aria-hidden="true">⚙</span> 管理员登录</h2>
-
-        <label for="admin-username">本场管理员用户名（全局管理员留空）</label>
-        <input id="admin-username" maxlength="24" autocomplete="username" placeholder="本场管理员用户名（可留空）">
-        <label for="password">管理员密码</label>
-        <div class="input-row"><div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="密码"><button type="button" class="password-toggle" data-password-target="password" aria-label="显示密码" aria-pressed="false">显示</button></div><button id="login-btn" type="submit" class="btn primary">登录</button></div>
+        <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">⚙</span> 管理员登录</h2></div>
+        <div class="ui-field">
+          <label for="admin-username">管理员账号 <span class="ui-hint-inline">全局管理员留空</span></label>
+          <input id="admin-username" maxlength="24" autocomplete="username" placeholder="本场管理员用户名">
+        </div>
+        <div class="ui-field">
+          <label for="password">密码</label>
+          <div class="input-row"><div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"><button type="button" class="password-toggle" data-password-target="password" aria-label="显示密码" aria-pressed="false">显示</button></div><button id="login-btn" type="submit" class="btn primary">登录</button></div>
+        </div>
       </form>
       <div id="admin-panel" class="hidden admin-layout">
         <section class="panel full-width" id="event-management">
           <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">♬</span> 当前场次</h2></div>
-          <p id="event-status" class="muted">正在获取当前场次……</p>
-          <p id="event-join-code" class="muted"></p>
-          <p id="admin-role" class="muted"></p>
+          <div class="ui-status-row">
+            <span id="event-status" class="ui-status" role="status" aria-live="polite">正在获取当前场次……</span>
+            <span id="event-join-code" class="ui-status"></span>
+            <span id="admin-role" class="ui-status"></span>
+          </div>
           <div class="input-row" id="event-create-fields">
             <input id="event-name" maxlength="60" placeholder="场次名称，如 周末 KTV" aria-label="场次名称">
             <input id="event-code" maxlength="6" inputmode="numeric" placeholder="6 位密码（可留空自动生成）" aria-label="六位加入密码">
@@ -238,7 +255,7 @@
                 <option value="h264">全部使用 H.264</option>
                 <option value="av1">全部使用 AV1</option>
               </select>
-              <p class="settings-note">新场次默认 AV1；旧电视可选 H.264。仅影响新原片。</p>
+              <p class="ui-hint">旧电视建议 H.264 · 仅影响新原片</p>
             </div>
             <div>
               <label for="max-bandwidth-mbps">播放码率预算（Mbps）</label>
@@ -251,7 +268,7 @@
             <span class="style-preview-second">下一行歌词也会显示</span>
           </div>
           <button id="settings-save-btn" class="btn primary" type="button">保存设置</button>
-          <p class="settings-note">影响下一首新制作的歌曲。</p>
+          <p class="ui-hint">仅影响后续新制作的歌曲</p>
         </section>
         <section class="panel full-width" id="event-queue-settings-panel">
           <div class="settings-fields">
@@ -284,10 +301,10 @@
         </details>
         <section class="panel full-width hidden" id="netease-admin-panel">
 
-          <p id="netease-login-status" class="muted" role="status" aria-live="polite">尚未连接网易云</p>
+          <div id="netease-login-status" class="ui-status" role="status" aria-live="polite">尚未连接网易云</div>
           <div id="netease-login-qr-box" class="netease-login-qr-box hidden">
             <img id="netease-login-qr-image" alt="使用网易云音乐 App 扫描登录二维码">
-            <p class="muted">使用网易云音乐 App 扫码并确认授权，二维码约 3 分钟过期。</p>
+            <p class="ui-hint">网易云 App 扫码授权，二维码约 3 分钟过期</p>
           </div>
           <div class="input-row">
             <button id="netease-login-start" class="btn primary" type="button">扫码连接</button>
@@ -296,8 +313,8 @@
           </div>
           <details class="fold-panel netease-cookie-import" id="netease-cookie-import-panel">
             <summary>通过网易云网页登录态连接</summary>
-            <p class="muted">扫码失败时，可从网易云网页的 Cookies 中复制 <code>MUSIC_U</code> 的 Value。</p>
-            <p class="muted">敏感凭据仅在此输入，请勿分享。</p>
+            <p class="ui-hint">扫码失败时可填入网页 Cookies 中的 <code>MUSIC_U</code></p>
+            <p class="ui-hint">凭据仅用于登录，请妥善保管</p>
             <form id="netease-cookie-import-form" class="input-row">
               <input type="password" id="netease-cookie-import-value" autocomplete="off" spellcheck="false" placeholder="仅粘贴 MUSIC_U 的 Value" aria-label="网易云 MUSIC_U 登录凭据" maxlength="4104" required>
               <button type="submit" id="netease-cookie-import-submit" class="btn primary">验证并连接</button>

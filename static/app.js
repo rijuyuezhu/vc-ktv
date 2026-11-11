@@ -165,7 +165,7 @@ const archiveNav = setupArchiveNavigation({
   navigate,
   getArchiveOrigin: () => window.history.state?.archiveOrigin || archiveOrigin,
   canRequestSong: () => (isAdminPath() ? adminCanOrder : guestAuthenticated),
-  canManageArchives: () => isAdminPath() && adminRole === "global"
+  canManageArchives: () => isAdminPath() && admin && adminRole === "global"
 });
 $("home-brand").href = isAdminPath() ? "/admin/" : "/";
 $("home-brand").onclick = (event) => {
@@ -243,7 +243,7 @@ function showPage() {
         : /^song-[0-9]+$/.test(route)
           ? "song"
           : "");
-  const authenticated = archivedPage && !isAdmin ? true : isAdmin ? admin : guestAuthenticated;
+  const authenticated = isAdmin ? admin : guestAuthenticated;
   $("guest-view").classList.toggle("hidden", isAdmin || Boolean(page && authenticated));
   $("admin-view").classList.toggle("hidden", !isAdmin);
   $("admin-panel").classList.toggle("hidden", !admin || !!page);
@@ -355,9 +355,12 @@ $("account-logout").onclick = () =>
       if (!(await adminPlayback.prepareLogout())) return;
       await api("/api/admin/logout", "POST");
       admin = false;
+      adminRole = null;
+      adminCanOrder = false;
       adminStateKey = null;
       adminPlayback.resetPlayer();
     } else await api("/api/users/logout", "POST");
+    archiveNav.clear();
     $("account-menu").open = false;
     updateAccount(false, "");
     await refresh();
@@ -556,7 +559,7 @@ async function refresh() {
         $("subpage").classList.add("hidden");
       }
     }
-    if (archiveNav.parse(currentRoute()) && (!isAdminPath() || admin)) {
+    if (archiveNav.parse(currentRoute()) && (isAdminPath() ? admin : guestAuthenticated)) {
       if (isAdminPath() && archiveNav.parse(currentRoute()).page === "archive-song") {
         const eligible = Boolean((await api("/api/entry")).authenticated);
         if (adminCanOrder !== eligible) {

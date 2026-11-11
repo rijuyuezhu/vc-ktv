@@ -173,9 +173,45 @@ def check_ui(
     page = guest.new_page()
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(base, wait_until="domcontentloaded")
+    for api_path in ("/api/events", "/api/events/20260101-000000-00000000/songs"):
+        assert guest.request.get(base + api_path).status == 401
+    page.goto(base + "/#archive-events", wait_until="domcontentloaded")
+    page.locator("#guest-access").wait_for(state="visible")
+    assert page.locator("#page-archive-events").is_hidden()
+    page.goto(base, wait_until="domcontentloaded")
+    assert page.locator("#guest-entry-description").get_attribute("role") == "status"
+    assert page.locator("#entry-code .ui-field").count() == 1
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 844})
+        page.evaluate(
+            "() => import('/ui-common.js').then(ui => ui.toast('操作已完成'))"
+        )
+        page.locator("#toast.show").wait_for(state="visible")
+        # UX contract: an overlay never participates in layout or intercepts input.
+        behavior = page.locator("#toast").evaluate("""el => ({
+          position: getComputedStyle(el).position,
+          pointerEvents: getComputedStyle(el).pointerEvents,
+          top: el.getBoundingClientRect().top,
+          bottom: el.getBoundingClientRect().bottom,
+          width: el.getBoundingClientRect().width
+        })""")
+        assert behavior["position"] == "fixed"
+        assert behavior["pointerEvents"] == "none"
+        assert behavior["top"] >= 0 and behavior["bottom"] <= 844
+        assert behavior["width"] <= width
+        assert page.locator("#join-code").is_visible()
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+        page.evaluate(
+            "() => import('/ui-common.js').then(ui => ui.toast('测试错误通知', true))"
+        )
+        assert page.locator("#toast").get_attribute("role") == "alert"
+        assert page.locator("#toast").get_attribute("aria-live") == "assertive"
+    page.set_viewport_size({"width": 390, "height": 844})
+    print("PASS accessible nonblocking notifications on 320/390px login")
     page.locator("#join-code").fill(code)
     page.locator("#join-btn").click()
     page.locator("#register-name").wait_for(state="visible")
+    assert page.locator("#auth-register .ui-field").count() == 3
     page.locator("#register-name").fill("Synthetic UI User")
     page.locator("#register-password").fill(user_password)
     page.locator("#register-confirm").fill(user_password)
@@ -529,6 +565,8 @@ def check_ui(
     page = admin.new_page()
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(base + "/admin/", wait_until="domcontentloaded")
+    assert page.locator("#login-box .ui-field").count() == 2
+    assert page.locator("#login-box .ui-hint-inline").inner_text() == "全局管理员留空"
     page.locator("#password").fill(admin_password)
     page.locator("#login-btn").click()
     page.locator("#login-box").wait_for(state="hidden")

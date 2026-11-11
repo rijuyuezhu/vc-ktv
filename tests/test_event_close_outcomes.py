@@ -211,17 +211,14 @@ def test_guest_and_admin_can_read_closed_history_without_other_room_access(tmp_p
             ).status_code
             == 200
         )
-        assert [
-            row["id"]
-            for row in guest.get(f"/api/events/{room['id']}/songs").json()["songs"]
-        ] == [1, 4, 3, 2]
+        assert guest.get(f"/api/events/{room['id']}/songs").status_code == 401
         assert [
             row["id"]
             for row in admin.get(f"/api/admin/events/{room['id']}/songs").json()[
                 "songs"
             ]
         ] == [1, 4, 3, 2]
-        archived = guest.get(f"/api/events/{room['id']}/songs")
+        archived = admin.get(f"/api/events/{room['id']}/songs")
         assert archived.status_code == 200
         assert [s["id"] for s in archived.json()["songs"]] == [1, 4, 3, 2]
         assert [s["status"] for s in archived.json()["songs"]] == [
@@ -233,10 +230,13 @@ def test_guest_and_admin_can_read_closed_history_without_other_room_access(tmp_p
         assert outsider.get("/api/songs/history").status_code == 401
         records = admin.get(f"/api/admin/events/{room['id']}/songs")
         assert [s["id"] for s in records.json()["songs"]] == [1, 4, 3, 2]
-        assert (
-            admin.post("/api/admin/events", json={"name": "下一场"}).status_code == 200
-        )
+        next_room = admin.post("/api/admin/events", json={"name": "下一场"}).json()
         assert guest.get("/api/songs/history").status_code == 401
+        join_and_register(guest, username="下一场用户", code=next_room["code"])
+        assert [
+            s["id"]
+            for s in guest.get(f"/api/events/{room['id']}/songs").json()["songs"]
+        ] == [1, 4, 3, 2]
         assert "archived_event" not in guest.get("/api/entry").json()
 
 

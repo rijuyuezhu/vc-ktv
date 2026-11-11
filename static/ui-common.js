@@ -8,6 +8,8 @@ export function toast(message, error = false) {
   const t = $("toast");
   t.textContent = message;
   t.className = "show" + (error ? " error" : "");
+  t.setAttribute("role", error ? "alert" : "status");
+  t.setAttribute("aria-live", error ? "assertive" : "polite");
   toastTimer = setTimeout(() => {
     t.className = "";
   }, 4800);

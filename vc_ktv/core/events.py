@@ -160,7 +160,9 @@ class Events:
     def release_media(self, event_id: str, csv_text: str):
         """Retain the event DB, CSV and small text; remove bulky media."""
         with self.archive_operation(event_id) as (folder, entry):
-            self._write_atomic(folder / "songs.csv", csv_text)
+            self._write_atomic(
+                folder / "songs.csv", csv_text() if callable(csv_text) else csv_text
+            )
             media = folder / "media"
             freed = 0
             keep_text = {
