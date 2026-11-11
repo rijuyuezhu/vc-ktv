@@ -364,7 +364,7 @@ test("TV source icon distinguishes NetEase from Bilibili without exposing IDs", 
 
 test("TV checks commands at 350ms but sends only one ordinary report per second", async () => {
   const h = tvHarness();
-  assert.equal(h.intervals.at(-1).delay, 350);
+  assert.ok(h.intervals.some(({ delay }) => delay === 350));
   await h.ready();
   const initial = h.calls.reports;
   await h.evaluate("syncQueue()");

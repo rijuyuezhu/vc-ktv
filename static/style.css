@@ -615,6 +615,12 @@ button, input, select { min-height: 44px; }
   border-color: var(--accent); background: var(--accent-soft);
 }
 .remote-buttons button:disabled, .remote-offsets button:disabled { opacity: .35; cursor: default; }
+/* An in-flight command remains visually present rather than flashing the whole remote gray. */
+.playback-remote.remote-pending .remote-buttons button:disabled,
+.playback-remote.remote-pending .remote-offsets button:disabled { opacity: 1; }
+.playback-remote.remote-pending input:disabled { opacity: 1; }
+.remote-command-status { font-size: 12px; color: var(--muted); }
+.remote-command-status:empty { display: none; }
 .remote-buttons img { width: 21px; height: 21px; }
 .remote-progress { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; }
 .remote-range { display: flex !important; align-items: center; gap: 11px; margin: 0 !important; }

@@ -1,6 +1,10 @@
 """Thin TV HTTP adapters; session authority is owned by TVSessionService."""
 
-from fastapi import APIRouter, Cookie, Request
+import asyncio
+
+from fastapi import APIRouter, Cookie, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from vc_ktv.api.state_response import state_response
 from vc_ktv.application.schemas import Finish, TVPair, TVRemoteCommand, TVRemoteReport
@@ -10,6 +14,52 @@ from vc_ktv.application.tv import TVSessionService
 def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
     router = APIRouter()
     store = tv.store
+
+    async def events(request: Request, channel: str, authorize):
+        # Streaming requests are not event-pinned: a long-lived connection must
+        # never prevent a room from closing. Re-check authority on every wake.
+        async def stream():
+            with tv.notifications.listen(channel) as updates:
+                yield "event: ready\ndata: {}\n\n"
+                while not await request.is_disconnected():
+                    try:
+                        await asyncio.wait_for(updates.get(), timeout=10)
+                        changed = True
+                    except TimeoutError:
+                        changed = False
+                    try:
+                        await run_in_threadpool(authorize)
+                    except HTTPException:
+                        yield "event: revoked\ndata: {}\n\n"
+                        return
+                    yield "event: update\ndata: {}\n\n" if changed else ": ping\n\n"
+
+        await run_in_threadpool(authorize)
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @router.get("/api/tv/events")
+    async def tv_events(request: Request, token: str):
+        return await events(request, "tv", lambda: tv.require_tv(token))
+
+    @router.get("/api/admin/tv/events")
+    async def admin_events(
+        request: Request, vc_admin: str | None = Cookie(default=None)
+    ):
+        event_id = tv.events.active_id
+
+        def authorize():
+            tv.auth.require_admin(vc_admin)
+            if tv.events.active_id != event_id:
+                raise HTTPException(401, "场次已切换")
+
+        return await events(request, "admin", authorize)
 
     @router.get("/api/admin/tv")
     def tv_management(vc_admin: str | None = Cookie(default=None)):

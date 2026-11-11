@@ -2,6 +2,8 @@ import { $, api, error, toast } from "./ui-common.js";
 // Administrator volume, song transport and TV remote presentation.
 // Playback lifecycle is owned by admin-playback.js.
 export function setupRemoteControls({ refresh, finishActive, getState, player }) {
+  let sending = false;
+  let optimisticPaused = null;
   function clock(seconds) {
     return Number.isFinite(seconds)
       ? Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0")
@@ -20,7 +22,15 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     const isBrowser = playbackMode === "browser";
     const status = tvRemoteState?.report || {};
     const online = Boolean(isTV && tvRemoteState?.online);
-    const canTV = Boolean(online && tvRemoteState?.can_manage && !tvRemoteState?.pending);
+    const pending = Boolean(isTV && (sending || tvRemoteState?.pending));
+    if (!pending) optimisticPaused = null;
+    document.querySelector(".playback-remote").classList.toggle("remote-pending", pending);
+    $("remote-command-status").textContent = pending
+      ? sending
+        ? "正在发送指令…"
+        : "等待主屏确认…"
+      : "";
+    const canTV = Boolean(online && tvRemoteState?.can_manage && !pending);
     const songId = currentAdminSong?.id || null;
     const tvPlaying = online && status.active_id === songId && Boolean(songId);
     const playable = Boolean(
@@ -32,7 +42,11 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
       button.disabled = isTV ? !remoteReady : !isBrowser || !playable;
     }
     if (playbackMode === "manual" && songId) $("remote-replay").disabled = false;
-    const paused = isTV ? Boolean(status.paused) : player.paused;
+    const paused = isTV
+      ? pending && optimisticPaused !== null
+        ? optimisticPaused
+        : Boolean(status.paused)
+      : player.paused;
     const pause = $("remote-pause");
     pause.title = paused ? "继续" : "暂停";
     pause.setAttribute("aria-label", pause.title);
@@ -76,14 +90,29 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
   async function sendRemote(action, value = null) {
     const { playbackMode, currentAdminSong, tvRemoteState } = getState();
     if (playbackMode !== "tv") throw Error("当前不是电视模式");
+    if (sending || tvRemoteState?.pending) throw Error("上一条指令正在执行");
     const hasSong = ["pause", "resume", "restart", "skip", "replay_next"].includes(action);
-    await api("/api/admin/tv/remote", "POST", {
-      action,
-      song_id: hasSong ? currentAdminSong?.id : null,
-      value
-    });
+    sending = true;
+    if (action === "pause") optimisticPaused = true;
+    if (action === "resume") optimisticPaused = false;
     if (tvRemoteState) tvRemoteState.pending = true;
     updateRemoteControls();
+    try {
+      await api("/api/admin/tv/remote", "POST", {
+        action,
+        song_id: hasSong ? currentAdminSong?.id : null,
+        value
+      });
+    } catch (e) {
+      // Only revert the same snapshot; a newer SSE ACK may already have arrived.
+      if (tvRemoteState && getState().tvRemoteState === tvRemoteState)
+        tvRemoteState.pending = false;
+      optimisticPaused = null;
+      throw e;
+    } finally {
+      sending = false;
+      updateRemoteControls();
+    }
   }
   async function remoteAction(button, action) {
     button.disabled = true;

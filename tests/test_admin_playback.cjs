@@ -113,7 +113,9 @@ async function harness() {
     allow: true,
     refreshes: 0,
     invalidations: 0,
-    failMode: false
+    failMode: false,
+    remoteGate: null,
+    failRemote: false
   };
   const player = byId("player");
   const remote = node();
@@ -143,6 +145,17 @@ async function harness() {
     const method = opts?.method ?? "GET";
     calls.push({ url, method, body: opts?.body });
     let data = {};
+    if (url === "/api/admin/tv/remote" && method === "POST") {
+      if (state.remoteGate) await state.remoteGate;
+      if (state.failRemote)
+        return {
+          ok: false,
+          status: 409,
+          async json() {
+            return { detail: "remote rejected" };
+          }
+        };
+    }
     if (url === "/api/admin/tv") data = state.tv;
     if (url === "/api/admin/tv/remote") data = state.remote;
     if (url === "/api/admin/next") data = { active: state.next };
@@ -307,6 +320,7 @@ test("TV primary owns display, remote state, and never claims media locally", as
     assert.equal(h.byId("tv-online").textContent, "主屏在线");
     assert.equal(h.byId("remote-pause").disabled, false);
     await h.byId("remote-pause").onclick();
+    assert.equal(h.byId("remote-command-status").textContent, "等待主屏确认…");
     assert.ok(
       h.calls.some(
         (c) =>
@@ -323,6 +337,65 @@ test("TV primary owns display, remote state, and never claims media locally", as
     assert.ok(
       h.calls.filter((c) => c.url === "/api/admin/tv/remote" && c.method === "GET").length >= 2
     );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("TV remote shows immediate pending feedback without fading buttons, then ACK clears it", async () => {
+  const h = await harness();
+  try {
+    h.state.tv = { active: true, can_manage: true };
+    h.state.remote = {
+      online: true,
+      can_manage: true,
+      pending: false,
+      report: { active_id: 3, paused: false, volume: 40 }
+    };
+    await h.sync("tv", song(3));
+    let unblock;
+    h.state.remoteGate = new Promise((resolve) => {
+      unblock = resolve;
+    });
+    const click = h.byId("remote-pause").onclick();
+    assert.equal(h.byId("remote-pause").disabled, true);
+    assert.equal(h.byId("remote-command-status").textContent, "正在发送指令…");
+    assert.equal(h.byId("remote-pause").querySelector("img").src, "/icons/play.svg");
+    // A stream ACK may arrive before the HTTP POST returns. Don't flicker.
+    h.state.remote = {
+      ...h.state.remote,
+      pending: false,
+      report: { ...h.state.remote.report, paused: true }
+    };
+    await h.playback.pollTVRemoteStatus();
+    assert.equal(h.byId("remote-command-status").textContent, "正在发送指令…");
+    unblock();
+    await click;
+    assert.equal(h.byId("remote-command-status").textContent, "");
+    assert.equal(h.byId("remote-pause").disabled, false);
+    assert.equal(h.byId("remote-pause").querySelector("img").src, "/icons/play.svg");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("failed TV command immediately restores available controls", async () => {
+  const h = await harness();
+  try {
+    h.state.tv = { active: true, can_manage: true };
+    h.state.remote = {
+      online: true,
+      can_manage: true,
+      pending: false,
+      report: { active_id: 3, paused: false }
+    };
+    await h.sync("tv", song(3));
+    h.state.failRemote = true;
+    await h.byId("remote-pause").onclick();
+    assert.equal(h.byId("remote-command-status").textContent, "");
+    assert.equal(h.byId("remote-pause").disabled, false);
+    assert.equal(h.byId("remote-pause").querySelector("img").src, "/icons/pause.svg");
+    assert.equal(h.byId("toast").textContent, "remote rejected");
   } finally {
     h.cleanup();
   }

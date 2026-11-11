@@ -7,6 +7,7 @@ import secrets
 from urllib.parse import quote
 
 from vc_ktv.application.errors import bail
+from vc_ktv.application.tv_notifications import TVNotifications
 from vc_ktv.core.store import time_now
 
 
@@ -15,6 +16,7 @@ class TVSessionService:
         self.store = store
         self.events = events
         self.auth = auth
+        self.notifications = TVNotifications()
 
     def read_record(self, name: str) -> dict | None:
         row = self.store.db.execute(
@@ -141,6 +143,7 @@ class TVSessionService:
             )
             self.write_record("tv_remote", remote)
             self.store.db.commit()
+            self.notifications.notify("tv")
             return {"seq": seq}
 
     def report(self, ack_seq: int, report: dict) -> dict:
@@ -152,6 +155,7 @@ class TVSessionService:
             remote["report"] = report
             self.write_record("tv_remote", remote)
             self.store.db.commit()
+            self.notifications.notify("admin")
             return {"ok": True}
 
     def link(self, principal: dict, replace: bool = False) -> dict:
@@ -233,6 +237,8 @@ class TVSessionService:
             self.write_record("tv_pending", None)
             self.write_record("tv_remote", None)
             self.store.db.commit()
+            self.notifications.notify("tv")
+            self.notifications.notify("admin")
             return {
                 "token": self.auth.sign(
                     "tv-control", f"{self.events.active_id}:{control_nonce}", 8 * 3600
@@ -252,6 +258,8 @@ class TVSessionService:
             if self.can_manage(principal, pending):
                 self.write_record("tv_pending", None)
             self.store.db.commit()
+            self.notifications.notify("tv")
+            self.notifications.notify("admin")
         return {"ok": True}
 
     def require_tv_mode(self) -> None:

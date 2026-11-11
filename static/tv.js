@@ -238,13 +238,22 @@ function updateControls() {
   progress.textContent = clock(video.currentTime) + " / " + clock(video.duration);
 }
 let queueInFlight = false;
+let queuedStreamWake = false;
+let remoteStream = null;
+let remoteStreamReady = false;
+let lastQueuePollAt = -Infinity;
 let lastRemoteReportAt = -Infinity;
 let nextListKey = null;
-async function syncQueue() {
-  if (!token || queueInFlight) return;
+async function syncQueue(fromStream = false) {
+  if (!token) return;
+  if (queueInFlight) {
+    if (fromStream) queuedStreamWake = true;
+    return;
+  }
   queueInFlight = true;
   try {
     const state = await api("/api/tv/state");
+    lastQueuePollAt = performance.now();
     playbackMode = state.playback_mode || "tv";
     const handled =
       playbackMode === "tv" && state.remote_command && (await handleRemote(state.remote_command));
@@ -288,6 +297,10 @@ async function syncQueue() {
     else controlError.textContent = e.message || String(e);
   } finally {
     queueInFlight = false;
+    if (queuedStreamWake) {
+      queuedStreamWake = false;
+      syncQueue();
+    }
   }
 }
 function remoteReport(error = "") {
@@ -384,6 +397,9 @@ async function api(path, method = "GET", body = null) {
   return result;
 }
 function losePrimary(message = "主屏权限已撤回，请管理员重新连接") {
+  remoteStream?.close();
+  remoteStream = null;
+  remoteStreamReady = false;
   clearTimeout(finishRetryTimer);
   finishRetryTimer = null;
   pendingFinish = null;
@@ -407,6 +423,24 @@ function losePrimary(message = "主屏权限已撤回，请管理员重新连接
   error.textContent = message;
   updateControls();
 }
+function connectRemoteStream() {
+  if (!token || remoteStream || typeof EventSource !== "function") return;
+  const stream = new EventSource("/api/tv/events?token=" + encodeURIComponent(token));
+  remoteStream = stream;
+  for (const name of ["ready", "update"]) {
+    stream.addEventListener(name, () => {
+      if (remoteStream !== stream) return;
+      remoteStreamReady = true;
+      syncQueue(true);
+    });
+  }
+  stream.addEventListener("revoked", () => losePrimary());
+  stream.onerror = () => {
+    if (remoteStream === stream) remoteStreamReady = false;
+    // EventSource reconnects; the 350 ms HTTP poll is available meanwhile.
+  };
+}
+
 async function connectPrimary() {
   if (!pair) return;
   start.disabled = true;
@@ -422,6 +456,7 @@ async function connectPrimary() {
     token = result.token;
     error.textContent = "";
     start.textContent = "▶ 开始";
+    connectRemoteStream();
     await syncQueue();
     if (token) start.disabled = false;
   } catch (e) {
@@ -736,8 +771,18 @@ volume.oninput = () => {
   video.volume = standby.volume = Number(volume.value) / 100;
   showPanel();
 };
-// Read commands promptly; send ordinary status/heartbeat reports only once per second.
-setInterval(syncQueue, 350);
+// SSE carries prompt notifications; polling reconciles queue state and handles old TVs or outages.
+setInterval(() => {
+  if (!remoteStreamReady || performance.now() - lastQueuePollAt >= 1000) syncQueue();
+}, 350);
+setInterval(async () => {
+  if (!remoteStreamReady || !token || queueInFlight) return;
+  try {
+    await reportRemote();
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) losePrimary(e.message);
+  }
+}, 1000);
 if (pair) connectPrimary();
 else losePrimary("请从管理员页面重新打开主屏链接");
 updateControls();

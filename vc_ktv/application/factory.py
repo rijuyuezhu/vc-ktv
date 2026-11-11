@@ -186,7 +186,13 @@ def create_app(
             "/api/admin/events",
             "/api/admin/events/close",
         }
-        if not path.startswith(("/api/", "/media/")) or lifecycle_writer:
+        # SSE subscribers revalidate authority on each wake and cannot hold an
+        # Events.inflight pin for the lifetime of the connection.
+        stream = request.method == "GET" and path in {
+            "/api/tv/events",
+            "/api/admin/tv/events",
+        }
+        if not path.startswith(("/api/", "/media/")) or lifecycle_writer or stream:
             return await call_next(request)
         # A concurrent Store transaction can hold Events.lock indirectly.
         # Wait off-loop so one busy request cannot stall unrelated clients.

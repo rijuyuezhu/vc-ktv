@@ -5,6 +5,35 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
   let tvPrimaryState = null;
   let tvRemoteState = null;
   let remoteStatusInFlight = null;
+  let remoteStream = null;
+  let streamReady = false;
+  let statusWakeQueued = false;
+  function closeRemoteStream() {
+    remoteStream?.close();
+    remoteStream = null;
+    streamReady = false;
+  }
+  function connectRemoteStream() {
+    if (remoteStream || typeof EventSource !== "function") return;
+    const stream = new EventSource("/api/admin/tv/events");
+    remoteStream = stream;
+    for (const name of ["ready", "update"]) {
+      stream.addEventListener(name, () => {
+        if (remoteStream !== stream) return;
+        streamReady = true;
+        pollTVRemoteStatus(true);
+      });
+    }
+    stream.addEventListener("revoked", () => {
+      closeRemoteStream();
+      tvPrimaryState = null;
+      tvRemoteState = null;
+      updateRemoteControls();
+    });
+    stream.onerror = () => {
+      if (remoteStream === stream) streamReady = false;
+    };
+  }
   async function loadTVRemoteStatus() {
     if (remoteStatusInFlight) return remoteStatusInFlight;
     remoteStatusInFlight = api("/api/admin/tv/remote");
@@ -12,20 +41,32 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
       return await remoteStatusInFlight;
     } finally {
       remoteStatusInFlight = null;
+      if (statusWakeQueued) {
+        statusWakeQueued = false;
+        pollTVRemoteStatus(true);
+      }
     }
   }
-  async function pollTVRemoteStatus() {
+  async function pollTVRemoteStatus(fromStream = false) {
     const { admin, playbackMode } = getPlayback();
+    const active = isAdminPath() && admin && playbackMode === "tv" && tvPrimaryState?.active;
+    if (!active) {
+      closeRemoteStream();
+      return;
+    }
     if (
-      !isAdminPath() ||
-      !admin ||
-      playbackMode !== "tv" ||
-      !tvPrimaryState?.active ||
-      remoteStatusInFlight ||
       document.visibilityState !== "visible" ||
       !document.querySelector(".playback-remote")?.getClientRects().length
-    )
+    ) {
+      closeRemoteStream();
       return;
+    }
+    connectRemoteStream();
+    if (remoteStatusInFlight) {
+      if (fromStream) statusWakeQueued = true;
+      return;
+    }
+    if (streamReady && !fromStream) return;
     try {
       const status = await loadTVRemoteStatus();
       if (getPlayback().playbackMode === "tv" && tvPrimaryState?.active) {
@@ -41,6 +82,7 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
     const tv = await api("/api/admin/tv");
     const { playbackMode } = getPlayback();
     tvPrimaryState = tv;
+    if (playbackMode !== "tv" || !tv.active) closeRemoteStream();
     const controls = $("tv-primary-management");
     controls.classList.toggle("hidden", playbackMode !== "tv");
     tvRemoteState = playbackMode === "tv" && tv.active ? await loadTVRemoteStatus() : null;
