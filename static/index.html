@@ -340,6 +340,30 @@
       <div id="subpage-content"></div>
     </section>
   </main>
+  <!-- Both guest and admin views clone these native templates for list records. -->
+  <template id="song-row-template">
+    <button class="song-item song-row song-open" type="button">
+      <span class="ordinal"></span>
+      <span class="song-copy">
+        <strong></strong>
+        <span class="song-meta">
+          <span class="song-requester"></span>
+          <span class="song-meta-separator" aria-hidden="true">|</span>
+          <span class="song-author"></span>
+        </span>
+      </span>
+      <span class="song-state"></span>
+      <span class="song-chevron" aria-hidden="true">›</span>
+    </button>
+  </template>
+  <template id="empty-state-template"><div class="empty" role="status"></div></template>
+  <template id="event-row-template">
+    <button class="song-item archive-entry" type="button">
+      <strong class="event-title"></strong>
+      <small class="event-meta"></small>
+      <span class="song-chevron" aria-hidden="true">›</span>
+    </button>
+  </template>
   <footer>VC-KTV</footer>
   <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog" aria-labelledby="guest-lyrics-title">
     <div class="section-head guest-lyrics-head">

@@ -12,7 +12,7 @@ async function loadUI() {
 }
 
 test("shared UI helpers preserve API, button and DOM semantics", async () => {
-  const { api, guarded, duration, appendText, toast, error, eventRow, actionButton } =
+  const { api, guarded, duration, appendText, toast, error, eventRow, actionButton, emptyState } =
     await loadUI();
   const before = {
     fetch: global.fetch,
@@ -36,8 +36,34 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
       return { ok: false, status: 409, json: async () => ({ detail: "歌曲已切换" }) };
     return { ok: true, json: async () => ({ ok: true }) };
   };
+  const eventTemplate = {
+    content: {
+      firstElementChild: {
+        cloneNode: () => {
+          const title = { textContent: "" };
+          const metadata = { textContent: "" };
+          const chevron = { textContent: "›", attrs: { "aria-hidden": "true" } };
+          return {
+            type: "button",
+            className: "song-item archive-entry",
+            children: [title, metadata, chevron],
+            querySelector: (selector) => (selector === ".event-title" ? title : metadata)
+          };
+        }
+      }
+    }
+  };
   global.document = {
-    getElementById: () => toastElement,
+    getElementById: (id) =>
+      id === "event-row-template"
+        ? eventTemplate
+        : id === "empty-state-template"
+          ? {
+              content: {
+                firstElementChild: { cloneNode: () => ({ className: "empty", role: "status" }) }
+              }
+            }
+          : toastElement,
     createElement: (tag) => {
       const el = {
         tag,
@@ -96,6 +122,10 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
     assert.equal(event.children[2].attrs["aria-hidden"], "true");
     event.onclick();
     assert.equal(opened, true);
+    const empty = emptyState(parent, "暂无歌曲");
+    assert.equal(empty.className, "empty");
+    assert.equal(empty.textContent, "暂无歌曲");
+    assert.equal(parent.children.at(-1), empty);
     let actionCount = 0;
     const sharedButton = actionButton(
       parent,
