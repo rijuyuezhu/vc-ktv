@@ -1,4 +1,13 @@
-import { $, api, toast, appendText, guarded, eventRow, actionButton } from "./ui-common.js";
+import {
+  $,
+  api,
+  toast,
+  appendText,
+  guarded,
+  eventRow,
+  actionButton,
+  emptyState
+} from "./ui-common.js";
 
 // Both entry points use the same routed archive list and song-detail surfaces.
 export function setupArchiveNavigation({
@@ -65,7 +74,7 @@ export function setupArchiveNavigation({
       const events = data.events.filter((e) =>
         e.name.toLowerCase().includes(searchTerm.toLowerCase())
       );
-      if (!events.length) appendText(list, "p", "暂无匹配场次", "empty");
+      if (!events.length) emptyState(list, "暂无匹配场次");
       for (const event of events)
         eventRow(list, event.name, (event.created_at || "").slice(0, 10), () =>
           navigate("archive-event-" + event.id, "played")
@@ -145,7 +154,7 @@ export function setupArchiveNavigation({
       }
     }
     const list = appendText(section, "div", "", "song-list archive-song-list");
-    if (!data.songs.length) appendText(list, "p", "暂无歌曲", "empty");
+    if (!data.songs.length) emptyState(list, "暂无歌曲");
     data.songs.forEach((song, i) => {
       list.append(
         compactSong({ ...song, nickname: song.requester }, i + 1, () =>
@@ -248,7 +257,7 @@ export function setupArchiveNavigation({
       if (version !== loadVersion || window.location.hash.replace(/^#\/?/, "") !== route) return;
       loadedRoute = null;
       $("page-" + parsed.page).replaceChildren();
-      appendText($("page-" + parsed.page), "p", e.message || "无法打开历史记录", "empty");
+      emptyState($("page-" + parsed.page), e.message || "无法打开历史记录");
     }
   }
   return { parse, title, parent, load, clear };

@@ -60,11 +60,10 @@ export function appendText(parent, tag, text, cls = "") {
 
 // The same event row is used in public playlists and administrator archives.
 export function eventRow(parent, title, metadata, onOpen) {
-  const row = appendText(parent, "button", "", "song-item archive-entry");
-  row.type = "button";
-  appendText(row, "strong", title);
-  appendText(row, "small", metadata);
-  appendText(row, "span", "›", "song-chevron").setAttribute("aria-hidden", "true");
+  const row = $("event-row-template").content.firstElementChild.cloneNode(true);
+  row.querySelector(".event-title").textContent = title;
+  row.querySelector(".event-meta").textContent = metadata;
+  parent.append(row);
   row.onclick = onOpen;
   return row;
 }
@@ -73,4 +72,12 @@ export function actionButton(parent, label, action, style = "neutral") {
   button.type = "button";
   button.onclick = () => guarded(() => action(button), button);
   return button;
+}
+
+// Consistent empty/error state in queue, archive and administrator lists.
+export function emptyState(parent, text) {
+  const node = $("empty-state-template").content.firstElementChild.cloneNode(true);
+  node.textContent = text;
+  parent.append(node);
+  return node;
 }

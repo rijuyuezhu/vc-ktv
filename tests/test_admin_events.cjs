@@ -70,6 +70,39 @@ async function harness() {
   };
   const nodes = new Map();
   const byId = (id) => {
+    if (id === "empty-state-template")
+      return {
+        content: {
+          firstElementChild: {
+            cloneNode: () => {
+              const node = element("div");
+              node.className = "empty";
+              node.setAttribute("role", "status");
+              return node;
+            }
+          }
+        }
+      };
+    if (id === "event-row-template")
+      return {
+        content: {
+          firstElementChild: {
+            cloneNode: () => {
+              const row = element("button");
+              row.type = "button";
+              row.className = "song-item archive-entry";
+              const title = element("strong");
+              const metadata = element("small");
+              const chevron = element("span");
+              chevron.textContent = "›";
+              chevron.setAttribute("aria-hidden", "true");
+              row.children = [title, metadata, chevron];
+              row.querySelector = (selector) => (selector === ".event-title" ? title : metadata);
+              return row;
+            }
+          }
+        }
+      };
     if (!nodes.has(id)) nodes.set(id, element());
     return nodes.get(id);
   };

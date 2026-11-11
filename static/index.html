@@ -57,11 +57,11 @@
               </div>
               <div class="ui-field">
                 <label for="register-password">密码 <span class="ui-hint-inline">至少 6 个字符</span></label>
-                <div class="password-field"><input id="register-password" type="password" minlength="6" autocomplete="new-password" placeholder="设置密码"><button type="button" class="password-toggle" data-password-target="register-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
+                <div class="password-field"><input id="register-password" type="password" minlength="6" autocomplete="new-password" placeholder="设置密码"></div>
               </div>
               <div class="ui-field">
                 <label for="register-confirm">确认密码</label>
-                <div class="password-field"><input id="register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码"><button type="button" class="password-toggle" data-password-target="register-confirm" aria-label="显示重复密码" aria-pressed="false">显示</button></div>
+                <div class="password-field"><input id="register-confirm" type="password" autocomplete="new-password" placeholder="再次输入密码"></div>
               </div>
               <button id="register-btn" type="submit" class="btn primary wide">注册并进入</button>
               <button id="show-user-login" type="button" class="btn link-switch wide">已有账号？登录</button>
@@ -76,7 +76,7 @@
               </div>
               <div class="ui-field">
                 <label for="user-login-password">密码</label>
-                <div class="password-field"><input id="user-login-password" type="password" autocomplete="current-password" placeholder="密码"><button type="button" class="password-toggle" data-password-target="user-login-password" aria-label="显示密码" aria-pressed="false">显示</button></div>
+                <div class="password-field"><input id="user-login-password" type="password" autocomplete="current-password" placeholder="密码"></div>
               </div>
               <button id="user-login-btn" type="submit" class="btn primary wide">登录</button>
               <button id="show-user-register" type="button" class="btn link-switch wide">没有账号？注册</button>
@@ -124,7 +124,7 @@
         </div>
         <div class="ui-field">
           <label for="password">密码</label>
-          <div class="input-row"><div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"><button type="button" class="password-toggle" data-password-target="password" aria-label="显示密码" aria-pressed="false">显示</button></div><button id="login-btn" type="submit" class="btn primary">登录</button></div>
+          <div class="input-row"><div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"></div><button id="login-btn" type="submit" class="btn primary">登录</button></div>
         </div>
       </form>
       <div id="admin-panel" class="hidden admin-layout">
@@ -340,6 +340,33 @@
       <div id="subpage-content"></div>
     </section>
   </main>
+  <!-- Both guest and admin views clone these native templates for list records. -->
+  <template id="password-toggle-template">
+    <button type="button" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button>
+  </template>
+  <template id="song-row-template">
+    <button class="song-item song-row song-open" type="button">
+      <span class="ordinal"></span>
+      <span class="song-copy">
+        <strong></strong>
+        <span class="song-meta">
+          <span class="song-requester"></span>
+          <span class="song-meta-separator" aria-hidden="true">|</span>
+          <span class="song-author"></span>
+        </span>
+      </span>
+      <span class="song-state"></span>
+      <span class="song-chevron" aria-hidden="true">›</span>
+    </button>
+  </template>
+  <template id="empty-state-template"><div class="empty" role="status"></div></template>
+  <template id="event-row-template">
+    <button class="song-item archive-entry" type="button">
+      <strong class="event-title"></strong>
+      <small class="event-meta"></small>
+      <span class="song-chevron" aria-hidden="true">›</span>
+    </button>
+  </template>
   <footer>VC-KTV</footer>
   <dialog id="guest-lyrics-dialog" class="guest-lyrics-dialog" aria-labelledby="guest-lyrics-title">
     <div class="section-head guest-lyrics-head">

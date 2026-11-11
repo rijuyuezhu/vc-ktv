@@ -1,7 +1,7 @@
 import { setupAdminSettings } from "./admin-settings.js";
 import { setupAdminAccounts } from "./admin-accounts.js";
 import { setupNeteaseConnection } from "./admin-netease.js";
-import { $, api, toast, guarded, appendText, eventRow } from "./ui-common.js";
+import { $, api, toast, guarded, eventRow, emptyState } from "./ui-common.js";
 
 // Administrator event lifecycle, permissions and archive list.
 export function setupAdminEvents({
@@ -30,7 +30,7 @@ export function setupAdminEvents({
     archiveListKey = key;
     const target = $("event-history");
     target.replaceChildren();
-    if (!entries.length) appendText(target, "p", "暂无历史场次", "empty");
+    if (!entries.length) emptyState(target, "暂无历史场次");
     for (const event of entries)
       eventRow(target, event.name, event.public ? "公开" : "私有", () =>
         openArchivedEvent(event.id)

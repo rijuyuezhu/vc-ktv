@@ -4,7 +4,7 @@ import { setupArchiveNavigation } from "./archive-navigation.js";
 import { setupAdminEvents } from "./admin-events.js";
 import { setupSongRequests, setupBilibiliPreview } from "./song-requests.js";
 import { createLyricPicker } from "./lyrics.js";
-import { $, api, toast, error, guarded, duration, appendText } from "./ui-common.js";
+import { $, api, toast, error, guarded, duration, appendText, emptyState } from "./ui-common.js";
 ("use strict");
 let admin = false;
 let adminRole = null;
@@ -57,28 +57,21 @@ function addSourceTag(parent, song) {
   tag.title = isNetease ? "网易云音乐" : "哔哩哔哩";
 }
 function compactSong(song, order, onOpen = null) {
-  const row = document.createElement("button");
-  row.type = "button";
-  row.className = "song-item song-row song-open";
+  const row = $("song-row-template").content.firstElementChild.cloneNode(true);
   row.setAttribute(
     "aria-label",
     song.title + "，点歌者 " + (song.nickname || "未知") + "，" + songState(song) + "，查看详情"
   );
-  appendText(row, "span", String(order), "ordinal");
-  const copy = appendText(row, "span", "", "song-copy");
-  appendText(
-    copy,
-    "strong",
-    song.title + (song.source_type !== "netease" && song.page > 1 ? " (P" + song.page + ")" : "")
-  );
-  const meta = appendText(copy, "span", "", "song-meta");
-  appendText(meta, "span", song.nickname || "未知点歌者", "song-requester");
-  appendText(meta, "span", "|", "song-meta-separator").setAttribute("aria-hidden", "true");
-  appendText(meta, "span", song.uploader || "未知作者", "song-author");
+  row.querySelector(".ordinal").textContent = String(order);
+  row.querySelector(".song-copy strong").textContent =
+    song.title + (song.source_type !== "netease" && song.page > 1 ? " (P" + song.page + ")" : "");
+  const meta = row.querySelector(".song-meta");
+  meta.querySelector(".song-requester").textContent = song.nickname || "未知点歌者";
+  meta.querySelector(".song-author").textContent = song.uploader || "未知作者";
   addSourceTag(meta, song);
-  const status = appendText(row, "span", songState(song), "song-state");
-  if (["下载失败", "字幕失败"].includes(status.textContent)) status.classList.add("failed");
-  appendText(row, "span", "›", "song-chevron").setAttribute("aria-hidden", "true");
+  const status = row.querySelector(".song-state");
+  status.textContent = songState(song);
+  status.classList.toggle("failed", ["下载失败", "字幕失败"].includes(status.textContent));
   row.onclick = onOpen || (() => navigate("song-" + song.id));
   return row;
 }
@@ -89,7 +82,7 @@ function fillList(id, songs) {
   const target = $(id);
   target.replaceChildren();
   if (!songs.length) {
-    appendText(target, "div", "暂无歌曲", "empty");
+    emptyState(target, "暂无歌曲");
     return;
   }
   songs.forEach((s, i) => target.append(compactSong(s, i + 1)));
@@ -99,7 +92,7 @@ function renderCurrent(id, song) {
   target.replaceChildren();
   appendText(target, "span", "正在播放", "current-label");
   if (song) target.append(compactSong(song, "▶"));
-  else appendText(target, "p", "暂无正在播放的歌曲");
+  else emptyState(target, "暂无正在播放的歌曲");
 }
 async function refreshSongHistory() {
   const data = await api("/api/songs/history" + (isAdminPath() ? "?admin_view=true" : ""));
@@ -109,7 +102,7 @@ async function refreshSongHistory() {
   const target = $("page-played");
   target.replaceChildren();
   if (!data.songs.length) {
-    appendText(target, "p", "暂无歌曲记录", "empty");
+    emptyState(target, "暂无歌曲记录");
     return;
   }
   const list = appendText(target, "div", "", "song-list");
@@ -298,14 +291,17 @@ window.addEventListener("hashchange", () => {
   refresh();
   requestAnimationFrame(() => window.scrollTo(0, scrollPositions.get(currentRoute()) || 0));
 });
-document.querySelectorAll("[data-password-target]").forEach((button) => {
+document.querySelectorAll(".password-field > input[type=password]").forEach((field) => {
+  const button = $("password-toggle-template").content.firstElementChild.cloneNode(true);
+  const label = field.id === "register-confirm" ? "重复密码" : "密码";
+  button.setAttribute("aria-label", "显示" + label);
+  field.after(button);
   button.onclick = () => {
-    const field = $(button.dataset.passwordTarget);
     const revealing = field.type === "password";
     field.type = revealing ? "text" : "password";
     button.textContent = revealing ? "隐藏" : "显示";
     button.setAttribute("aria-pressed", String(revealing));
-    button.setAttribute("aria-label", revealing ? "隐藏密码" : "显示密码");
+    button.setAttribute("aria-label", (revealing ? "隐藏" : "显示") + label);
     field.focus();
   };
 });
@@ -524,7 +520,7 @@ async function refresh() {
 
           const stats = $("stats");
           stats.replaceChildren();
-          if (!adm.guests.length) appendText(stats, "div", "暂无演唱记录", "empty");
+          if (!adm.guests.length) emptyState(stats, "暂无演唱记录");
           adm.guests.forEach((u) => {
             const c = document.createElement("div");
             c.className = "stat";
