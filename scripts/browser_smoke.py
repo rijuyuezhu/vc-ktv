@@ -863,6 +863,9 @@ def check_ui(
     quality.focus()
     quality.select_option("720")
     codec.select_option("h264")
+    page.locator(
+        "#subpage-title"
+    ).click()  # Lose focus before the next background refresh.
     page.wait_for_timeout(4000)
     assert quality.input_value() == "720"
     assert codec.input_value() == "h264"
@@ -898,6 +901,9 @@ def check_ui(
     page.goto(base + "/admin/#settings-queue", wait_until="networkidle")
     page.locator("#queue-settings-save").wait_for(state="visible")
     page.locator("#pause-orders").check()
+    page.locator("#subpage-title").click()
+    page.wait_for_timeout(3700)
+    assert page.locator("#pause-orders").is_checked()
     with page.expect_response(
         lambda response: (
             "/api/admin/settings" in response.url and response.request.method == "PUT"
