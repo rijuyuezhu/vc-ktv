@@ -95,7 +95,7 @@ export function setupSongDetail({
 
   function detailActions(song, isAdmin) {
     const actions = document.createElement("div");
-    actions.className = "detail-actions";
+    actions.className = "detail-tools";
     const editable = ["waiting", "ready"].includes(song.status);
     if (!isAdmin) {
       if (song.mine && editable && song.prep_state !== "aligning")
@@ -136,6 +136,7 @@ export function setupSongDetail({
         const label = appendText(actions, "label", "上传 MP4", "btn neutral detail-upload");
         const file = document.createElement("input");
         file.type = "file";
+        file.className = "visually-hidden";
         file.accept = ".mp4,.webm,.m4v,video/mp4,video/webm";
         label.append(file);
         file.onchange = () =>

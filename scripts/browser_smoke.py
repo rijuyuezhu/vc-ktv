@@ -704,6 +704,20 @@ def check_ui(
     page.locator("#page-archive-event").wait_for(state="visible")
     assert page.locator("#subpage-back").get_attribute("href") == "#settings-history"
     assert page.locator("#page-archive-event .archive-event-tools").is_visible()
+    assert page.locator("#page-archive-event .detail-meta").is_visible()
+    assert (
+        page.locator("#page-archive-event .detail-meta").inner_text().endswith("已散场")
+    )
+    assert (
+        page.locator("#page-archive-event")
+        .get_by_role("link", name="下载 CSV")
+        .is_visible()
+    )
+    visibility = page.locator("#page-archive-event").get_by_role(
+        "button", name="公开场次"
+    )
+    assert visibility.get_attribute("aria-pressed") == "false"
+    assert visibility.inner_text() == "私有"
     for width in (320, 390):
         page.set_viewport_size({"width": width, "height": 780})
         assert page.evaluate("document.documentElement.scrollWidth") <= width
@@ -711,9 +725,9 @@ def check_ui(
     page.locator("#page-archive-event .song-row").first.click()
     page.locator("#page-archive-song").wait_for(state="visible")
     assert page.locator("#page-archive-song a[href*='download']").count() == 0
-    page.locator("#page-archive-song select.archive-status-select").select_option(
-        "skipped"
-    )
+    assert page.locator("#page-archive-song").get_by_label("记录状态").is_visible()
+    assert page.locator("#page-archive-song .archive-status-field > label").count() == 1
+    page.locator("#page-archive-song").get_by_label("记录状态").select_option("skipped")
     page.wait_for_function(
         'document.querySelector("#page-archive-song .detail-state strong").textContent === "已跳过"'
     )

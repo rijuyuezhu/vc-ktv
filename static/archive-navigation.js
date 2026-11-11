@@ -103,19 +103,15 @@ export function setupArchiveNavigation({
     const section = appendText(target, "section", "", "panel");
     const head = appendText(section, "div", "", "section-head");
     appendText(head, "h2", event.name);
-    const status = event.media_released_at ? "已释放资源" : "已散场";
-    appendText(
-      section,
-      "p",
-      [(event.created_at || "").slice(0, 10), status].filter(Boolean).join("　"),
-      "muted"
-    );
+    const metadata = appendText(section, "div", "", "detail-meta");
+    if (event.created_at) appendText(metadata, "span", event.created_at.slice(0, 10));
+    appendText(metadata, "span", event.media_released_at ? "已释放资源" : "已散场");
     if (canManageArchives()) {
       const actions = appendText(section, "div", "", "detail-tools archive-event-tools");
-      const csv = appendText(actions, "a", "↓ CSV", "btn neutral");
+      const csv = appendText(actions, "a", "下载 CSV", "btn neutral");
       csv.href = "/api/admin/events/" + encodeURIComponent(event.id) + "/songs.csv";
       if (!event.legacy) {
-        const visibility = actionButton(actions, event.public ? "公开 ✓" : "私有", async () => {
+        const visibility = actionButton(actions, event.public ? "公开" : "私有", async () => {
           await api(
             "/api/admin/events/" +
               encodeURIComponent(event.id) +
@@ -128,6 +124,8 @@ export function setupArchiveNavigation({
           await refresh();
         });
         visibility.title = "切换场次可见性";
+        visibility.setAttribute("aria-label", "公开场次");
+        visibility.setAttribute("aria-pressed", String(Boolean(event.public)));
         if (!event.media_released_at)
           actionButton(actions, "释放资源", async () => {
             if (!confirm("删除本场视频等大文件？保留歌词和记录。")) return;
@@ -175,11 +173,11 @@ export function setupArchiveNavigation({
     const panel = renderArchivedSong(target, song);
     if (canManageArchives() && !event.legacy) {
       const section = appendText(panel, "section", "", "detail-section");
-      appendText(section, "h3", "记录状态");
-      const controls = appendText(section, "div", "", "detail-tools");
-      const select = appendText(controls, "select", "");
-      select.setAttribute("aria-label", "历史歌曲状态");
-      select.className = "archive-status-select";
+      const field = appendText(section, "div", "", "ui-field archive-status-field");
+      const label = appendText(field, "label", "记录状态");
+      label.htmlFor = "archive-song-status";
+      const select = appendText(field, "select", "", "archive-status-select");
+      select.id = "archive-song-status";
       for (const [value, text] of [
         ["played", "已唱"],
         ["skipped", "已跳过"],

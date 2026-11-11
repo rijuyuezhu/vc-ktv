@@ -263,6 +263,7 @@ test("guest song detail keeps source links, download actions, lyric selection an
   try {
     await h.refreshSongDetail();
     const page = h.byId("page-song");
+    assert.equal(all(page, (x) => x.classList.contains("detail-tools")).length, 2);
     assert.equal(find(page, (x) => x.tagName === "H2").textContent, "演唱歌曲");
     assert.equal(find(page, (x) => x.tagName === "SOURCE").title, "bilibili");
     const links = all(page, (x) => x.tagName === "A");
@@ -321,7 +322,11 @@ test("role and status gate admin actions, and manual render uses editable lead t
     assert.ok(h.calls.some((x) => x.url === "/api/admin/songs/17/subtitles/retry"));
     h.state.song = baseSong({ status: "waiting", prep_state: "unavailable", downloadable: false });
     await h.refreshSongDetail();
-    assert.ok(find(page, (x) => x.tagName === "INPUT" && x.type === "file"));
+    const upload = find(page, (x) => x.tagName === "INPUT" && x.type === "file");
+    assert.ok(upload);
+    assert.equal(upload.className, "visually-hidden");
+    assert.ok(upload.parent.classList.contains("detail-upload"));
+    assert.ok(upload.parent.parent.classList.contains("detail-tools"));
     await button(page, "重试下载").onclick();
     assert.ok(h.calls.some((x) => x.url === "/api/admin/songs/17/download/retry"));
     assert.equal(
