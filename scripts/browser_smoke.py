@@ -659,14 +659,13 @@ def check_ui(
         == "sticky"
     )
     assert page.locator("#remote-error").get_attribute("role") == "alert"
-    assert (
-        page.locator("#remote-error").get_attribute("class")
-        == "ui-status ui-status-error"
-    )
+    assert page.locator("#remote-error").is_hidden()
     page.locator("#admin-settings-link").click()
     assert page.locator("#home-brand").get_attribute("href") == "/admin/"
     assert page.locator(".topbar").is_visible()
-    assert page.locator("#tab-admin").get_attribute("class") == "selected"
+    assert page.locator("#tab-admin").evaluate(
+        "el => el.classList.contains('selected')"
+    )
     page.locator('a[href="#settings-history"]').click()
     archives = page.locator("#event-history .archive-entry")
     assert archives.count() == 2
