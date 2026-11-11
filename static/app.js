@@ -113,15 +113,7 @@ async function refreshSongHistory() {
     return;
   }
   const list = appendText(target, "div", "", "song-list");
-  data.songs.forEach((song, index) => {
-    const item = compactSong(song, index + 1);
-    if (data.archived) {
-      item.disabled = true;
-      item.onclick = null;
-      item.setAttribute("aria-label", song.title + "，" + songState(song));
-    }
-    list.append(item);
-  });
+  data.songs.forEach((song, index) => list.append(compactSong(song, index + 1)));
 }
 const videoPreview = setupBilibiliPreview();
 const lyricPicker = createLyricPicker({ refresh, cancelGuestSong, videoPreview });
@@ -500,26 +492,15 @@ async function refresh() {
       $("login-box").classList.toggle("hidden", admin);
       $("admin-settings-link").classList.toggle("hidden", !admin);
       if (!admin) updateAccount(false, "");
-      $("admin-panel").classList.toggle(
-        "hidden",
-        !admin ||
-          Boolean(
-            adminRoutes[currentRoute()] ||
-            currentRoute() === "played" ||
-            archiveNav.parse(currentRoute()) ||
-            /^song-[0-9]+$/.test(currentRoute())
-          )
+      const route = currentRoute();
+      const inSubpage = Boolean(
+        adminRoutes[route] ||
+        route === "played" ||
+        archiveNav.parse(route) ||
+        /^song-[0-9]+$/.test(route)
       );
-      $("subpage").classList.toggle(
-        "hidden",
-        !admin ||
-          !(
-            adminRoutes[currentRoute()] ||
-            currentRoute() === "played" ||
-            archiveNav.parse(currentRoute()) ||
-            /^song-[0-9]+$/.test(currentRoute())
-          )
-      );
+      $("admin-panel").classList.toggle("hidden", !admin || inSubpage);
+      $("subpage").classList.toggle("hidden", !admin || !inSubpage);
       if (admin) {
         await refreshEvents();
         const activeState = adm.active ? { ...adm.active, media_url: null } : null;
