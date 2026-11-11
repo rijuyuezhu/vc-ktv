@@ -15,23 +15,49 @@ export function toast(message, error = false) {
   }, 4800);
 }
 export async function api(url, method = "GET", body = null, signal = null) {
-  let opts = { method, credentials: "same-origin", cache: "no-store", signal };
-  if (body !== null) {
-    if (body instanceof FormData) opts.body = body;
-    else {
-      opts.headers = { "Content-Type": "application/json" };
-      opts.body = JSON.stringify(body);
-    }
-  }
-  const res = await fetch(url, opts);
-  let data;
+  const controller = new AbortController();
+  const timeoutMs = method === "GET" ? 12000 : body instanceof FormData ? 300000 : 30000;
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
+  const timer = setTimeout(abort, timeoutMs);
   try {
-    data = await res.json();
-  } catch {
-    data = {};
+    const opts = {
+      method,
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal
+    };
+    if (body !== null) {
+      if (body instanceof FormData) opts.body = body;
+      else {
+        opts.headers = { "Content-Type": "application/json" };
+        opts.body = JSON.stringify(body);
+      }
+    }
+    const res = await fetch(url, opts);
+    let data;
+    try {
+      data = await res.json();
+    } catch (e) {
+      if (controller.signal.aborted) throw e;
+      data = {};
+    }
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    return data;
+  } catch (e) {
+    if (controller.signal.aborted && !signal?.aborted)
+      throw new Error(
+        method === "GET"
+          ? "网络响应超时，请重试"
+          : "请求超时，服务器可能已执行操作，请刷新状态后确认"
+      );
+    if (signal?.aborted) throw new Error("请求已取消");
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
-  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-  return data;
 }
 export function error(e) {
   toast(e.message || "操作失败", true);
