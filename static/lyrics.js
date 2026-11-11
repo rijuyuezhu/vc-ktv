@@ -11,6 +11,19 @@ export function createLyricPicker({ refresh, cancelGuestSong, videoPreview }) {
   let selectedCandidate = null;
   let currentVideo = null;
 
+  function previewLyrics(candidate) {
+    $("guest-lyric-preview-info").textContent = [
+      candidate.title,
+      candidate.artist,
+      candidate.source
+    ]
+      .filter(Boolean)
+      .join(" / ");
+    $("guest-lyric-preview-text").textContent = candidate.unfiltered_text || candidate.text;
+    $("guest-lyric-preview-dialog").showModal();
+  }
+  $("guest-lyric-preview-close").onclick = () => $("guest-lyric-preview-dialog").close();
+
   function abortLyricRequests() {
     lyricControllers.forEach((c) => c.abort());
     lyricControllers = [];
@@ -198,7 +211,8 @@ export function createLyricPicker({ refresh, cancelGuestSong, videoPreview }) {
       lyricKeys.add(key);
       if (lyricHits === 0) panel.replaceChildren();
       lyricHits++;
-      const card = appendText(panel, "button", "", "lyric-option choice-card");
+      const item = appendText(panel, "div", "", "lyric-choice");
+      const card = appendText(item, "button", "", "lyric-option choice-card");
       card.type = "button";
       card.setAttribute("aria-pressed", "false");
       const heading = appendText(card, "span", "", "lyric-option-header");
@@ -206,6 +220,10 @@ export function createLyricPicker({ refresh, cancelGuestSong, videoPreview }) {
       appendText(heading, "span", candidate.source);
       if (candidate.artist) appendText(card, "span", candidate.artist, "lyric-artist");
       appendText(card, "span", candidate.text, "lyric-excerpt");
+      const preview = appendText(item, "button", "预览", "btn subtle lyric-preview-btn");
+      preview.type = "button";
+      preview.setAttribute("aria-label", `预览${candidate.title}的完整歌词`);
+      preview.onclick = () => previewLyrics(candidate);
       card.onclick = () => {
         selectedCandidate = candidate;
         for (const option of panel.querySelectorAll(".lyric-option"))
@@ -300,6 +318,7 @@ export function createLyricPicker({ refresh, cancelGuestSong, videoPreview }) {
     if (sequence === selectionRequest && selectingSongId === songId) button.disabled = false;
   }
   $("guest-lyrics-dialog").addEventListener("close", () => {
+    if ($("guest-lyric-preview-dialog").open) $("guest-lyric-preview-dialog").close();
     if (suspendingLyricPicker) {
       suspendingLyricPicker = false;
       return;
