@@ -114,6 +114,7 @@ class EventLifecycle:
                             "SELECT id,status,played_at,archive_order FROM songs"
                         )
                         order = target.close_song_order()
+                        self.events.mark_closing()
                         try:
                             target.db.executemany(
                                 "UPDATE songs SET archive_order=? WHERE id=?",
@@ -130,6 +131,7 @@ class EventLifecycle:
                             target.db.commit()
                         except BaseException:
                             target.db.rollback()
+                            self.events.clear_closing()
                             raise
                     try:
                         return self.events.close()
@@ -152,6 +154,7 @@ class EventLifecycle:
                                     ],
                                 )
                                 target.db.commit()
+                            self.events.clear_closing()
                         raise
                 except BaseException:
                     if self.running and self.auto_prepare and self.events.active_id:

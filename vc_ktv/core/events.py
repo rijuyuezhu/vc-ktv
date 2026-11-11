@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 import shutil
+import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime
@@ -31,6 +33,9 @@ class Events:
         self.active_id: str | None = None
         self.current_store = None
         self.pointer = root / "active-session"
+        self.creating_marker = root / "creating-session"
+        self.closing_marker = root / "closing-session"
+        self._recover_transitions()
 
         if self.pointer.exists():
             event_id = self.pointer.read_text().strip()
@@ -39,12 +44,171 @@ class Events:
             folder = self.base / event_id
             if not (folder / "info.json").is_file():
                 raise RuntimeError("Active event directory is missing")
+            info = json.loads((folder / "info.json").read_text())
+            if info.get("status") != "active":
+                raise RuntimeError("Active event metadata is not active")
             self.active_id = event_id
             self.current_store = store_factory(folder)
         elif (root / "room.sqlite3").exists() and not (root / "legacy.closed").exists():
             # Existing installation: keep old data intact until offline migration.
             self.active_id = "legacy"
             self.current_store = store_factory(root)
+
+    def _quarantine_pointer(self) -> None:
+        path = self.root / f".invalid-active-session-{secrets.token_hex(4)}"
+        self.pointer.replace(path)
+        logging.getLogger(__name__).error(
+            "Invalid active-session pointer moved to %s; retained event data", path
+        )
+
+    def _recover_transitions(self) -> None:
+        """Resolve crashes between independent on-disk event transition steps."""
+        logger = logging.getLogger(__name__)
+        if self.creating_marker.is_file():
+            event_id = self.creating_marker.read_text().strip()
+            if not EVENT_ID.fullmatch(event_id) or event_id == "legacy":
+                raise RuntimeError("Invalid pending event creation marker")
+            is_published = (
+                self.pointer.is_file() and self.pointer.read_text().strip() == event_id
+            )
+            if not is_published:
+                folder = self.base / event_id
+                has_songs = False
+                dbfile = folder / "room.sqlite3"
+                if dbfile.is_file():
+                    try:
+                        with sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True) as db:
+                            has_songs = bool(
+                                db.execute("SELECT 1 FROM songs LIMIT 1").fetchone()
+                            )
+                    except sqlite3.Error:
+                        has_songs = (
+                            True  # Preserve incomplete or damaged data for inspection.
+                        )
+                if has_songs:
+                    logger.error(
+                        "Unpublished event %s has song data; retaining it", event_id
+                    )
+                elif folder.is_dir() and not folder.is_symlink():
+                    shutil.rmtree(folder)
+                if self.pointer.is_file() and not EVENT_ID.fullmatch(
+                    self.pointer.read_text().strip()
+                ):
+                    self._quarantine_pointer()
+            self.creating_marker.unlink()
+            logger.warning(
+                "Reconciled interrupted event creation: published=%s", is_published
+            )
+
+        if self.closing_marker.is_file():
+            event_id = self.closing_marker.read_text().strip()
+            if not EVENT_ID.fullmatch(event_id) or event_id == "legacy":
+                raise RuntimeError("Invalid pending event close marker")
+            folder = self.base / event_id
+            info_path = folder / "info.json"
+            if not info_path.is_file() or not (folder / "room.sqlite3").is_file():
+                raise RuntimeError(
+                    "Cannot recover incomplete close: event data missing"
+                )
+            info = json.loads(info_path.read_text())
+            if info.get("id") != event_id:
+                raise RuntimeError("Cannot recover incomplete close: event id mismatch")
+            if info.get("status") != "closed":
+                store = self.store_factory(folder)
+                try:
+                    with store.lock:
+                        if store.db.execute(
+                            "SELECT 1 FROM songs WHERE archive_order IS NULL LIMIT 1"
+                        ).fetchone():
+                            order = store.close_song_order()
+                            store.db.executemany(
+                                "UPDATE songs SET archive_order=? WHERE id=?",
+                                [(i, song_id) for i, song_id in enumerate(order, 1)],
+                            )
+                        store.db.execute(
+                            "UPDATE songs SET status='closed_interrupted' WHERE status='playing'"
+                        )
+                        store.db.execute(
+                            "UPDATE songs SET status='closed_unplayed' "
+                            "WHERE status IN ('waiting','rendering','ready')"
+                        )
+                        store.db.commit()
+                finally:
+                    store.db.close()
+                self._write_atomic(
+                    info_path,
+                    json.dumps(
+                        {
+                            **info,
+                            "status": "closed",
+                            "closed_at": datetime.now().isoformat(timespec="seconds"),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                    + "\n",
+                )
+            if self.pointer.is_file() and self.pointer.read_text().strip() == event_id:
+                self.pointer.unlink()
+            self.closing_marker.unlink()
+            logger.warning("Recovered interrupted close of event %s", event_id)
+
+        if self.pointer.is_file():
+            value = self.pointer.read_text().strip()
+            if not EVENT_ID.fullmatch(value):
+                self._quarantine_pointer()
+            elif value != "legacy":
+                folder = self.base / value
+                info_path = folder / "info.json"
+                try:
+                    info = json.loads(info_path.read_text())
+                    if info.get("id") != value:
+                        raise ValueError("Event metadata ID mismatch")
+                except (OSError, ValueError):
+                    self._quarantine_pointer()
+                else:
+                    if info.get("status") == "closed":
+                        self.pointer.unlink()
+                    elif (
+                        info.get("status") != "active"
+                        or not (folder / "room.sqlite3").is_file()
+                    ):
+                        self._quarantine_pointer()
+
+        if not self.pointer.exists():
+            # Reclaim one complete orphan from older code, which wrote active
+            # metadata before publishing the pointer. Never pick ambiguously.
+            orphans = []
+            for folder in self.base.iterdir():
+                if (
+                    not folder.is_dir()
+                    or folder.is_symlink()
+                    or not EVENT_ID.fullmatch(folder.name)
+                ):
+                    continue
+                if (
+                    not (folder / "info.json").is_file()
+                    or not (folder / "room.sqlite3").is_file()
+                ):
+                    continue
+                try:
+                    info = json.loads((folder / "info.json").read_text())
+                except ValueError:
+                    continue
+                if info.get("id") == folder.name and info.get("status") == "active":
+                    orphans.append(folder.name)
+            if len(orphans) == 1:
+                self._write_atomic(self.pointer, orphans[0] + "\n")
+                logger.warning("Reattached an orphan active event: %s", orphans[0])
+            elif len(orphans) > 1:
+                logger.error("Multiple orphan active events; manual recovery needed")
+
+    def mark_closing(self) -> None:
+        if self.active_id and self.active_id != "legacy":
+            self._write_atomic(self.closing_marker, self.active_id + "\n")
+
+    def clear_closing(self) -> None:
+        self.closing_marker.unlink(missing_ok=True)
 
     def begin_request(self) -> bool:
         # A request uses the same event throughout its lifetime. Do not keep
@@ -234,7 +398,7 @@ class Events:
                     + secrets.token_hex(4)
                 )
                 folder = self.base / event_id
-                folder.mkdir(mode=0o700)
+                self._write_atomic(self.creating_marker, event_id + "\n")
                 entry = {
                     "id": event_id,
                     "name": name.strip(),
@@ -244,6 +408,7 @@ class Events:
                 }
                 new_store = None
                 try:
+                    folder.mkdir(mode=0o700)
                     (folder / "info.json").write_text(
                         json.dumps(entry, ensure_ascii=False, indent=2) + "\n"
                     )
@@ -253,14 +418,17 @@ class Events:
                     new_store.save_settings(
                         None, None, video_quality=1080, original_codec_mode="av1"
                     )
-                    self.pointer.write_text(event_id + "\n")
+                    self._write_atomic(self.pointer, event_id + "\n")
+                    self.creating_marker.unlink(missing_ok=True)
                 except BaseException:
                     # The event is not published. A partially written pointer
                     # would prevent startup, and info.json alone looks active.
                     if new_store is not None:
                         new_store.db.close()
                     self.pointer.unlink(missing_ok=True)
-                    shutil.rmtree(folder)
+                    if folder.is_dir():
+                        shutil.rmtree(folder)
+                    self.creating_marker.unlink(missing_ok=True)
                     raise
                 self.current_store = new_store
                 self.active_id = event_id
@@ -322,6 +490,7 @@ class Events:
             self.current_store.db.close()
         self.current_store = None
         self.active_id = None
+        self.clear_closing()
         return current
 
 
