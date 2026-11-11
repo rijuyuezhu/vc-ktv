@@ -9,7 +9,8 @@ function tvHarness() {
   let now = 0,
     nextTimer = 1;
   const timers = new Map();
-  const calls = { plays: [], preloads: 0, nexts: 0, queue: [], current: null };
+  const intervals = [];
+  const calls = { plays: [], preloads: 0, nexts: 0, queue: [], current: null, reports: 0 };
   const storage = new Map([["vcktv-smooth-buffer", "1"]]);
   function el(id) {
     if (!nodes.has(id)) {
@@ -46,7 +47,10 @@ function tvHarness() {
             return classes.has(name);
           }
         },
-        replaceChildren() {},
+        replacements: 0,
+        replaceChildren() {
+          this.replacements++;
+        },
         append() {},
         listeners: {},
         addEventListener(name, fn) {
@@ -101,10 +105,17 @@ function tvHarness() {
       return id;
     },
     clearTimeout: (id) => timers.delete(id),
-    setInterval: () => 0,
+    setInterval: (fn, delay) => {
+      intervals.push({ fn, delay });
+      return 0;
+    },
     fetch: async (url) => ({
       ok: true,
       async json() {
+        if (url.includes("/api/tv/report")) {
+          calls.reports++;
+          return { ok: true };
+        }
         if (url.includes("/api/tv/activate")) return { token: "test" };
         if (url.includes("/api/tv/next"))
           return {
@@ -159,6 +170,7 @@ function tvHarness() {
   return {
     el,
     calls,
+    intervals,
     storage,
     evaluate,
     advance,
@@ -169,6 +181,7 @@ function tvHarness() {
           ? Promise.resolve({
               ok: true,
               async json() {
+                calls.reports++;
                 return { ok: true };
               }
             })
@@ -347,6 +360,61 @@ test("TV source icon distinguishes NetEase from Bilibili without exposing IDs", 
   assert.equal(h.el("next-up").textContent, "Next  Carol");
   assert.equal(h.el("next-up").getAttribute("data-provider"), "netease");
   assert.equal(h.el("next-up").textContent.includes("9876543210"), false);
+});
+
+test("TV checks commands at 350ms but sends only one ordinary report per second", async () => {
+  const h = tvHarness();
+  assert.equal(h.intervals.at(-1).delay, 350);
+  await h.ready();
+  const initial = h.calls.reports;
+  await h.evaluate("syncQueue()");
+  await h.advance(800);
+  await h.evaluate("syncQueue()");
+  assert.equal(h.calls.reports, initial);
+  await h.advance(250);
+  await h.evaluate("syncQueue()");
+  assert.equal(h.calls.reports, initial + 1);
+});
+
+test("frequent TV state polls avoid rebuilding an unchanged next-three-song list", async () => {
+  const h = tvHarness();
+  await h.ready();
+  const initial = h.el("next-list").replacements;
+  await h.evaluate("syncQueue()");
+  await h.advance(400);
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("next-list").replacements, initial);
+  h.calls.queue = [{ id: 8, title: "新歌", nickname: "A", source_type: "bilibili" }];
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("next-list").replacements, initial + 1);
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("next-list").replacements, initial + 1);
+});
+
+test("remote commands acknowledge immediately and only once, even inside heartbeat window", async () => {
+  const h = tvHarness();
+  await h.ready();
+  const before = h.calls.reports;
+  h.setFetch(async (url) => ({
+    ok: true,
+    async json() {
+      if (url.includes("/api/tv/state"))
+        return {
+          playback_mode: "tv",
+          current: null,
+          queue: [],
+          remote_command: { seq: 1, action: "opacity", song_id: null, value: 65 }
+        };
+      return { ok: true };
+    }
+  }));
+  await h.advance(100);
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("banner-transparency").value, "65");
+  assert.equal(h.calls.reports, before + 1);
+  await h.evaluate("syncQueue()");
+  assert.equal(h.calls.reports, before + 1, "stale command is not executed or reported again");
+  assert.equal(h.evaluate("lastRemoteSeq"), 1);
 });
 
 test("slow TV polling serializes requests and never discards a valid result", async () => {

@@ -21,6 +21,7 @@ export function setupTVPrimary({ isAdminPath, getPlayback, updateRemoteControls 
       !admin ||
       playbackMode !== "tv" ||
       !tvPrimaryState?.active ||
+      remoteStatusInFlight ||
       document.visibilityState !== "visible" ||
       !document.querySelector(".playback-remote")?.getClientRects().length
     )

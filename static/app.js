@@ -540,7 +540,8 @@ refresh();
 setInterval(() => {
   if (document.visibilityState === "visible") refresh();
 }, 3500);
-setInterval(adminPlayback.pollTVRemoteStatus, 1000);
+// Remote feedback is cheap and visible only while the TV controls are in use.
+setInterval(adminPlayback.pollTVRemoteStatus, 350);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refresh();
 });
