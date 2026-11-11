@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import ipaddress
 import os
+import threading
 
 from fastapi import Request, Response
 
@@ -21,6 +22,9 @@ class AuthService:
         self.failed_login = {}
         self.failed_invites = {}
         self.failed_users = {}
+        self.failed_ips = {}
+        self._failure_lock = threading.Lock()
+        self._failure_swept_at = 0
         self.trusted_proxy_ips = {
             str(ipaddress.ip_address(value.strip()))
             for value in os.getenv("VC_KTV_TRUSTED_PROXY_IPS", "").split(",")
@@ -139,14 +143,54 @@ class AuthService:
             bail(403, "仅全局管理员可操作")
         return principal
 
+    def _prune_failures(self, now: int) -> None:
+        if now - self._failure_swept_at < 30:
+            return
+        for bucket in (
+            self.failed_login,
+            self.failed_invites,
+            self.failed_users,
+            self.failed_ips,
+        ):
+            for key, timestamps in list(bucket.items()):
+                recent = [t for t in timestamps if t > now - 300]
+                if recent:
+                    bucket[key] = recent
+                else:
+                    bucket.pop(key, None)
+        self._failure_swept_at = now
+
+    @staticmethod
+    def _add_failure(bucket: dict, key, now: int) -> None:
+        # A changing username must never grow a process-wide dictionary forever.
+        if key not in bucket and len(bucket) >= 2048:
+            bucket.pop(next(iter(bucket)))
+        bucket.setdefault(key, []).append(now)
+
+    def check_attempt(self, bucket: dict, key, ip: str) -> None:
+        with self._failure_lock:
+            now = time_now()
+            self._prune_failures(now)
+            if len(bucket.get(key, ())) >= 10 or len(self.failed_ips.get(ip, ())) >= 40:
+                bail(429, "登录尝试过于频繁，请稍后重试")
+
+    def note_failed_attempt(self, bucket: dict, key, ip: str) -> None:
+        with self._failure_lock:
+            now = time_now()
+            self._prune_failures(now)
+            self._add_failure(bucket, key, now)
+            self._add_failure(self.failed_ips, ip, now)
+
+    def clear_failed_attempt(self, bucket: dict, key) -> None:
+        with self._failure_lock:
+            bucket.pop(key, None)
+
     def authenticate_admin(
         self, username: str | None, password: str, request: Request
     ) -> str:
         ip = self.client_ip(request)
         key = (ip, username.strip() if username else "")
-        recent = [t for t in self.failed_login.get(key, []) if t > time_now() - 300]
-        if len(recent) >= 10:
-            bail(429, "登录尝试过于频繁，请稍后重试")
+        self.check_attempt(self.failed_login, key, ip)
         identity = None
         if username is None or not username.strip():
             if hmac.compare_digest(password, self.password):
@@ -166,10 +210,9 @@ class AuthService:
                         f"{self.events.active_id}:{account['id']}:{account['revision']}"
                     )
         if identity is None:
-            recent.append(time_now())
-            self.failed_login[key] = recent
+            self.note_failed_attempt(self.failed_login, key, ip)
             bail(401, "用户名或密码错误")
-        self.failed_login.pop(key, None)
+        self.clear_failed_attempt(self.failed_login, key)
         return identity
 
     def admin_cookie(self, response: Response, identity: str) -> None:

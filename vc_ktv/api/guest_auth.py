@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from vc_ktv.application.auth import AuthService
 from vc_ktv.application.errors import bail
 from vc_ktv.core.accounts import password_hash, verify_password
-from vc_ktv.core.store import time_now
 
 
 class JoinEvent(BaseModel):
@@ -59,18 +58,15 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
         if not info or info.get("legacy") or not info.get("code"):
             bail(409, "请等待管理员创建新 KTV 场次")
         ip = auth.client_ip(request)
-        recent = [t for t in auth.failed_invites.get(ip, []) if t > time_now() - 300]
-        if len(recent) >= 10:
-            bail(429, "尝试过于频繁，请稍后重试")
+        auth.check_attempt(auth.failed_invites, ip, ip)
         if (
             not body.code.isascii()
             or not body.code.isdecimal()
             or not hmac.compare_digest(body.code, info["code"])
         ):
-            recent.append(time_now())
-            auth.failed_invites[ip] = recent
+            auth.note_failed_attempt(auth.failed_invites, ip, ip)
             bail(401, "加入码错误")
-        auth.failed_invites.pop(ip, None)
+        auth.clear_failed_attempt(auth.failed_invites, ip)
         event_id = info["id"]
         if events.active_id != event_id:
             bail(409, "场次已变化，请重新输入加入码")
@@ -134,9 +130,7 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
         auth.require_entry(vc_join)
         ip = auth.client_ip(request)
         key = (events.active_id, ip, body.username.strip())
-        recent = [t for t in auth.failed_users.get(key, []) if t > time_now() - 300]
-        if len(recent) >= 10:
-            bail(429, "尝试过于频繁，请稍后重试")
+        auth.check_attempt(auth.failed_users, key, ip)
         with store.lock:
             auth.require_entry(vc_join)
             event_id = events.active_id
@@ -145,10 +139,9 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
                 (body.username.strip(),),
             ).fetchone()
         if not row or not verify_password(body.password, row["password_hash"]):
-            recent.append(time_now())
-            auth.failed_users[key] = recent
+            auth.note_failed_attempt(auth.failed_users, key, ip)
             bail(401, "用户名或密码错误")
-        auth.failed_users.pop(key, None)
+        auth.clear_failed_attempt(auth.failed_users, key)
         auth.user_cookie(response, row["id"], event_id)
         return {"ok": True, "username": row["username"]}
 

@@ -24,8 +24,8 @@ class GuestLyricChoice(BaseModel):
 
 
 class Login(BaseModel):
-    password: str
-    username: str | None = None
+    password: str = Field(min_length=1, max_length=1024)
+    username: str | None = Field(default=None, max_length=24)
 
 
 class Finish(BaseModel):
