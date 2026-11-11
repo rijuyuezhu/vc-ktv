@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import sqlite3
+from contextlib import closing, nullcontext
 from typing import Literal
 from urllib.parse import quote
 
@@ -87,7 +88,9 @@ class EventArchiveService:
                 db.row_factory = sqlite3.Row
                 row = db.execute(
                     """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
-                       s.uploader,s.cover,s.duration,s.status,s.played_at,
+                       s.uploader,s.cover,s.duration,s.status,
+                       CASE WHEN s.status IN ('played','skipped')
+                            THEN s.played_at END AS played_at,
                        g.name AS nickname FROM songs s JOIN guests g ON g.id=s.requester
                        WHERE s.id=?""",
                     (song_id,),
@@ -136,21 +139,23 @@ class EventArchiveService:
                 }
                 if row[0] not in allowed:
                     bail(409, "歌曲仍在进行中")
-                # Preserve real play/skip times; clear dates if a correction
-                # says the track was never played. Never fabricate a time.
-                db.execute(
-                    """UPDATE songs SET status=?, played_at=CASE
-                       WHEN ? IN ('cancelled', 'closed_unplayed', 'closed_interrupted')
-                       THEN NULL ELSE played_at END WHERE id=?""",
-                    (status, status, song_id),
-                )
-                db.commit()
-            # Update the on-disk CSV snapshot too; computed downloads always
-            # read the DB and preserve the original frozen archive order.
-            if (folder / "songs.csv").is_file():
-                self.events._write_atomic(
-                    folder / "songs.csv", self.csv_text(event_id, token)
-                )
+                # Keep any real playback timestamp for later corrections.
+                # Public records only show it for played/skipped statuses.
+                db.execute("UPDATE songs SET status=? WHERE id=?", (status, song_id))
+                csv_path = folder / "songs.csv"
+                old_csv = csv_path.read_text() if csv_path.is_file() else None
+                if old_csv is not None:
+                    # Generate the snapshot from this uncommitted transaction:
+                    # a failed CSV write rolls back the status change too.
+                    self.events._write_atomic(
+                        csv_path, self.csv_text(event_id, token, connection=db)
+                    )
+                try:
+                    db.commit()
+                except Exception:
+                    if old_csv is not None:
+                        self.events._write_atomic(csv_path, old_csv)
+                    raise
             return {"id": song_id, "status": status}
 
     def records(self, event_id: str, token: str | None) -> list[dict]:
@@ -159,12 +164,21 @@ class EventArchiveService:
             bail(403, "无权查看其他场次历史")
         return self._read_records(event_id)
 
-    def _read_records(self, event_id: str) -> list[dict]:
+    def _read_records(
+        self, event_id: str, *, connection: sqlite3.Connection | None = None
+    ) -> list[dict]:
         with self.events.lock:
             path = self.events.database_path(event_id)
-            with sqlite3.connect(
-                f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
-            ) as db:
+            reader = (
+                nullcontext(connection)
+                if connection is not None
+                else closing(
+                    sqlite3.connect(
+                        f"file:{quote(str(path), safe='/')}?mode=ro", uri=True
+                    )
+                )
+            )
+            with reader as db:
                 db.row_factory = sqlite3.Row
                 columns = {
                     column[1] for column in db.execute("PRAGMA table_info(songs)")
@@ -192,7 +206,10 @@ class EventArchiveService:
                     for row in db.execute(
                         """SELECT s.id,s.title,g.name AS requester,
                                   s.status,s.source_type,s.source_id,s.bvid,
-                                  s.page,s.requested_at,s.played_at,s.uploader
+                                  s.page,s.requested_at,
+                                  CASE WHEN s.status IN ('played','skipped')
+                                       THEN s.played_at END AS played_at,
+                                  s.uploader
                            FROM songs s JOIN guests g ON g.id=s.requester
                            """
                         + ordering
@@ -206,8 +223,18 @@ class EventArchiveService:
                 songs.sort(key=lambda row: rank.get(row["id"], len(rank)))
             return songs
 
-    def csv_text(self, event_id: str, token: str | None) -> str:
-        songs = self.records(event_id, token)
+    def csv_text(
+        self,
+        event_id: str,
+        token: str | None,
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> str:
+        songs = (
+            self._read_records(event_id, connection=connection)
+            if connection is not None
+            else self.records(event_id, token)
+        )
         output = io.StringIO()
         writer = csv.writer(output)
         fields = (
