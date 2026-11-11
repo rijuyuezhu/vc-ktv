@@ -133,7 +133,7 @@ export function setupSongDetail({
           await refresh();
         });
       if (song.status === "waiting" && !["downloading", "pending"].includes(song.prep_state)) {
-        const label = appendText(actions, "label", "上传 MP4", "btn neutral detail-upload");
+        const label = appendText(actions, "label", "上传 MP4", "btn neutral upload-label");
         const file = document.createElement("input");
         file.type = "file";
         file.className = "visually-hidden";
