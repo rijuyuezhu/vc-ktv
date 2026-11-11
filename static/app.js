@@ -23,7 +23,6 @@ for (const [panel, ids] of [
 }
 let admin = false;
 let adminRole = null;
-let adminCanOrder = false;
 let refreshing = false;
 let refreshQueued = false;
 let refreshFailed = false;
@@ -165,7 +164,7 @@ const archiveNav = setupArchiveNavigation({
   navigate,
   getArchiveOrigin: () => window.history.state?.archiveOrigin || archiveOrigin,
   showReorderAction: () => !isAdminPath(),
-  canRequestSong: () => (isAdminPath() ? adminCanOrder : guestAuthenticated),
+  canRequestSong: () => guestAuthenticated,
   canManageArchives: () => isAdminPath() && admin && adminRole === "global"
 });
 $("home-brand").href = isAdminPath() ? "/admin/" : "/";
@@ -360,7 +359,6 @@ $("account-logout").onclick = () =>
       await api("/api/admin/logout", "POST");
       admin = false;
       adminRole = null;
-      adminCanOrder = false;
       adminStateKey = null;
       adminPlayback.resetPlayer();
     } else await api("/api/users/logout", "POST");
@@ -553,13 +551,6 @@ async function refresh() {
       }
     }
     if (archiveNav.parse(currentRoute()) && (isAdminPath() ? admin : guestAuthenticated)) {
-      if (isAdminPath() && archiveNav.parse(currentRoute()).page === "archive-song") {
-        const eligible = Boolean((await api("/api/entry")).authenticated);
-        if (adminCanOrder !== eligible) {
-          adminCanOrder = eligible;
-          archiveNav.clear();
-        }
-      }
       await archiveNav.load();
     }
     if (refreshFailed) {
