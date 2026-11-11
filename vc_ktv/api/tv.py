@@ -93,6 +93,10 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
     def tv_revoke(vc_admin: str | None = Cookie(default=None)):
         return tv.revoke(tv.auth.require_admin(vc_admin))
 
+    @router.post("/api/admin/tv/restore-current")
+    def tv_restore_current(vc_admin: str | None = Cookie(default=None)):
+        return tv.restore_current(tv.auth.require_admin(vc_admin))
+
     @router.get("/api/tv/state")
     def tv_state(token: str, request: Request):
         tv.require_tv(token)

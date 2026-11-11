@@ -245,6 +245,40 @@ class TVSessionService:
                 )
             }
 
+    def _return_current_to_queue(self) -> int | None:
+        """Undo an uncompleted TV claim without charging a singing turn.
+
+        Called under Store.lock and committed with the surrounding TV change.
+        Existing admin-selected next-song priority is preserved.
+        """
+        current = self.store.current()
+        if not current:
+            return None
+        self.store.db.execute(
+            "UPDATE songs SET status='ready',played_at=NULL,fair_exempt=0 "
+            "WHERE id=? AND status='playing'",
+            (current["id"],),
+        )
+        return current["id"]
+
+    def restore_current(self, principal: dict) -> dict:
+        """Recover a stranded TV turn only after the controlling TV is gone."""
+        with self.store.lock:
+            if self.store.playback_mode() != "tv":
+                bail(409, "当前不是电视播放模式")
+            if self.read_record("tv_primary"):
+                bail(409, "主屏仍在连接，请先撤回主屏")
+            try:
+                song_id = self._return_current_to_queue()
+                if song_id is None:
+                    bail(409, "没有需要恢复的当前歌曲")
+                self.store.db.commit()
+            except BaseException:
+                self.store.db.rollback()
+                raise
+            self.notifications.notify("admin")
+            return {"ok": True, "requeued_song_id": song_id}
+
     def revoke(self, principal: dict) -> dict:
         with self.store.lock:
             active = self.read_record("tv_primary")
@@ -253,14 +287,23 @@ class TVSessionService:
                 bail(403, "本场管理员不能撤回全局管理员的主屏")
             if not active and not self.can_manage(principal, pending):
                 bail(403, "本场管理员不能撤回全局管理员的配对链接")
-            self.write_record("tv_primary", None)
-            self.write_record("tv_remote", None)
-            if self.can_manage(principal, pending):
-                self.write_record("tv_pending", None)
-            self.store.db.commit()
+            try:
+                requeued = (
+                    self._return_current_to_queue()
+                    if active and self.store.playback_mode() == "tv"
+                    else None
+                )
+                self.write_record("tv_primary", None)
+                self.write_record("tv_remote", None)
+                if self.can_manage(principal, pending):
+                    self.write_record("tv_pending", None)
+                self.store.db.commit()
+            except BaseException:
+                self.store.db.rollback()
+                raise
             self.notifications.notify("tv")
             self.notifications.notify("admin")
-        return {"ok": True}
+        return {"ok": True, "requeued_song_id": requeued}
 
     def require_tv_mode(self) -> None:
         if self.store.playback_mode() != "tv":

@@ -57,8 +57,9 @@ export function setupAdminPlayback({
   }
   const primaryTV = setupTVPrimary({
     isAdminPath,
-    getPlayback: () => ({ admin: getAdmin(), playbackMode }),
-    updateRemoteControls: () => updateRemoteControls()
+    getPlayback: () => ({ admin: getAdmin(), playbackMode, currentAdminSong }),
+    updateRemoteControls: () => updateRemoteControls(),
+    refresh
   });
   const { refreshTVPrimary, pollTVRemoteStatus } = primaryTV;
   $("start-btn").onclick = () =>

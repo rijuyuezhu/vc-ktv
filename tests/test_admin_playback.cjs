@@ -157,6 +157,7 @@ async function harness() {
         };
     }
     if (url === "/api/admin/tv") data = state.tv;
+    if (url === "/api/admin/tv/revoke") data = { ok: true, requeued_song_id: 7 };
     if (url === "/api/admin/tv/remote") data = state.remote;
     if (url === "/api/admin/next") data = { active: state.next };
     if (url === "/api/admin/playback-mode" && state.failMode)
@@ -456,6 +457,47 @@ test("non-owner TV administrator cannot manage primary or send remote commands",
     const n = h.calls.filter((c) => c.url === "/api/admin/tv/remote").length;
     await h.playback.pollTVRemoteStatus();
     assert.equal(h.calls.filter((c) => c.url === "/api/admin/tv/remote").length, n);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("stranded TV song offers an admin-only return-to-queue action", async () => {
+  const h = await harness();
+  try {
+    h.state.tv = { active: false, can_manage: true };
+    await h.sync("tv", song(7));
+    const restore = h.byId("tv-restore-current-btn");
+    assert.equal(restore.classList.contains("hidden"), false);
+    h.state.allow = false;
+    await restore.onclick();
+    assert.equal(h.calls.filter((c) => c.url === "/api/admin/tv/restore-current").length, 0);
+    h.state.allow = true;
+    await restore.onclick();
+    assert.equal(h.calls.filter((c) => c.url === "/api/admin/tv/restore-current").length, 1);
+    assert.equal(h.state.refreshes, 1);
+    h.state.tv = { active: true, can_manage: true };
+    await h.sync("tv", song(7));
+    assert.equal(restore.classList.contains("hidden"), true);
+    h.state.tv = { active: false, can_manage: true };
+    await h.sync("tv", null);
+    assert.equal(restore.classList.contains("hidden"), true);
+    await h.sync("manual", song(7));
+    assert.equal(restore.classList.contains("hidden"), true);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("revoking a TV with an active song requests a full queue refresh", async () => {
+  const h = await harness();
+  try {
+    h.state.tv = { active: true, can_manage: true };
+    await h.sync("tv", song(7));
+    await h.byId("tv-revoke-btn").onclick();
+    assert.equal(h.calls.filter((c) => c.url === "/api/admin/tv/revoke").length, 1);
+    assert.equal(h.state.refreshes, 1);
+    assert.equal(h.byId("toast").textContent, "主屏已撤回，当前歌曲已退回待播");
   } finally {
     h.cleanup();
   }
