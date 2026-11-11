@@ -75,8 +75,6 @@ textarea { resize: vertical; }
 .song-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .song-copy small { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; }
 .empty { padding: 16px 12px; border: 1px dashed var(--line-strong); border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 14px; text-align: center; }
-.mini { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface); color: var(--accent-ink); font-size: 13px; cursor: pointer; }
-.mini:hover { background: var(--accent-soft); border-color: #bfc5ff; }
 .status { padding: 4px 8px; border-radius: 5px; background: var(--ok-soft); color: var(--ok); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .status.wait { background: var(--warn-soft); color: var(--warn); }
 .full-width { grid-column: 1/-1; }
@@ -179,9 +177,9 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 #guest-profile { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #guest-greeting { font-weight: 650; }
 
-.settings-fields { display: flex; flex-wrap: wrap; gap: 18px; align-items: end; margin-bottom: 12px; }
-.settings-fields > div { flex: 1 1 260px; }
-.settings-fields select { width: 100%; max-width: 450px; padding: 9px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 7px; }
+.settings-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; align-items: start; margin-bottom: 20px; }
+.settings-fields > div { min-width: 0; }
+.settings-fields > div > label { margin: 0 0 7px; }
 .archive-list { display: flex; flex-direction: column; gap: 8px; }
 
 /* Simple surfaces and calm typography: keep the primary action obvious. */
@@ -361,7 +359,6 @@ button, input, select { min-height: 44px; }
   .offset-details { font-size: 12px; }
   .offset-details label { font-size: 12px; }
   .song-item { row-gap: 8px; }
-  .song-item .mini { min-height: 40px; }
 }
 
 /* Source tabs and a single NetEase song/search/share entry point. */
@@ -439,7 +436,7 @@ button, input, select { min-height: 44px; }
 .song-chevron { color: #a0a7b7; font-size: 23px; font-weight: 300; }
 .source-tag { gap: 4px; padding: 0; background: transparent; font-size: 12px; }
 .source-tag img { width: 15px; height: 15px; display: block; flex: 0 0 15px; }
-#current-guest .song-row { border-color: #c8cdf4; background: #f7f7ff; }
+.current-card .song-row { border-color: #c8cdf4; background: #f7f7ff; }
 .song-detail-panel { max-width: 880px; margin: auto; gap: 0; padding: 27px; border-radius: 15px; }
 .detail-header { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .detail-cover { width: 144px; height: 96px; flex: 0 0 144px; object-fit: cover; border-radius: 10px; background: #eef0f7; }
@@ -527,13 +524,7 @@ button, input, select { min-height: 44px; }
 #page-settings-event, #page-settings-accounts,
 #page-settings-netease, #page-stats { max-width: 850px; margin: 0 auto; }
 #event-settings-panel, #event-queue-settings-panel { padding: 26px; }
-#event-settings-panel .settings-fields, #event-queue-settings-panel .settings-fields {
-  display: grid; grid-template-columns: repeat(2,minmax(0,1fr));
-  align-items: start; gap: 18px; margin: 0 0 20px;
-}
 #event-queue-settings-panel .settings-fields { grid-template-columns: 1fr; max-width: 440px; }
-#event-settings-panel .settings-fields > div { min-width: 0; }
-#event-settings-panel label, #event-queue-settings-panel label { margin: 0 0 7px; }
 .setting-toggle { display: flex !important; align-items: center; gap: 13px;
   padding: 14px 0; border-top: 1px solid var(--line); font-size: 14px; font-weight: 500 !important; cursor: pointer;
 }
@@ -550,8 +541,7 @@ button, input, select { min-height: 44px; }
   .top-actions { margin-left: auto; }
   .tabs a { padding-inline: 8px; }
   #event-settings-panel, #event-queue-settings-panel { padding: 17px; }
-  #event-settings-panel .settings-fields { grid-template-columns: 1fr; gap: 14px; }
-  #event-queue-settings-panel .settings-fields { grid-template-columns: 1fr; }
+  .settings-fields { grid-template-columns: 1fr; gap: 14px; }
   .settings-nav-item { padding: 12px !important; }
   #event-settings-panel .style-preview { margin: 14px 0 18px; }
 }
@@ -701,7 +691,9 @@ button, input, select { min-height: 44px; }
 .ui-status:empty { display: none; }
 #guest-access, #login-box { margin-inline: auto; max-width: 540px; width: 100%; }
 #guest-access .section-head, #login-box .section-head { margin-bottom: 14px; }
-#login-box .input-row { align-items: stretch; }
-#login-box .input-row > .btn { min-width: 90px; }
 #guest-access .auth-single { padding-top: 8px; }
 #guest-access .auth-single .ui-field > label { color: var(--muted); }
+
+/* Same field rhythm for both music sources and both login experiences. */
+.source-input-field { margin-top: 0; }
+.queue-records-link { flex: 0 0 auto; font-size: 13px; }

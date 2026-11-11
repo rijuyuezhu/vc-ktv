@@ -292,6 +292,19 @@ def check_ui(
     page.locator("#user-login-password").fill(user_password)
     page.locator("#user-login-btn").click()
     page.locator("#request-panel").wait_for(state="visible")
+    # Both ordering sources use the same form hierarchy and label treatment.
+    assert page.locator("#source-panel-bilibili .source-input-field").count() == 1
+    assert page.locator("#source-panel-netease .source-input-field").count() == 1
+    assert (
+        page.locator("#source-panel-bilibili .source-input-field > label").inner_text()
+        == "B站链接或 BV 号"
+    )
+    page.locator("#queue-panel").wait_for(state="visible")
+    assert page.locator("#queue-panel .section-head h2").inner_text() == "☷ 队列"
+    assert (
+        page.locator("#queue-panel a[href='#played']").get_attribute("class")
+        == "btn neutral queue-records-link"
+    )
     page.route(
         "**/api/netease/search*",
         lambda route: route.fulfill(
@@ -580,6 +593,7 @@ def check_ui(
     page.on("pageerror", lambda error: errors.append(str(error)))
     page.goto(base + "/admin/", wait_until="domcontentloaded")
     assert page.locator("#login-box .ui-field").count() == 2
+    assert "wide" in page.locator("#login-btn").get_attribute("class")
     assert page.locator("#login-box .ui-hint-inline").inner_text() == "全局管理员留空"
     assert page.locator("#password + .password-toggle").count() == 1
     page.locator("#password").fill(admin_password)
@@ -592,6 +606,12 @@ def check_ui(
     assert page.locator(".account-dropdown").inner_text().strip() == "退出登录"
     page.locator("#account-menu summary").click()
     assert page.locator("#admin-queue-panel").is_visible()
+    assert page.locator("#admin-queue-panel .section-head h2").inner_text() == "☷ 队列"
+    assert (
+        page.locator("#admin-queue-panel a[href='#played']").get_attribute("class")
+        == "btn neutral queue-records-link"
+    )
+    assert page.locator("#admin-queue-panel .song-list").count() == 2
     assert page.locator("#admin-current").is_visible()
     assert page.locator("#admin-current .current-label").text_content() == "正在播放"
     assert page.locator("#admin-queue-panel h3").all_text_contents() == [

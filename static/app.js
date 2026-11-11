@@ -6,6 +6,21 @@ import { setupSongRequests, setupBilibiliPreview } from "./song-requests.js";
 import { createLyricPicker } from "./lyrics.js";
 import { $, api, toast, error, guarded, duration, appendText, emptyState } from "./ui-common.js";
 ("use strict");
+// The guest and admin queues share one structure and visual hierarchy.
+const queueParts = ["count", "current", "ready", "waiting"];
+for (const [panel, ids] of [
+  ["queue-panel", ["queue-count", "current-guest", "queue-ready", "queue-waiting"]],
+  [
+    "admin-queue-panel",
+    ["admin-queue-count", "admin-current", "admin-queue-ready", "admin-queue-waiting"]
+  ]
+]) {
+  const root = $(panel);
+  root.append($("queue-panel-template").content.cloneNode(true));
+  queueParts.forEach((part, index) => {
+    root.querySelector(`[data-queue-part="${part}"]`).id = ids[index];
+  });
+}
 let admin = false;
 let adminRole = null;
 let adminCanOrder = false;

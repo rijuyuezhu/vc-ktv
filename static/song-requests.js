@@ -119,7 +119,7 @@ export function setupSongRequests({ refresh, openLyricPicker, videoPreview }) {
       neteaseCanLoadMore = false;
       $("netease-song-query").value = "";
       $("netease-search-results").replaceChildren();
-      $("netease-search-message").textContent = "已点歌，可以继续搜索下一首。";
+      $("netease-search-message").textContent = "";
       toast("✓ 已加入队列，请选择歌词");
       await refresh();
       await openLyricPicker(result.id, result.title, result.lyric_query);
@@ -167,9 +167,9 @@ export function setupSongRequests({ refresh, openLyricPicker, videoPreview }) {
       showNeteaseMore();
       message.textContent = songs.length
         ? looksLikeShare
-          ? "已识别分享歌曲，请确认歌名与歌手。"
-          : "找到 " + songs.length + " 首，请选择正确版本。"
-        : "没有找到匹配歌曲，可以换歌名、歌手或粘贴分享链接。";
+          ? "已识别分享歌曲"
+          : "找到 " + songs.length + " 首歌曲"
+        : "未找到匹配歌曲";
     } catch (e) {
       if (version !== neteaseSearchVersion) return;
       message.textContent = e.message || "搜索失败";

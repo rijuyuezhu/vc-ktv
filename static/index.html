@@ -91,28 +91,24 @@
           <button type="button" id="source-tab-netease" role="tab" aria-selected="false" aria-controls="source-panel-netease" tabindex="-1"><img class="brand-icon" src="/icons/neteasecloudmusic.svg" alt="" aria-hidden="true">网易云</button>
         </div>
         <div id="source-panel-bilibili" role="tabpanel" aria-labelledby="source-tab-bilibili">
-        <label for="bvid">视频链接或 BV 号</label>
-        <div class="input-row"><input id="bvid" placeholder="BVxxxxxxxxxx / B站链接" spellcheck="false"><button id="quick-submit-btn" class="btn primary">♫ 点歌</button></div>
-
+          <div class="ui-field source-input-field">
+            <label for="bvid">B站链接或 BV 号</label>
+            <div class="input-row"><input id="bvid" placeholder="粘贴链接或 BV 号" spellcheck="false"><button id="quick-submit-btn" class="btn primary" type="button">♫ 点歌</button></div>
+          </div>
         </div>
         <div id="source-panel-netease" role="tabpanel" aria-labelledby="source-tab-netease" hidden>
-          <label for="netease-song-query">歌名、歌手或网易云分享链接</label>
-          <form id="netease-search-form" class="input-row netease-search-row">
-            <input id="netease-song-query" maxlength="2048" placeholder="歌名、歌手或网易云分享链接" autocomplete="off" aria-label="搜索网易云音乐或粘贴分享链接">
-            <button id="netease-search-btn" class="btn primary" type="submit">🔎 搜索</button>
-          </form>
-          <div id="netease-search-message" class="muted netease-search-message" role="status" aria-live="polite"></div>
+          <div class="ui-field source-input-field">
+            <label for="netease-song-query">歌名、歌手或分享链接</label>
+            <form id="netease-search-form" class="input-row netease-search-row">
+              <input id="netease-song-query" maxlength="2048" placeholder="搜索歌曲或粘贴分享链接" autocomplete="off" aria-label="搜索网易云音乐或粘贴分享链接">
+              <button id="netease-search-btn" class="btn primary" type="submit">🔎 搜索</button>
+            </form>
+          </div>
+          <div id="netease-search-message" class="ui-status netease-search-message" role="status" aria-live="polite"></div>
           <div id="netease-search-results" class="netease-search-results" aria-label="网易云搜索结果"></div>
         </div>
       </section>
-      <section class="panel queue-panel hidden" id="queue-panel">
-        <div class="section-head"><h2>🎶 队列</h2><a href="#played" class="mini">歌曲记录 ›</a><span id="queue-count" class="small-tag">0 首可播</span></div>
-        <div id="current-guest" class="current-card"><span class="current-label">正在播放</span><p>尚未开始播放</p></div>
-        <h3><span aria-hidden="true">🎵</span> 待播放</h3>
-        <div id="queue-ready" class="song-list"><div class="empty">还没有准备好的歌曲</div></div>
-        <h3><span aria-hidden="true">⏳</span> 准备中</h3>
-        <div id="queue-waiting" class="song-list"><div class="empty">暂时没有等待中的歌曲</div></div>
-      </section>
+      <section class="panel queue-panel hidden" id="queue-panel"></section>
 
     </div>
     <div id="admin-view" class="hidden">
@@ -124,8 +120,9 @@
         </div>
         <div class="ui-field">
           <label for="password">密码</label>
-          <div class="input-row"><div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"></div><button id="login-btn" type="submit" class="btn primary">登录</button></div>
+          <div class="password-field"><input id="password" type="password" autocomplete="current-password" placeholder="管理员密码"></div>
         </div>
+        <button id="login-btn" type="submit" class="btn primary wide">登录</button>
       </form>
       <div id="admin-panel" class="hidden admin-layout">
         <section class="panel full-width" id="event-management">
@@ -214,14 +211,7 @@
             </aside>
           </div>
         </section>
-        <section class="panel queue-panel" id="admin-queue-panel">
-          <div class="section-head"><h2><span class="ui-icon" aria-hidden="true">☷</span> 队列管理</h2><a href="#played" class="mini">歌曲记录 ›</a><span id="admin-queue-count" class="small-tag">0 首可播</span></div>
-          <div id="admin-current" class="current-card"><span class="current-label">正在播放</span><p>暂无正在播放的歌曲</p></div>
-          <h3><span aria-hidden="true">🎵</span> 待播放</h3>
-          <div id="admin-queue-ready" class="song-list"><div class="empty">暂无歌曲</div></div>
-          <h3><span aria-hidden="true">⏳</span> 准备中</h3>
-          <div id="admin-queue-waiting" class="song-list"><div class="empty">暂无歌曲</div></div>
-        </section>
+        <section class="panel queue-panel" id="admin-queue-panel"></section>
         <section class="panel full-width" id="event-settings-panel">
           <div class="settings-fields">
             <div class="settings-mode">
@@ -344,6 +334,18 @@
   <template id="password-toggle-template">
     <button type="button" class="password-toggle" aria-label="显示密码" aria-pressed="false">显示</button>
   </template>
+  <template id="queue-panel-template">
+    <div class="section-head">
+      <h2><span class="ui-icon" aria-hidden="true">☷</span> 队列</h2>
+      <a href="#played" class="btn neutral queue-records-link">歌曲记录 ›</a>
+      <span data-queue-part="count" class="small-tag">0 首可播</span>
+    </div>
+    <div data-queue-part="current" class="current-card"><span class="current-label">正在播放</span><div class="empty" role="status">暂无正在播放的歌曲</div></div>
+    <h3><span aria-hidden="true">🎵</span> 待播放</h3>
+    <div data-queue-part="ready" class="song-list"><div class="empty" role="status">暂无歌曲</div></div>
+    <h3><span aria-hidden="true">⏳</span> 准备中</h3>
+    <div data-queue-part="waiting" class="song-list"><div class="empty" role="status">暂无歌曲</div></div>
+  </template>
   <template id="song-row-template">
     <button class="song-item song-row song-open" type="button">
       <span class="ordinal"></span>
@@ -448,7 +450,7 @@
     <div class="input-row"><input id="lyric-source-title" placeholder="VCPedia 页面名称，如 勾指起誓"><button id="lyric-source-btn" class="btn neutral">获取候选</button></div>
     <div id="lyric-source-results" class="result-list"></div>
     <div class="input-row" style="margin:12px 0">
-      <label class="mini upload-label">导入 TIFA TextGrid
+      <label class="btn neutral upload-label">导入 TIFA TextGrid
         <input id="textgrid-file" type="file" accept=".TextGrid,.textgrid">
       </label>
 
