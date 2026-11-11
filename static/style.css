@@ -91,7 +91,7 @@ textarea { resize: vertical; }
 .stat { padding: 11px 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
 .stat strong { display: block; }
 .stat small { color: var(--muted); }
-.upload-label { display: block; font-size: 13px; }
+.upload-label { display: inline-flex; align-items: center; font-size: 13px; cursor: pointer; }
 .song-item input[type=file] { display: none; }
 #toast {
   position: fixed; z-index: 200; top: calc(env(safe-area-inset-top, 0px) + 76px);

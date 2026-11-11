@@ -449,11 +449,10 @@
 
     <div class="input-row"><input id="lyric-source-title" placeholder="VCPedia 页面名称，如 勾指起誓"><button id="lyric-source-btn" class="btn neutral">获取候选</button></div>
     <div id="lyric-source-results" class="result-list"></div>
-    <div class="input-row" style="margin:12px 0">
+    <div class="control-row">
       <label class="btn neutral upload-label">导入 TIFA TextGrid
-        <input id="textgrid-file" type="file" accept=".TextGrid,.textgrid">
+        <input id="textgrid-file" type="file" class="visually-hidden" accept=".TextGrid,.textgrid">
       </label>
-
     </div>
     <label for="alignment-offset">TextGrid 时间偏移（秒，仅校准音视频起点，默认 0）</label>
     <input id="alignment-offset" type="number" value="0" step="0.05">
