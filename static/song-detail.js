@@ -1,4 +1,4 @@
-import { $, api, toast, guarded, duration, appendText } from "./ui-common.js";
+import { $, api, toast, guarded, duration, appendText, actionButton } from "./ui-common.js";
 
 // Song detail rendering, guest/admin actions and manual lyric editor.
 export function setupSongDetail({
@@ -95,19 +95,13 @@ export function setupSongDetail({
     if (!row.children.length) section.remove();
   }
 
-  function songAction(parent, label, run, style = "neutral") {
-    const button = appendText(parent, "button", label, "btn " + style);
-    button.type = "button";
-    button.onclick = () => guarded(() => run(button), button);
-    return button;
-  }
   function detailActions(song, isAdmin) {
     const actions = document.createElement("div");
     actions.className = "detail-actions";
     const editable = ["waiting", "ready"].includes(song.status);
     if (!isAdmin) {
       if (song.mine && editable && song.prep_state !== "aligning")
-        songAction(actions, song.lyric_selected ? "更换歌词" : "选择歌词", () =>
+        actionButton(actions, song.lyric_selected ? "更换歌词" : "选择歌词", () =>
           openLyricPicker(
             song.id,
             song.title,
@@ -118,9 +112,9 @@ export function setupSongDetail({
           )
         );
       if (song.mine && ["waiting", "ready", "rendering"].includes(song.status))
-        songAction(actions, "取消点歌", () => cancelGuestSong(song.id), "subtle");
+        actionButton(actions, "取消点歌", () => cancelGuestSong(song.id), "subtle");
       if (["played", "skipped"].includes(song.status) && song.downloadable)
-        songAction(
+        actionButton(
           actions,
           "↻ 再来一首",
           async () => {
@@ -133,9 +127,9 @@ export function setupSongDetail({
         );
     } else {
       if (editable && song.prep_state !== "aligning")
-        songAction(actions, "编辑歌词", () => editLyrics(song.id, song.title));
+        actionButton(actions, "编辑歌词", () => editLyrics(song.id, song.title));
       if (song.status === "waiting" && song.prep_state === "unavailable")
-        songAction(actions, "重试下载", async () => {
+        actionButton(actions, "重试下载", async () => {
           await api("/api/admin/songs/" + song.id + "/download/retry", "POST");
           toast("已重试");
           await refresh();
@@ -157,7 +151,7 @@ export function setupSongDetail({
           });
       }
       if (song.status === "ready" && song.prep_state === "done" && song.has_media)
-        songAction(actions, "补做电视缓存", async () => {
+        actionButton(actions, "补做电视缓存", async () => {
           const result = await api("/api/admin/songs/" + song.id + "/tv-cache/retry", "POST");
           toast(
             result.status === "started"
@@ -168,32 +162,36 @@ export function setupSongDetail({
           );
         });
       if (song.status === "ready" && ["original", "done"].includes(song.prep_state))
-        songAction(actions, song.prep_state === "done" ? "按新风格重制" : "重试字幕", async () => {
-          if (song.prep_state === "done" && !confirm("按当前字幕样式重新制作？")) return;
-          await api("/api/admin/songs/" + song.id + "/subtitles/retry", "POST");
-          toast("已开始制作");
-          await refresh();
-        });
+        actionButton(
+          actions,
+          song.prep_state === "done" ? "按新风格重制" : "重试字幕",
+          async () => {
+            if (song.prep_state === "done" && !confirm("按当前字幕样式重新制作？")) return;
+            await api("/api/admin/songs/" + song.id + "/subtitles/retry", "POST");
+            toast("已开始制作");
+            await refresh();
+          }
+        );
       if (
         song.status === "ready" &&
         song.has_media &&
         ["downloaded", "original", "aligning"].includes(song.prep_state) &&
         !song.skip_subtitles
       )
-        songAction(actions, "原片入队", async () => {
+        actionButton(actions, "原片入队", async () => {
           if (!confirm("跳过字幕，使用原片入队？")) return;
           await api("/api/admin/songs/" + song.id + "/subtitles/skip", "POST");
           toast("已加入队列");
           await refresh();
         });
       if (song.status === "ready" && song.prep_state !== "aligning")
-        songAction(actions, "手工制作 KTV", async () => {
+        actionButton(actions, "手工制作 KTV", async () => {
           await api("/api/admin/songs/" + song.id + "/render", "POST", { lead: leadSeconds });
           toast("制作中");
           await refresh();
         });
       if (song.status === "ready" && song.playable && !song.priority_next)
-        songAction(
+        actionButton(
           actions,
           "下一首播放",
           async () => {
@@ -204,7 +202,7 @@ export function setupSongDetail({
           "primary"
         );
       if (song.status === "played" && song.downloadable)
-        songAction(
+        actionButton(
           actions,
           "↻ 下一首重唱",
           async () => {
@@ -216,7 +214,7 @@ export function setupSongDetail({
           "primary"
         );
       if (["waiting", "ready", "rendering"].includes(song.status))
-        songAction(
+        actionButton(
           actions,
           "取消点歌",
           async () => {

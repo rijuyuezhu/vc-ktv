@@ -12,7 +12,8 @@ async function loadUI() {
 }
 
 test("shared UI helpers preserve API, button and DOM semantics", async () => {
-  const { api, guarded, duration, appendText, toast, error } = await loadUI();
+  const { api, guarded, duration, appendText, toast, error, eventRow, actionButton } =
+    await loadUI();
   const before = {
     fetch: global.fetch,
     document: global.document,
@@ -38,7 +39,20 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
   global.document = {
     getElementById: () => toastElement,
     createElement: (tag) => {
-      const el = { tag, textContent: "", className: "" };
+      const el = {
+        tag,
+        textContent: "",
+        className: "",
+        disabled: false,
+        children: [],
+        attrs: {},
+        append(child) {
+          this.children.push(child);
+        },
+        setAttribute(name, value) {
+          this.attrs[name] = value;
+        }
+      };
       created.push(el);
       return el;
     }
@@ -69,6 +83,33 @@ test("shared UI helpers preserve API, button and DOM semantics", async () => {
     assert.equal(child.className, "title");
     assert.equal(parent.children[0], child);
     assert.equal(created[0].tag, "span");
+    let opened = false;
+    const event = eventRow(parent, "测试场次", "公开", () => {
+      opened = true;
+    });
+    assert.equal(event.type, "button");
+    assert.equal(event.className, "song-item archive-entry");
+    assert.deepEqual(
+      event.children.map((item) => item.textContent),
+      ["测试场次", "公开", "›"]
+    );
+    assert.equal(event.children[2].attrs["aria-hidden"], "true");
+    event.onclick();
+    assert.equal(opened, true);
+    let actionCount = 0;
+    const sharedButton = actionButton(
+      parent,
+      "确认",
+      async (self) => {
+        assert.equal(self.disabled, true);
+        actionCount++;
+      },
+      "subtle"
+    );
+    assert.equal(sharedButton.className, "btn subtle");
+    await sharedButton.onclick();
+    assert.equal(actionCount, 1);
+    assert.equal(sharedButton.disabled, false);
     const button = { disabled: false };
     assert.equal(await guarded(async () => "ok", button), "ok");
     assert.equal(button.disabled, false);

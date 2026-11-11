@@ -1,7 +1,7 @@
 import { setupAdminSettings } from "./admin-settings.js";
 import { setupAdminAccounts } from "./admin-accounts.js";
 import { setupNeteaseConnection } from "./admin-netease.js";
-import { $, api, toast, guarded, appendText } from "./ui-common.js";
+import { $, api, toast, guarded, appendText, eventRow } from "./ui-common.js";
 
 // Administrator event lifecycle, permissions and archive list.
 export function setupAdminEvents({
@@ -31,14 +31,10 @@ export function setupAdminEvents({
     const target = $("event-history");
     target.replaceChildren();
     if (!entries.length) appendText(target, "p", "暂无历史场次", "empty");
-    for (const event of entries) {
-      const row = appendText(target, "button", "", "song-item archive-entry");
-      row.type = "button";
-      appendText(row, "strong", event.name);
-      appendText(row, "small", event.public ? "公开" : "私有");
-      appendText(row, "span", "›", "song-chevron");
-      row.onclick = () => openArchivedEvent(event.id);
-    }
+    for (const event of entries)
+      eventRow(target, event.name, event.public ? "公开" : "私有", () =>
+        openArchivedEvent(event.id)
+      );
   }
 
   const { stopNeteaseLoginPolling, refreshNeteaseLogin } = setupNeteaseConnection();

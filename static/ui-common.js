@@ -57,3 +57,20 @@ export function appendText(parent, tag, text, cls = "") {
   parent.append(el);
   return el;
 }
+
+// The same event row is used in public playlists and administrator archives.
+export function eventRow(parent, title, metadata, onOpen) {
+  const row = appendText(parent, "button", "", "song-item archive-entry");
+  row.type = "button";
+  appendText(row, "strong", title);
+  appendText(row, "small", metadata);
+  appendText(row, "span", "›", "song-chevron").setAttribute("aria-hidden", "true");
+  row.onclick = onOpen;
+  return row;
+}
+export function actionButton(parent, label, action, style = "neutral") {
+  const button = appendText(parent, "button", label, "btn " + style);
+  button.type = "button";
+  button.onclick = () => guarded(() => action(button), button);
+  return button;
+}

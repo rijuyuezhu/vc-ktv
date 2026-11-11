@@ -1,4 +1,4 @@
-import { $, api, guarded, toast, appendText } from "./ui-common.js";
+import { $, api, guarded, toast, appendText, actionButton } from "./ui-common.js";
 // Global administrator's event-specific admin-account controls.
 export function setupAdminAccounts() {
   async function refreshAdminAccounts() {
@@ -21,26 +21,25 @@ export function setupAdminAccounts() {
       password.placeholder = "新密码";
       password.setAttribute("aria-label", "重置 " + account.username + " 的密码");
       actions.append(password);
-      const reset = appendText(actions, "button", "重置密码", "btn neutral");
-      reset.type = "button";
-      reset.onclick = () =>
-        guarded(async () => {
-          if (password.value.length < 6) throw new Error("密码至少 6 个字符");
-          await api("/api/admin/accounts/" + account.id + "/password", "PUT", {
-            password: password.value
-          });
-          password.value = "";
-          toast("密码已重置");
-        }, reset);
-      const revoke = appendText(actions, "button", "撤销账号", "btn subtle");
-      revoke.type = "button";
-      revoke.onclick = () =>
-        guarded(async () => {
+      actionButton(actions, "重置密码", async () => {
+        if (password.value.length < 6) throw new Error("密码至少 6 个字符");
+        await api("/api/admin/accounts/" + account.id + "/password", "PUT", {
+          password: password.value
+        });
+        password.value = "";
+        toast("密码已重置");
+      });
+      actionButton(
+        actions,
+        "撤销账号",
+        async () => {
           if (!confirm("撤销管理员「" + account.username + "」？")) return;
           await api("/api/admin/accounts/" + account.id, "DELETE");
           toast("账号已撤销");
           await refreshAdminAccounts();
-        }, revoke);
+        },
+        "subtle"
+      );
     });
   }
   $("admin-accounts-panel").addEventListener("toggle", () => {
