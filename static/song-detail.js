@@ -388,7 +388,7 @@ export function setupSongDetail({
           results,
           "button",
           `使用候选 ${i + 1}  ${c.text.split("\n").length} 行  需确认版本`,
-          "mini"
+          "btn neutral"
         );
         btn.onclick = () => {
           if ($("lyrics-textarea").value.trim() && !confirm("替换现有编辑框内容？")) return;

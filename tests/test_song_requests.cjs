@@ -162,7 +162,7 @@ test("NetEase successful song order clears the long search input and stale resul
     await item.children.at(-1).onclick();
     assert.equal(h.byId("netease-song-query").value, "");
     assert.equal(h.byId("netease-search-results").children.length, 0);
-    assert.match(h.byId("netease-search-message").textContent, /继续搜索下一首/);
+    assert.equal(h.byId("netease-search-message").textContent, "");
     assert.equal(h.refreshes, 1);
     assert.deepEqual(h.pickers, [[3, "Track", "Track"]]);
   } finally {

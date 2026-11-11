@@ -36,8 +36,23 @@ def test_guest_and_admin_dom_references_exist():
         "page-archive-event",
         "page-archive-song",
     }
-    assert referenced <= document.ids | runtime_pages, sorted(
-        referenced - document.ids - runtime_pages
+    runtime_queue = {
+        "queue-count",
+        "current-guest",
+        "queue-ready",
+        "queue-waiting",
+        "admin-queue-count",
+        "admin-current",
+        "admin-queue-ready",
+        "admin-queue-waiting",
+    }
+    assert {"queue-panel", "admin-queue-panel", "queue-panel-template"} <= document.ids
+    assert all(
+        f'data-queue-part="{part}"' in (root / "index.html").read_text()
+        for part in ("count", "current", "ready", "waiting")
+    )
+    assert referenced <= document.ids | runtime_pages | runtime_queue, sorted(
+        referenced - document.ids - runtime_pages - runtime_queue
     )
 
 
