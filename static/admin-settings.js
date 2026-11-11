@@ -2,42 +2,34 @@ import { $, api, guarded, toast } from "./ui-common.js";
 // Event playback, queue and media configuration forms.
 export function setupAdminSettings({ refresh, invalidateQueueState }) {
   let settingsEventId = null;
+  const fields = {
+    "queue-policy": "queue_policy",
+    "subtitle-style": "subtitle_style",
+    "video-quality": "video_quality",
+    "allow-unsubtitled": "allow_unsubtitled",
+    "max-bandwidth-mbps": "max_bandwidth_mbps",
+    "pause-orders": "orders_paused",
+    "tv-html-overlay": "tv_html_overlay",
+    "original-codec-mode": "original_codec_mode"
+  };
+  function applySettings(settings) {
+    for (const [id, name] of Object.entries(fields)) {
+      const input = $(id);
+      if (input.type === "checkbox") input.checked = Boolean(settings[name]);
+      else input.value = String(settings[name]);
+    }
+  }
   async function refreshAdminSettings(activeId) {
     if (!activeId) {
       settingsEventId = null;
       return;
     }
     const settings = await api("/api/admin/settings");
-    if (settingsEventId !== activeId) {
-      settingsEventId = activeId;
-      $("queue-policy").value = settings.queue_policy;
-      $("subtitle-style").value = settings.subtitle_style;
-      $("video-quality").value = String(settings.video_quality);
-      $("allow-unsubtitled").checked = settings.allow_unsubtitled;
-      $("max-bandwidth-mbps").value = String(settings.max_bandwidth_mbps);
-      $("pause-orders").checked = settings.orders_paused;
-      $("tv-html-overlay").checked = settings.tv_html_overlay;
-      $("original-codec-mode").value = settings.original_codec_mode;
-    } else if (
-      document.activeElement !== $("queue-policy") &&
-      document.activeElement !== $("allow-unsubtitled") &&
-      document.activeElement !== $("subtitle-style") &&
-      document.activeElement !== $("video-quality") &&
-      document.activeElement !== $("max-bandwidth-mbps") &&
-      document.activeElement !== $("pause-orders") &&
-      document.activeElement !== $("tv-html-overlay") &&
-      document.activeElement !== $("original-codec-mode") &&
-      document.activeElement !== $("settings-save-btn")
-    ) {
-      $("queue-policy").value = settings.queue_policy;
-      $("subtitle-style").value = settings.subtitle_style;
-      $("video-quality").value = String(settings.video_quality);
-      $("allow-unsubtitled").checked = settings.allow_unsubtitled;
-      $("max-bandwidth-mbps").value = String(settings.max_bandwidth_mbps);
-      $("pause-orders").checked = settings.orders_paused;
-      $("tv-html-overlay").checked = settings.tv_html_overlay;
-      $("original-codec-mode").value = settings.original_codec_mode;
-    }
+    const editing = ["settings-save-btn", ...Object.keys(fields)].includes(
+      document.activeElement?.id
+    );
+    if (settingsEventId !== activeId || !editing) applySettings(settings);
+    settingsEventId = activeId;
     updateStylePreview();
   }
   function updateStylePreview() {
