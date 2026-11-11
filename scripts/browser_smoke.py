@@ -213,6 +213,20 @@ def check_ui(
     page.locator("#register-name").wait_for(state="visible")
     assert page.locator("#auth-register .ui-field").count() == 3
     page.locator("#register-name").fill("Synthetic UI User")
+    # Password controls share one native template without changing form behavior.
+    assert page.locator("#auth-register .password-toggle").count() == 2
+    secret = page.locator("#register-password")
+    toggle = page.locator("#register-password + .password-toggle")
+    assert secret.get_attribute("type") == "password"
+    toggle.click()
+    assert secret.get_attribute("type") == "text"
+    assert toggle.get_attribute("aria-pressed") == "true"
+    toggle.click()
+    assert secret.get_attribute("type") == "password"
+    assert (
+        page.locator("#register-confirm + .password-toggle").get_attribute("aria-label")
+        == "显示重复密码"
+    )
     page.locator("#register-password").fill(user_password)
     page.locator("#register-confirm").fill(user_password)
     page.locator("#register-btn").click()
@@ -567,6 +581,7 @@ def check_ui(
     page.goto(base + "/admin/", wait_until="domcontentloaded")
     assert page.locator("#login-box .ui-field").count() == 2
     assert page.locator("#login-box .ui-hint-inline").inner_text() == "全局管理员留空"
+    assert page.locator("#password + .password-toggle").count() == 1
     page.locator("#password").fill(admin_password)
     page.locator("#login-btn").click()
     page.locator("#login-box").wait_for(state="hidden")

@@ -291,14 +291,17 @@ window.addEventListener("hashchange", () => {
   refresh();
   requestAnimationFrame(() => window.scrollTo(0, scrollPositions.get(currentRoute()) || 0));
 });
-document.querySelectorAll("[data-password-target]").forEach((button) => {
+document.querySelectorAll(".password-field > input[type=password]").forEach((field) => {
+  const button = $("password-toggle-template").content.firstElementChild.cloneNode(true);
+  const label = field.id === "register-confirm" ? "重复密码" : "密码";
+  button.setAttribute("aria-label", "显示" + label);
+  field.after(button);
   button.onclick = () => {
-    const field = $(button.dataset.passwordTarget);
     const revealing = field.type === "password";
     field.type = revealing ? "text" : "password";
     button.textContent = revealing ? "隐藏" : "显示";
     button.setAttribute("aria-pressed", String(revealing));
-    button.setAttribute("aria-label", revealing ? "隐藏密码" : "显示密码");
+    button.setAttribute("aria-label", (revealing ? "隐藏" : "显示") + label);
     field.focus();
   };
 });
