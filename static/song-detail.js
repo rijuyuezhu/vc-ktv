@@ -73,10 +73,8 @@ export function setupSongDetail({
       }
     };
     const copy = (label, value, what) => {
-      const btn = appendText(row, "button", label, "btn neutral");
+      const btn = actionButton(row, label, () => copyValue(value, what));
       actionIcon(btn, "copy");
-      btn.type = "button";
-      btn.onclick = () => copyValue(value, what);
     };
     if (!archive && song.downloadable)
       link("下载成片", "/api/songs/" + song.id + "/download", "download");
