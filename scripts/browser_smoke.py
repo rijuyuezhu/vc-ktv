@@ -172,7 +172,7 @@ def check_ui(
                     "source": "网易云音乐",
                     "url": "synthetic://alternate-lyrics",
                     "title": "Synthetic Alternate Lyrics",
-                    "text": "第一行\n第二行\n第三行\n第四行\n第五行\n第六行",
+                    "text": "\n".join(f"第{i}行" for i in range(1, 61)),
                     "ticket": "test-alternate-ticket",
                     "timed_lrc": "[00:00.00]第一行\n[00:01.00]第二行",
                     "timing_ticket": "test-alternate-timing",
@@ -247,7 +247,9 @@ def check_ui(
     )
     page.locator("#bilibili-preview-back").click()
     page.locator("#bilibili-preview-dialog").wait_for(state="hidden")
-    assert not page.locator("#bilibili-preview-player").get_attribute("src")
+    page.wait_for_function(
+        "!document.getElementById('bilibili-preview-player').getAttribute('src')"
+    )
     assert guest.request.get(f"{base}/api/state").json()["waiting"] == []
 
     page.locator("#bvid").fill("https://www.bilibili.com/video/BV1pX4y1a7Cd/?p=2")
@@ -263,7 +265,9 @@ def check_ui(
     assert (
         len(multi) == 1 and multi[0]["bvid"] == "BV1pX4y1a7Cd" and multi[0]["page"] == 2
     )
-    assert not page.locator("#bilibili-preview-player").get_attribute("src")
+    page.wait_for_function(
+        "!document.getElementById('bilibili-preview-player').getAttribute('src')"
+    )
     page.locator("#guest-lyrics-preview").click()
     page.locator("#bilibili-preview-dialog").wait_for(state="visible")
     assert "page=2" in page.locator("#bilibili-preview-player").get_attribute("src")
@@ -303,13 +307,38 @@ def check_ui(
         page.locator(".lyric-option").nth(0),
         page.locator(".lyric-option").nth(1),
     )
+    previews = page.locator(".lyric-preview-btn")
+    assert previews.count() == page.locator(".lyric-option").count() == 2
+    assert page.locator(".lyric-option button").count() == 0
+    previews.first.click()
+    preview_dialog = page.locator("#guest-lyric-preview-dialog")
+    preview_dialog.wait_for(state="visible")
+    assert (
+        page.locator("#guest-lyric-preview-info").inner_text()
+        == "Synthetic Lyrics / 网易云音乐"
+    )
+    assert (
+        page.locator("#guest-lyric-preview-text").inner_text()
+        == "制作说明\n第一行\n第二行"
+    )
+    assert page.locator("#guest-lyrics-dialog").evaluate("el => el.open")
+    assert page.locator("#guest-lyrics-select").is_disabled()
+    page.locator("#guest-lyric-preview-close").click()
+    preview_dialog.wait_for(state="hidden")
+    assert page.locator("#guest-lyrics-dialog").is_visible()
     first.click()
     assert first.get_attribute("aria-pressed") == "true"
     second.click()
     assert first.get_attribute("aria-pressed") == "false"
     assert second.get_attribute("aria-pressed") == "true"
     assert page.locator("#guest-lyrics-select").is_enabled()
-    assert page.locator(".lyric-option button").count() == 0
+    # Preview does not change the selected card, even when another is open.
+    previews.first.click()
+    assert page.locator("#guest-lyric-preview-text").inner_text().startswith("制作说明")
+    page.keyboard.press("Escape")
+    preview_dialog.wait_for(state="hidden")
+    assert second.get_attribute("aria-pressed") == "true"
+    assert page.locator("#guest-lyrics-select").is_enabled()
     excerpt = second.locator(".lyric-excerpt")
     assert excerpt.evaluate("el => getComputedStyle(el).webkitLineClamp") == "2"
     assert excerpt.evaluate(
@@ -325,6 +354,21 @@ def check_ui(
         assert page.evaluate("document.documentElement.scrollWidth") <= width
         assert page.locator("#guest-lyrics-select").is_visible()
         assert page.locator("#guest-lyrics-select").bounding_box()["y"] < 780
+        previews.nth(1).click()
+        preview_dialog.wait_for(state="visible")
+        assert page.locator("#guest-lyric-preview-text").inner_text().endswith("第60行")
+        assert page.locator("#guest-lyric-preview-text").evaluate(
+            "el => el.scrollHeight > el.clientHeight"
+        )
+        assert preview_dialog.bounding_box()["width"] <= width
+        assert preview_dialog.bounding_box()["y"] >= 0
+        page.locator("#guest-lyric-preview-close").click()
+        preview_dialog.wait_for(state="hidden")
+        assert second.get_attribute("aria-pressed") == "true"
+        assert page.locator("#guest-lyrics-select").is_enabled()
+    print(
+        "PASS each lyric card previews the entire text, including credits, without changing selection"
+    )
     page.locator("#guest-lyrics-select").click()
     page.locator("#netease-review-dialog").wait_for(state="visible")
     page.locator("#netease-review-back").click()

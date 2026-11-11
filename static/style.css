@@ -112,8 +112,14 @@ footer { padding: 20px; color: var(--muted-2); font-size: 11px; text-align: cent
 .choice-card:hover { border-color: var(--accent); }
 .choice-card[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .lyric-options { display: flex; flex-direction: column; gap: 9px; margin: 12px 0; }
+.lyric-choice { position: relative; min-width: 0; }
 .lyric-option { display: flex; flex-direction: column; gap: 5px; width: 100%; padding: 12px 14px; }
-.lyric-option-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lyric-preview-btn { position: absolute; top: 9px; right: 10px; z-index: 1; padding: 5px 9px; font-size: 12px; }
+.guest-lyric-preview-dialog[open] { display: flex; flex-direction: column; width: min(720px,96vw); max-height: 88dvh; overflow: hidden; }
+.guest-lyric-preview-dialog .section-head { flex: 0 0 auto; margin-bottom: 12px; }
+#guest-lyric-preview-info { flex: 0 0 auto; overflow-wrap: anywhere; }
+.guest-lyric-preview-text { flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 12px; border-radius: 8px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; overscroll-behavior: contain; }
+.lyric-option-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-right: 64px; }
 .lyric-option-header strong { min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: 16px; }
 .lyric-option-header span, .lyric-artist { color: var(--muted); font-size: 12px; }
 .lyric-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: pre-line; overflow-wrap: anywhere; color: var(--muted); font-size: 13px; line-height: 1.55; }
@@ -326,7 +332,7 @@ button, input, select { min-height: 44px; }
 .guest-lyrics-dialog .section-head { flex-wrap: wrap; }
 /* Give every mobile dialog most of the visible viewport, with its own scroll. */
 @media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
-  dialog, .guest-lyrics-dialog, .netease-review-dialog, .bilibili-preview-dialog {
+  dialog, .guest-lyrics-dialog, .guest-lyric-preview-dialog, .netease-review-dialog, .bilibili-preview-dialog {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
     height: 94vh;
@@ -338,7 +344,8 @@ button, input, select { min-height: 44px; }
     overscroll-behavior: contain;
   }
   .bilibili-preview-dialog { height: auto; max-height: 94dvh; }
-  .guest-lyrics-dialog[open] { overflow: hidden; }
+  .guest-lyrics-dialog[open], .guest-lyric-preview-dialog[open] { overflow: hidden; }
+  .guest-lyric-preview-dialog[open] { height: 94dvh; }
   /* Fixed dialog height is useful only when its active section fills it. */
   .netease-review-dialog[open] { display: flex; flex-direction: column; gap: 8px; overflow: hidden; }
   .netease-review-dialog > .section-head { flex: 0 0 auto; }
