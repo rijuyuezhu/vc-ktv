@@ -1,4 +1,4 @@
-import { $, api, toast, guarded, appendText } from "./ui-common.js";
+import { $, api, toast, appendText, guarded, eventRow, actionButton } from "./ui-common.js";
 
 // Both entry points use the same routed archive list and song-detail surfaces.
 export function setupArchiveNavigation({
@@ -47,9 +47,6 @@ export function setupArchiveNavigation({
     loadVersion++;
     saved.clear();
   }
-  function eventLink(row, event, origin) {
-    row.onclick = () => navigate("archive-event-" + event.id, origin);
-  }
   function renderEvents(data) {
     const panel = $("page-archive-events");
     const key = JSON.stringify(data.events);
@@ -69,26 +66,16 @@ export function setupArchiveNavigation({
         e.name.toLowerCase().includes(searchTerm.toLowerCase())
       );
       if (!events.length) appendText(list, "p", "暂无匹配场次", "empty");
-      for (const event of events) {
-        const row = appendText(list, "button", "", "song-item archive-entry");
-        row.type = "button";
-        appendText(row, "strong", event.name);
-        appendText(row, "small", (event.created_at || "").slice(0, 10));
-        appendText(row, "span", "›", "song-chevron");
-        eventLink(row, event, "played");
-      }
+      for (const event of events)
+        eventRow(list, event.name, (event.created_at || "").slice(0, 10), () =>
+          navigate("archive-event-" + event.id, "played")
+        );
     };
     input.oninput = () => {
       searchTerm = input.value;
       draw();
     };
     draw();
-  }
-  function adminButton(row, label, action, dangerous = false) {
-    const btn = appendText(row, "button", label, "btn " + (dangerous ? "subtle" : "neutral"));
-    btn.type = "button";
-    btn.onclick = () => guarded(() => action(), btn);
-    return btn;
   }
   function renderEvent(data) {
     const event = data.event;
@@ -114,49 +101,48 @@ export function setupArchiveNavigation({
       [(event.created_at || "").slice(0, 10), status].filter(Boolean).join("　"),
       "muted"
     );
-    if (canManageArchives() && !event.legacy) {
+    if (canManageArchives()) {
       const actions = appendText(section, "div", "", "detail-tools archive-event-tools");
       const csv = appendText(actions, "a", "↓ CSV", "btn neutral");
       csv.href = "/api/admin/events/" + encodeURIComponent(event.id) + "/songs.csv";
-      const visibility = adminButton(actions, event.public ? "公开 ✓" : "私有", async () => {
-        await api(
-          "/api/admin/events/" +
-            encodeURIComponent(event.id) +
-            "/visibility?public=" +
-            String(!event.public),
-          "PUT"
-        );
-        toast(event.public ? "已设为私有" : "已设为公开");
-        clear();
-        await refresh();
-      });
-      visibility.title = "切换场次可见性";
-      if (!event.media_released_at)
-        adminButton(actions, "释放资源", async () => {
-          if (!confirm("删除本场视频等大文件？保留歌词和记录。")) return;
-          const result = await api(
-            "/api/admin/events/" + encodeURIComponent(event.id) + "/release-media",
-            "POST"
+      if (!event.legacy) {
+        const visibility = actionButton(actions, event.public ? "公开 ✓" : "私有", async () => {
+          await api(
+            "/api/admin/events/" +
+              encodeURIComponent(event.id) +
+              "/visibility?public=" +
+              String(!event.public),
+            "PUT"
           );
-          toast("已释放 " + (result.freed_bytes / 1048576).toFixed(1) + " MiB");
+          toast(event.public ? "已设为私有" : "已设为公开");
           clear();
           await refresh();
         });
-      adminButton(
-        actions,
-        "删除记录",
-        async () => {
-          if (prompt("输入场次名称确认删除：") !== event.name) return;
-          await api("/api/admin/events/" + encodeURIComponent(event.id), "DELETE");
-          toast("已删除场次");
-          clear();
-          navigate("settings-history");
-        },
-        true
-      );
-    } else if (canManageArchives()) {
-      const csv = appendText(section, "a", "↓ CSV", "btn neutral");
-      csv.href = "/api/admin/events/" + encodeURIComponent(event.id) + "/songs.csv";
+        visibility.title = "切换场次可见性";
+        if (!event.media_released_at)
+          actionButton(actions, "释放资源", async () => {
+            if (!confirm("删除本场视频等大文件？保留歌词和记录。")) return;
+            const result = await api(
+              "/api/admin/events/" + encodeURIComponent(event.id) + "/release-media",
+              "POST"
+            );
+            toast("已释放 " + (result.freed_bytes / 1048576).toFixed(1) + " MiB");
+            clear();
+            await refresh();
+          });
+        actionButton(
+          actions,
+          "删除记录",
+          async () => {
+            if (prompt("输入场次名称确认删除：") !== event.name) return;
+            await api("/api/admin/events/" + encodeURIComponent(event.id), "DELETE");
+            toast("已删除场次");
+            clear();
+            navigate("settings-history");
+          },
+          "subtle"
+        );
+      }
     }
     const list = appendText(section, "div", "", "song-list archive-song-list");
     if (!data.songs.length) appendText(list, "p", "暂无歌曲", "empty");
@@ -217,7 +203,7 @@ export function setupArchiveNavigation({
     const section = appendText(panel, "section", "", "detail-section");
     appendText(section, "h3", "歌曲操作");
     const row = appendText(section, "div", "", "detail-tools");
-    const repeat = adminButton(row, "↻ 再点一首", async () => {
+    const repeat = actionButton(row, "↻ 再点一首", async () => {
       const info =
         song.source_type === "netease"
           ? song.source_id
