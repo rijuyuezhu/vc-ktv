@@ -32,6 +32,11 @@ const listKeys = new Map();
 let currentEventId = null;
 let guestAuthenticated = false;
 let playedKey = null;
+let hasPreparingSongs = false;
+let refreshTimer = null;
+const isPreparing = (song) =>
+  song.status === "rendering" || ["pending", "downloading", "aligning"].includes(song.prep_state);
+const preparationInProgress = (state) => state.waiting.some(isPreparing);
 
 const isAdminPath = () => window.location.pathname.replace(/\/$/, "") === "/admin";
 
@@ -70,11 +75,27 @@ function addSourceTag(parent, song) {
   appendText(tag, "span", isNetease ? "网易云" : "B站");
   tag.title = isNetease ? "网易云音乐" : "哔哩哔哩";
 }
-function compactSong(song, order, onOpen = null) {
-  const row = $("song-row-template").content.firstElementChild.cloneNode(true);
+function songRowSignature(song, order) {
+  return JSON.stringify([
+    song.id,
+    order,
+    song.title,
+    song.page,
+    song.nickname,
+    song.uploader,
+    song.source_type,
+    songState(song)
+  ]);
+}
+function updateCompactSong(row, song, order) {
+  const signature = songRowSignature(song, order);
+  if (row.dataset.signature === signature) return;
+  row.dataset.signature = signature;
+  row.dataset.songId = String(song.id);
+  const status = songState(song);
   row.setAttribute(
     "aria-label",
-    song.title + "，点歌者 " + (song.nickname || "未知") + "，" + songState(song) + "，查看详情"
+    song.title + "，点歌者 " + (song.nickname || "未知") + "，" + status + "，查看详情"
   );
   row.querySelector(".ordinal").textContent = String(order);
   row.querySelector(".song-copy strong").textContent =
@@ -82,26 +103,45 @@ function compactSong(song, order, onOpen = null) {
   const meta = row.querySelector(".song-meta");
   meta.querySelector(".song-requester").textContent = song.nickname || "未知点歌者";
   meta.querySelector(".song-author").textContent = song.uploader || "未知作者";
-  addSourceTag(meta, song);
-  const status = row.querySelector(".song-state");
-  status.textContent = songState(song);
-  status.classList.toggle("failed", ["下载失败", "字幕失败"].includes(status.textContent));
+  if (row.dataset.sourceType !== (song.source_type || "bilibili")) {
+    meta.querySelector(".source-tag")?.remove();
+    addSourceTag(meta, song);
+    row.dataset.sourceType = song.source_type || "bilibili";
+  }
+  const label = row.querySelector(".song-state");
+  label.textContent = status;
+  label.classList.toggle("failed", ["下载失败", "字幕失败"].includes(status));
+}
+function compactSong(song, order, onOpen = null) {
+  const row = $("song-row-template").content.firstElementChild.cloneNode(true);
+  updateCompactSong(row, song, order);
   row.onclick = onOpen || (() => navigate("song-" + song.id));
   return row;
 }
 function fillList(id, songs) {
-  const key = JSON.stringify(songs);
+  // Only visible data affects the list; worker timestamps must not rebuild rows.
+  const key = JSON.stringify(songs.map((song, i) => songRowSignature(song, i + 1)));
   if (listKeys.get(id) === key) return;
   listKeys.set(id, key);
   const target = $(id);
-  target.replaceChildren();
   if (!songs.length) {
+    target.replaceChildren();
     emptyState(target, "暂无歌曲");
     return;
   }
-  songs.forEach((s, i) => target.append(compactSong(s, i + 1)));
+  const ids = new Set(songs.map((song) => String(song.id)));
+  for (const row of [...target.children]) if (!ids.has(row.dataset.songId)) row.remove();
+  const existing = new Map([...target.children].map((row) => [row.dataset.songId, row]));
+  songs.forEach((song, i) => {
+    const row = existing.get(String(song.id)) || compactSong(song, i + 1);
+    updateCompactSong(row, song, i + 1);
+    if (target.children[i] !== row) target.insertBefore(row, target.children[i] || null);
+  });
 }
 function renderCurrent(id, song) {
+  const key = song ? songRowSignature(song, "▶") : "empty";
+  if (listKeys.get(id) === key) return;
+  listKeys.set(id, key);
   const target = $(id);
   target.replaceChildren();
   appendText(target, "span", "正在播放", "current-label");
@@ -390,6 +430,7 @@ const { refreshEvents, leaveNeteasePage } = setupAdminEvents({
   onEventChanged: () => {
     invalidateSongDetail();
     playedKey = null;
+    listKeys.clear();
   },
   invalidateQueueState: () => {
     adminStateKey = null;
@@ -402,6 +443,7 @@ function renderEntry(entry) {
     invalidateSongDetail();
     playedKey = null;
     currentEventId = entry.event?.id || null;
+    listKeys.clear();
     $("join-code").value = "";
     $("auth-login").classList.add("hidden");
     $("auth-register").classList.remove("hidden");
@@ -463,6 +505,7 @@ async function refresh() {
     return;
   }
   refreshing = true;
+  clearTimeout(refreshTimer);
   try {
     const isGuest = !isAdminPath();
     if (isGuest) {
@@ -476,6 +519,7 @@ async function refresh() {
           state.queue,
           state.waiting
         ]);
+        hasPreparingSongs = preparationInProgress(state);
         adminPlayback.updateRemoteControls();
         if (currentRoute() === "played") await refreshSongHistory();
         if (/^song-[0-9]+$/.test(currentRoute())) await refreshSongDetail();
@@ -488,6 +532,7 @@ async function refresh() {
         }
       } else {
         guestStateKey = null;
+        hasPreparingSongs = false;
       }
     }
     if (isAdminPath()) {
@@ -512,6 +557,7 @@ async function refresh() {
       $("admin-panel").classList.toggle("hidden", !admin || inSubpage);
       $("subpage").classList.toggle("hidden", !admin || !inSubpage);
       if (admin) {
+        hasPreparingSongs = preparationInProgress(adm);
         await refreshEvents();
         const activeState = adm.active ? { ...adm.active, media_url: null } : null;
         const key = JSON.stringify([
@@ -547,6 +593,7 @@ async function refresh() {
         if (/^song-[0-9]+$/.test(currentRoute())) await refreshSongDetail();
       } else {
         adminStateKey = null;
+        hasPreparingSongs = false;
         $("subpage").classList.add("hidden");
       }
     }
@@ -567,15 +614,19 @@ async function refresh() {
     if (refreshQueued) {
       refreshQueued = false;
       refresh();
+    } else {
+      refreshTimer = setTimeout(
+        () => {
+          if (document.visibilityState === "visible") refresh();
+        },
+        hasPreparingSongs ? 1000 : 3500
+      );
     }
   }
 }
 showPage();
 adminPlayback.updatePlaybackUI();
 refresh();
-setInterval(() => {
-  if (document.visibilityState === "visible") refresh();
-}, 3500);
 // Remote feedback is cheap and visible only while the TV controls are in use.
 setInterval(adminPlayback.pollTVRemoteStatus, 350);
 document.addEventListener("visibilitychange", () => {
