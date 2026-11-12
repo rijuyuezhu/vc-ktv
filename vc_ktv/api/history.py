@@ -97,7 +97,8 @@ def create_history_router(
             row = store.db.execute(
                 """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
                           s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
-                          s.prep_stage_at,s.prep_timing,s.skip_subtitles,s.priority_next,
+                          s.prep_stage_at,s.prep_timing,s.prep_attempts,s.prep_retry_at,
+                          s.skip_subtitles,s.priority_next,
                           s.played_at,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
                           s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,
