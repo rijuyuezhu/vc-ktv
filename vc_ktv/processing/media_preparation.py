@@ -513,7 +513,7 @@ def probe_media(file: Path) -> float:
             raise ValueError("视频缺少音轨")
         duration = float(data["format"]["duration"])
         if duration <= 0:
-            raise ValueError("视频时长必须在 1 秒至 1 小时之间")
+            raise ValueError("视频时长必须大于 0 秒")
         return duration
     except (
         subprocess.SubprocessError,
