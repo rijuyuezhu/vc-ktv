@@ -15,7 +15,7 @@ bash -n scripts/*.sh
 bash scripts/check_js.sh
 ```
 
-前端位于 `static/`，服务端位于 `vc_ktv/`，字幕引擎通过 `vc_ktv/pipeline/` 接入；`ktv_app/` 为固定版本的第三方源码。自动测试使用隔离数据库和合成媒体；真实 GPU 环境可另外运行：
+前端位于 `static/`，服务端位于 `vc_ktv/`，字幕引擎通过 `vc_ktv/pipeline/` 接入；`ktv_app/` 为固定版本的第三方源码。自动测试使用隔离数据库和合成媒体；多用户概率仿真与队列压力测试见 [benchmarks/](../benchmarks/README.md)。真实 GPU 环境可另外运行：
 
 ```sh
 uv run --no-sync python -m scripts.gpu_smoke
