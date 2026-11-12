@@ -55,7 +55,7 @@ def main() -> None:
         for _ in range(args.initial_users):
             sim.users_add()
         for u in sim.users:
-            for j in range(args.songs_per_user):
+            for _ in range(args.songs_per_user):
                 index = len(sim.all_songs) + 1
                 kind = "netease" if (index + len(u.name)) % 3 == 0 else "bilibili"
                 ref = str(100000000 + index) if kind == "netease" else f"BV{index:010d}"

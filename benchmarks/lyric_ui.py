@@ -78,15 +78,15 @@ def main() -> None:
         app.state.events.create("Timed Lyrics Mobile Test", "765432")
 
         async def lookup(bvid, page):
-            return dict(
-                bvid=bvid,
-                page=page,
-                title="现场歌词随机偏移实测",
-                uploader="Fixture Artist",
-                duration=180,
-                cover="",
-                pages=[{"page": 1, "part": "one"}],
-            )
+            return {
+                "bvid": bvid,
+                "page": page,
+                "title": "现场歌词随机偏移实测",
+                "uploader": "Fixture Artist",
+                "duration": 180,
+                "cover": "",
+                "pages": [{"page": 1, "part": "one"}],
+            }
 
         app.state.lookup = lookup
         with socket.socket() as sock:

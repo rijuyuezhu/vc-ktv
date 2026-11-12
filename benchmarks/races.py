@@ -4,6 +4,7 @@ import argparse
 import concurrent.futures
 import json
 import threading
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -87,23 +88,25 @@ def main() -> None:
                         ready_song(sid)
                     if mode in ("cancel_vs_select", "skip_vs_select"):
                         ticket = sim.candidate(sim.all_songs[sid])[0]
-                        payload = dict(
-                            text=ticket["text"],
-                            ticket=ticket["ticket"],
-                            source=ticket["source"],
-                            timing_mode="provider",
-                            timed_lrc=ticket.get("timed_lrc") or "",
-                            source_lrc_raw=ticket.get("source_lrc_raw") or "",
-                            timing_ticket=ticket.get("timing_ticket") or "",
-                            offset_ms=0,
-                        )
+                        payload = {
+                            "text": ticket["text"],
+                            "ticket": ticket["ticket"],
+                            "source": ticket["source"],
+                            "timing_mode": "provider",
+                            "timed_lrc": ticket.get("timed_lrc") or "",
+                            "source_lrc_raw": ticket.get("source_lrc_raw") or "",
+                            "timing_ticket": ticket.get("timing_ticket") or "",
+                            "offset_ms": 0,
+                        }
                         assert ticket.get("timed_lrc"), ticket
-                        chooser = lambda: user.client.post(
-                            f"/api/songs/{sid}/lyrics/select", json=payload
+                        chooser = partial(
+                            user.client.post,
+                            f"/api/songs/{sid}/lyrics/select",
+                            json=payload,
                         )
                     if mode == "cancel_vs_select":
                         a, b = parallel_pair(
-                            lambda: user.client.post(f"/api/songs/{sid}/cancel"),
+                            partial(user.client.post, f"/api/songs/{sid}/cancel"),
                             chooser,
                         )
                         assert a.status_code == 200 and b.status_code in (200, 409), (
@@ -115,8 +118,8 @@ def main() -> None:
                         assert sim.row(sid)["status"] == "cancelled"
                     elif mode == "cancel_vs_pin":
                         a, b = parallel_pair(
-                            lambda: user.client.post(f"/api/songs/{sid}/cancel"),
-                            lambda: sim.admin.post(f"/api/admin/songs/{sid}/pin-next"),
+                            partial(user.client.post, f"/api/songs/{sid}/cancel"),
+                            partial(sim.admin.post, f"/api/admin/songs/{sid}/pin-next"),
                         )
                         assert a.status_code == 200 and b.status_code in (200, 409), (
                             mode,
@@ -127,7 +130,7 @@ def main() -> None:
                         assert sim.row(sid)["status"] == "cancelled"
                     elif mode == "cancel_vs_claim":
                         a, b = parallel_pair(
-                            lambda: user.client.post(f"/api/songs/{sid}/cancel"),
+                            partial(user.client.post, f"/api/songs/{sid}/cancel"),
                             lambda: sim.admin.post("/api/admin/next"),
                         )
                         assert a.status_code in (200, 409) and b.status_code == 200, (
@@ -153,7 +156,7 @@ def main() -> None:
                             assert a.status_code == 200
                     else:
                         a, b = parallel_pair(
-                            lambda: user.client.post(f"/api/songs/{sid}/lyrics/skip"),
+                            partial(user.client.post, f"/api/songs/{sid}/lyrics/skip"),
                             chooser,
                         )
                         assert a.status_code == b.status_code == 200, (

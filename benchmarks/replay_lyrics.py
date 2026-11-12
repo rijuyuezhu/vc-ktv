@@ -38,14 +38,14 @@ def main() -> None:
             store.db.commit()
 
         async def lookup(bvid, page):
-            return dict(
-                bvid=bvid,
-                page=page,
-                title="Synthetic replay song",
-                uploader="Test uploader",
-                duration=180,
-                cover="",
-            )
+            return {
+                "bvid": bvid,
+                "page": page,
+                "title": "Synthetic replay song",
+                "uploader": "Test uploader",
+                "duration": 180,
+                "cover": "",
+            }
 
         async def candidates(term):
             return [
@@ -61,11 +61,11 @@ def main() -> None:
         app.state.candidate_search = candidates
         with TestClient(app) as guest, TestClient(app) as admin:
             assert guest.post("/api/join", json={"code": "123456"}).status_code == 200
-            identity = dict(
-                username="Fixture Singer",
-                password="fixture-login",
-                confirm_password="fixture-login",
-            )
+            identity = {
+                "username": "Fixture Singer",
+                "password": "fixture-login",
+                "confirm_password": "fixture-login",
+            }
             assert guest.post("/api/users/register", json=identity).status_code == 200
             assert (
                 admin.post(
