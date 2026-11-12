@@ -1,6 +1,7 @@
 """Check timed-lyric selection and boundary recovery in isolated mobile browsers."""
 
 import argparse
+import json
 import socket
 import tempfile
 import threading
@@ -39,6 +40,7 @@ def main() -> None:
         "--widths", default="320,390", help="Comma-separated mobile viewport widths"
     )
     parser.add_argument("--no-prune-line", action="store_false", dest="prune_line")
+    parser.add_argument("--output", type=Path, default=Path("benchmarks/.results"))
     args = parser.parse_args()
     from playwright.sync_api import sync_playwright
 
@@ -63,6 +65,7 @@ def main() -> None:
             ]
         return []
 
+    results = []
     lyrics_api.search_lyric_candidates = search
     with tempfile.TemporaryDirectory(prefix="vcktv-lyric-ui-party-") as directory:
         app = create_app(
@@ -211,6 +214,16 @@ def main() -> None:
                         assert not page.evaluate(
                             "document.documentElement.scrollWidth>innerWidth"
                         ), ("horizontal overflow", offset, widths[i % len(widths)])
+                        results.append(
+                            {
+                                "offset_ms": expected_ms,
+                                "width_px": widths[i % len(widths)],
+                                "selected_lines": len(row["lyric_choice"].splitlines()),
+                                "invalid_recovered": offset == args.invalid_offset,
+                                "line_pruned": args.prune_line
+                                and i == len(offsets) - 1,
+                            }
+                        )
                         print(
                             "REAL_BROWSER_LRC",
                             i,
@@ -227,6 +240,15 @@ def main() -> None:
                             flush=True,
                         )
                     assert not errors, errors
+                    args.output.mkdir(parents=True, exist_ok=True)
+                    (args.output / "lyric-ui.json").write_text(
+                        json.dumps(
+                            {"cases": results, "page_errors": len(errors)},
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n"
+                    )
                     print(
                         "BROWSER_OFFSETS_OK",
                         len(contexts),

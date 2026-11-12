@@ -77,3 +77,15 @@ def test_probabilistic_module_cli_creates_reproducible_summary(tmp_path):
     assert summary["seed"] == 23
     assert summary["config"]["steps"] == 25
     assert summary["fair_reference_checks"] >= 2
+
+
+def test_browser_benchmark_help_does_not_need_optional_playwright():
+    proc = subprocess.run(
+        [sys.executable, "-m", "benchmarks.lyric_ui", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    assert "--offsets" in proc.stdout
+    assert "--output" in proc.stdout
