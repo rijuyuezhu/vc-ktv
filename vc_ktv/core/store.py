@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import math
 import sqlite3
 import threading
 import time
@@ -194,6 +195,14 @@ class Store:
         """)
         return [{**song, "lyric_query": title_key(song["title"])} for song in rows]
 
+    @staticmethod
+    def _playback_bandwidth(value: str) -> float:
+        try:
+            bandwidth = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return 3.0
+        return bandwidth if math.isfinite(bandwidth) and 1 <= bandwidth <= 100 else 3.0
+
     def settings(self):
         values = {
             row["name"]: row["value"]
@@ -207,7 +216,9 @@ class Store:
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
             "subtitle_style": values.get("subtitle_style", "classic"),
             "video_quality": int(values.get("video_quality", "720")),
-            "max_bandwidth_mbps": float(values.get("max_bandwidth_mbps", "3")),
+            "max_bandwidth_mbps": self._playback_bandwidth(
+                values.get("max_bandwidth_mbps", "3")
+            ),
             "orders_paused": values.get("orders_paused", "0") == "1",
             "tv_html_overlay": values.get("tv_html_overlay", "1") == "1",
             "original_codec_mode": values.get(
@@ -234,6 +245,10 @@ class Store:
         original_codec_mode: Literal["default", "h264", "av1"] | None = None,
     ):
         # Optional values are updates, not resets; legacy admin clients omit them.
+        if max_bandwidth_mbps is not None and not (
+            math.isfinite(max_bandwidth_mbps) and 1 <= max_bandwidth_mbps <= 100
+        ):
+            raise ValueError("播放带宽预算必须在 1–100 Mbps 之间")
         updates = {}
         if queue_policy is not None:
             updates["queue_policy"] = queue_policy

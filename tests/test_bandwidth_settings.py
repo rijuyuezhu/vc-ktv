@@ -1,6 +1,7 @@
 """Per-event bandwidth budget, snapshotted on subtitle job claim."""
 
 import json
+import math
 import sqlite3
 from types import SimpleNamespace
 
@@ -204,3 +205,64 @@ def test_stream_cap_is_opt_in_and_injected_only_at_render(monkeypatch, tmp_path)
             2,
             max_bandwidth_mbps=4.5,
         )
+
+
+def test_bandwidth_rejects_nonfinite_and_excessive_values(tmp_path):
+    app = make_app(tmp_path)
+    app.state.events.create("Finite", "000001")
+    with TestClient(app) as client:
+        login(client)
+        for value in ("NaN", "Infinity", "-Infinity", "1e309", 101, 1e100):
+            response = client.put(
+                "/api/admin/settings",
+                content='{"max_bandwidth_mbps": ' + str(value) + "}",
+                headers={"content-type": "application/json"},
+            )
+            assert response.status_code == 422, (value, response.text)
+            assert client.get("/api/admin/settings").json()["max_bandwidth_mbps"] == 3
+        assert update(client, max_bandwidth_mbps=100).status_code == 200
+        assert media_preparation.stream_video_kbps(100) == 99616
+
+
+def test_invalid_historical_bandwidth_does_not_break_settings_or_worker(tmp_path):
+    app = make_app(tmp_path)
+    app.state.events.create("Historical", "000001")
+    store = app.state.store
+    for corrupt in ("inf", "NaN", "1e309", "nope", "0", "101"):
+        with store.lock:
+            store.db.execute(
+                "INSERT INTO room_state(name,value) VALUES('max_bandwidth_mbps', ?) "
+                "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+                (corrupt,),
+            )
+            store.db.commit()
+        assert math.isfinite(store.settings()["max_bandwidth_mbps"])
+        assert store.settings()["max_bandwidth_mbps"] == 3.0
+        assert (
+            media_preparation.stream_video_kbps(store.settings()["max_bandwidth_mbps"])
+            == 2616
+        )
+        with TestClient(app) as client:
+            login(client)
+            response = client.get("/api/admin/settings")
+            assert response.status_code == 200
+            assert response.json()["max_bandwidth_mbps"] == 3.0
+            assert update(client, max_bandwidth_mbps=4.5).status_code == 200
+
+
+def test_probe_accepts_video_longer_than_one_hour(monkeypatch, tmp_path):
+    import subprocess
+
+    sample = {
+        "streams": [
+            {"codec_type": "video", "width": 1920, "height": 1080},
+            {"codec_type": "audio"},
+        ],
+        "format": {"duration": "4567.89"},
+    }
+
+    def fake_probe(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 0, json.dumps(sample), "")
+
+    monkeypatch.setattr(media_preparation.subprocess, "run", fake_probe)
+    assert media_preparation.probe_media(tmp_path / "long.mp4") == 4567.89

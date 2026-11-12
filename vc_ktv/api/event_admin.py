@@ -1,9 +1,10 @@
 """Event lifecycle and archive administration; preserve transition semantics."""
 
+import math
 from typing import Literal
 
 from fastapi import APIRouter, Cookie
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from vc_ktv.application.event_lifecycle import EventLifecycle
 from vc_ktv.rendering.subtitle_styles import StylePreset
@@ -21,7 +22,22 @@ class PlaybackSettings(BaseModel):
     subtitle_style: StylePreset | None = None
     video_quality: Literal[1080, 720, 480] | None = None
     # Optional to preserve older admin clients' current per-event setting.
-    max_bandwidth_mbps: float | None = Field(default=None, ge=1)
+    max_bandwidth_mbps: float | None = Field(
+        default=None, ge=1, le=100, allow_inf_nan=False
+    )
+
+    @field_validator("max_bandwidth_mbps", mode="before")
+    @classmethod
+    def reject_nonfinite(cls, value):
+        if isinstance(value, (int, float, str)):
+            try:
+                if not math.isfinite(float(value)):
+                    # Keep the validation error itself JSON-serializable.
+                    return "invalid non-finite bandwidth"
+            except (ValueError, OverflowError):
+                pass
+        return value
+
     orders_paused: bool | None = None
     tv_html_overlay: bool | None = None
     original_codec_mode: Literal["default", "h264", "av1"] | None = None
