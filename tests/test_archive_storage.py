@@ -68,6 +68,10 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         work.mkdir()
         (work / "word.lrc").write_text("[00:00.00]歌词")
         (work / "large.json").write_bytes(b"x" * (1024 * 1024 + 1))
+        covers = first_dir / "media" / "covers"
+        covers.mkdir()
+        (covers / "1.jpg").write_bytes(b"image")
+        (work / "sound.mp3").write_bytes(b"audio")
         external = tmp_path / "outside.mp4"
         external.write_bytes(b"never delete this")
         (work / "external.mp4").symlink_to(external)
@@ -95,9 +99,11 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
 
         freed = admin.post(release)
         assert freed.status_code == 200, freed.text
-        assert freed.json()["freed_bytes"] == 500 + 1024 * 1024 + 1
+        assert freed.json()["freed_bytes"] == 500
         assert not (first_dir / "media" / "a.mp4").exists()
-        assert not (work / "large.json").exists()
+        assert (work / "large.json").is_file()
+        assert (covers / "1.jpg").read_bytes() == b"image"
+        assert (work / "sound.mp3").read_bytes() == b"audio"
         assert not (work / "external.mp4").is_symlink()
         assert external.read_bytes() == b"never delete this"
         assert (work / "word.lrc").read_text() == "[00:00.00]歌词"

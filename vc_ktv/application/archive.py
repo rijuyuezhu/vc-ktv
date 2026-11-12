@@ -57,6 +57,24 @@ class EventArchiveService:
                 )
             }
 
+    def cached_cover(self, event_id: str, song_id: int):
+        if song_id < 1:
+            return None
+        media = self.events.database_path(event_id).parent / "media"
+        folder = media / "covers"
+        if media.is_symlink() or folder.is_symlink():
+            return None
+        for ext in (".jpg", ".jpeg", ".png", ".webp"):
+            candidate = folder / f"{song_id}{ext}"
+            if candidate.is_file() and not candidate.is_symlink():
+                return candidate
+        return None
+
+    def with_cached_cover(self, event_id: str, song: dict) -> dict:
+        if self.cached_cover(event_id, song["id"]):
+            song["cover"] = f"/api/events/{event_id}/covers/{song['id']}"
+        return song
+
     def public_events(self, guest: str | None, admin: str | None) -> list[dict]:
         self.require_history_viewer(guest, admin)
         with self.events.lock:
@@ -97,7 +115,10 @@ class EventArchiveService:
                 ).fetchone()
                 if row is None:
                     bail(404, "歌曲不存在")
-                return {"event": event, "song": dict(row)}
+                return {
+                    "event": event,
+                    "song": self.with_cached_cover(event_id, dict(row)),
+                }
 
     def set_visibility(self, event_id: str, value: bool, token: str | None) -> dict:
         principal = self.auth.require_admin(token)

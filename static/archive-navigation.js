@@ -129,7 +129,7 @@ export function setupArchiveNavigation({
         visibility.setAttribute("aria-pressed", String(Boolean(event.public)));
         if (!event.media_released_at)
           actionButton(actions, "释放资源", async () => {
-            if (!confirm("删除本场视频等大文件？保留歌词和记录。")) return;
+            if (!confirm("仅删除本场视频？封面、歌词与其他记录都会保留。")) return;
             const result = await api(
               "/api/admin/events/" + encodeURIComponent(event.id) + "/release-media",
               "POST"

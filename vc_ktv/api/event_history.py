@@ -1,8 +1,10 @@
 """Read-only event-history HTTP endpoints."""
 
 from fastapi import APIRouter, Cookie
+from fastapi.responses import FileResponse
 
 from vc_ktv.application.archive import EventArchiveService
+from vc_ktv.application.errors import bail
 
 
 def create_event_history_router(archive: EventArchiveService) -> APIRouter:
@@ -32,6 +34,25 @@ def create_event_history_router(archive: EventArchiveService) -> APIRouter:
         vc_admin: str | None = Cookie(default=None),
     ):
         return archive.song_detail(event_id, song_id, vc_guest, vc_admin)
+
+    @router.get("/api/events/{event_id}/covers/{song_id}")
+    def event_song_cover(
+        event_id: str,
+        song_id: int,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        archive.visible_event(event_id, vc_guest, vc_admin)
+        image = archive.cached_cover(event_id, song_id)
+        if image is None:
+            bail(404, "封面不存在")
+        media_type = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }[image.suffix.lower()]
+        return FileResponse(image, media_type=media_type)
 
     @router.get("/api/admin/events")
     def list_events(vc_admin: str | None = Cookie(default=None)):
