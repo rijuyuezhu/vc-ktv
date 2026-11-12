@@ -42,7 +42,7 @@ def create_event_history_router(archive: EventArchiveService) -> APIRouter:
         vc_guest: str | None = Cookie(default=None),
         vc_admin: str | None = Cookie(default=None),
     ):
-        archive.visible_event(event_id, vc_guest, vc_admin)
+        archive.require_cover_viewer(event_id, vc_guest, vc_admin)
         image = archive.cached_cover(event_id, song_id)
         if image is None:
             bail(404, "封面不存在")
