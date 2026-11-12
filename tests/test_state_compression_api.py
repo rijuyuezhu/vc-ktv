@@ -49,7 +49,13 @@ def test_large_polling_snapshots_are_gzipped_without_touching_video(tmp_path):
             plain = client.get(url, headers={"Accept-Encoding": "identity"})
             assert zipped.status_code == 200, zipped.text
             assert plain.status_code == 200, plain.text
-            assert zipped.json() == plain.json()
+            # These are separate requests; a second boundary can change the
+            # server clock without changing any application state.
+            compressed_state = zipped.json()
+            plain_state = plain.json()
+            assert isinstance(compressed_state.pop("server_time", None), int)
+            assert isinstance(plain_state.pop("server_time", None), int)
+            assert compressed_state == plain_state
             assert zipped.headers["content-encoding"] == "gzip"
             assert zipped.headers["vary"] == "Accept-Encoding"
             assert "content-encoding" not in plain.headers
