@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from fastapi.testclient import TestClient
 
+import vc_ktv.application.admin_preparation as prep_admin
 import vc_ktv.processing.worker as processing
 from tests.helpers import join_and_register, use_browser_playback
 from vc_ktv.application.factory import create_app
@@ -476,3 +477,70 @@ def test_cancel_edited_replay_does_not_touch_original_or_sibling(tmp_path):
         assert (store.media / "source.mp4").read_bytes() == SOURCE
         assert (store.media / "baked.mp4").read_bytes() == BAKED
         assert guest.get(f"/api/songs/{sibling}/download").content == BAKED
+
+
+def test_replay_upload_replacement_keeps_original_shared_source(tmp_path, monkeypatch):
+    app = create_replay_scene(tmp_path)
+    app.state.probe = lambda path: 180
+    monkeypatch.setattr(
+        prep_admin, "normalize_original_codec", lambda path, **kwargs: path
+    )
+    with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "Singer")
+        assert (
+            admin.post(
+                "/api/admin/login", json={"password": "fixture-admin"}
+            ).status_code
+            == 200
+        )
+        store = app.state.events.active()
+        original = guest.post("/api/songs", json={"bvid": "BV0000000001"}).json()["id"]
+        prepare_original(store, original, source=True)
+        replay = guest.post(f"/api/songs/{original}/replay").json()["id"]
+        sibling = guest.post(f"/api/songs/{original}/replay").json()["id"]
+        assert guest.post(f"/api/songs/{replay}/lyrics/skip").status_code == 200
+        assert row(store, replay)["source_file"] == "source.mp4"
+        replaced = admin.post(
+            f"/api/admin/songs/{replay}/media",
+            files={"file": ("replacement.mp4", b"replacement", "video/mp4")},
+        )
+        assert replaced.status_code == 200, replaced.text
+        assert guest.get(f"/api/songs/{replay}/download").content == b"replacement"
+        assert (store.media / "source.mp4").read_bytes() == SOURCE
+        assert (store.media / "baked.mp4").read_bytes() == BAKED
+        assert guest.get(f"/api/songs/{original}/download").content == BAKED
+        assert guest.get(f"/api/songs/{sibling}/download/source").content == SOURCE
+
+
+def test_upload_replacement_still_cleans_unreferenced_media(tmp_path, monkeypatch):
+    app = create_replay_scene(tmp_path)
+    app.state.probe = lambda path: 180
+    monkeypatch.setattr(
+        prep_admin, "normalize_original_codec", lambda path, **kwargs: path
+    )
+    with TestClient(app) as guest, TestClient(app) as admin:
+        join_and_register(guest, "Singer")
+        assert (
+            admin.post(
+                "/api/admin/login", json={"password": "fixture-admin"}
+            ).status_code
+            == 200
+        )
+        store = app.state.events.active()
+        song_id = guest.post("/api/songs", json={"bvid": "BV0000000001"}).json()["id"]
+        old = store.media / "unshared.mp4"
+        old.write_bytes(b"unshared source")
+        with store.lock:
+            store.db.execute(
+                "UPDATE songs SET status='ready',prep_state='original',"
+                "media_file=?,source_file=?,skip_subtitles=1 WHERE id=?",
+                (old.name, old.name, song_id),
+            )
+            store.db.commit()
+        replaced = admin.post(
+            f"/api/admin/songs/{song_id}/media",
+            files={"file": ("new.mp4", b"new source", "video/mp4")},
+        )
+        assert replaced.status_code == 200, replaced.text
+        assert not old.exists()
+        assert guest.get(f"/api/songs/{song_id}/download").content == b"new source"

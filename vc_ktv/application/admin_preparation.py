@@ -244,10 +244,21 @@ class AdminPreparationService:
                     # pointer before deciding whether to remove this upload.
                     store.db.rollback()
                     raise
-            for old in set(filter(None, (row["media_file"], row["source_file"]))):
-                if old != target.name:
+            # Editing a virtual replay can refer to an ancestor's original.
+            # Never remove that physical source while another row still uses it.
+            with store.lock:
+                for old in set(filter(None, (row["media_file"], row["source_file"]))):
+                    if (
+                        old == target.name
+                        or store.db.execute(
+                            "SELECT 1 FROM songs WHERE id!=? AND "
+                            "(media_file=? OR source_file=?) LIMIT 1",
+                            (song_id, old, old),
+                        ).fetchone()
+                    ):
+                        continue
                     try:
-                        (store.media / old).unlink(missing_ok=True)
+                        (store.media / Path(old).name).unlink(missing_ok=True)
                     except OSError as error:
                         logging.getLogger(__name__).warning(
                             "Song #%s obsolete upload cleanup failed: %s",
