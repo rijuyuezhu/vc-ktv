@@ -168,4 +168,6 @@ def test_invite_rate_limit_and_password_hash_validation(tmp_path):
             assert (
                 attacker.post("/api/join", json={"code": "999999"}).status_code == 401
             )
-        assert attacker.post("/api/join", json={"code": "000123"}).status_code == 429
+        # A shared venue IP must not be locked out after just ten typos.
+        # The separate 40-failure ceiling is exercised in test_auth_failure_bounds.
+        assert attacker.post("/api/join", json={"code": "000123"}).status_code == 200
