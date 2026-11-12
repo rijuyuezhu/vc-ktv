@@ -257,7 +257,7 @@ export function createLyricPicker({ refresh, cancelGuestSong, videoPreview }) {
         phase +
         "&query=" +
         encodeURIComponent(query);
-      const data = await api(url, "GET", null, controller.signal);
+      const data = await api(url, "GET", null, controller.signal, 20000);
       if (sequence !== selectionRequest || selectingSongId !== songId) return;
       addLyricCandidates(data.candidates, songId, sequence);
     } catch (e) {
@@ -350,8 +350,8 @@ export function createLyricPicker({ refresh, cancelGuestSong, videoPreview }) {
         songId = selectingSongId;
       if (!file || songId === null) return;
       try {
-        if (!file.name.toLowerCase().endsWith(".lrc") || file.size > 128 * 1024)
-          throw new Error("请选择不超过 128 KiB 的 .lrc 文件");
+        if (!file.name.toLowerCase().endsWith(".lrc") || file.size > 1024 * 1024)
+          throw new Error("请选择不超过 1 MiB 的 .lrc 文件");
         const data = new FormData();
         data.append("file", file);
         await api(`/api/songs/${songId}/lyrics/upload`, "POST", data);

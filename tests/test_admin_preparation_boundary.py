@@ -96,3 +96,32 @@ def test_textgrid_import_discards_archive_when_song_changes_during_conversion(
     )
     assert not list(store.media.glob(f"{song_id}-alignment-*"))
     assert not store.db.in_transaction
+
+
+def test_textgrid_upload_rejects_excessive_payload_before_conversion(
+    tmp_path, monkeypatch
+):
+    from vc_ktv.infra.upload_limits import MAX_TEXTGRID_BYTES
+
+    app = new_app(tmp_path)
+    store = app.state.store
+    song_id = add_song(store, "singer", media="source.mp4", prep="manual")
+
+    def should_not_convert(*args, **kwargs):
+        raise AssertionError("oversized TextGrid must not be parsed")
+
+    monkeypatch.setattr(admin_preparation, "convert_textgrid", should_not_convert)
+    with TestClient(app) as admin:
+        login(admin)
+        response = admin.post(
+            f"/api/admin/songs/{song_id}/alignment/import",
+            files={
+                "file": (
+                    "oversize.TextGrid",
+                    b"x" * (MAX_TEXTGRID_BYTES + 1),
+                    "text/plain",
+                )
+            },
+        )
+        assert response.status_code == 413
+        assert "8 MiB" in response.json()["detail"]

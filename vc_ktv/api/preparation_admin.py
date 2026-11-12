@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from vc_ktv.application.errors import bail
 from vc_ktv.application.media import MEDIA_MIMES
 from vc_ktv.application.schemas import Lyrics, RenderRequest
+from vc_ktv.infra.upload_limits import MAX_TEXTGRID_BYTES, read_lyric_upload
 
 
 def create_preparation_admin_router(*, preparation, require_admin, manual):
@@ -76,7 +77,7 @@ def create_preparation_admin_router(*, preparation, require_admin, manual):
         try:
             if not (file.filename or "").lower().endswith(".textgrid"):
                 bail(400, "请上传 TIFA TextGrid 文件")
-            content = await file.read()
+            content = await read_lyric_upload(file, MAX_TEXTGRID_BYTES, "TextGrid")
         finally:
             await file.close()
         return await run_in_threadpool(

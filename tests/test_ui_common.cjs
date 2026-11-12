@@ -200,3 +200,26 @@ test("hung reads and writes time out, releasing guarded controls without retryin
     Object.assign(global, previous);
   }
 });
+
+test("lyrics may use an explicit 20s GET deadline without extending other API calls", async () => {
+  const { api } = await loadUI();
+  const previous = {
+    fetch: global.fetch,
+    setTimeout: global.setTimeout,
+    clearTimeout: global.clearTimeout
+  };
+  const delays = [];
+  global.setTimeout = (_, delay) => {
+    delays.push(delay);
+    return 1;
+  };
+  global.clearTimeout = () => {};
+  global.fetch = async () => ({ ok: true, json: async () => ({ candidates: [] }) });
+  try {
+    await api("/api/songs/1/lyrics/candidates", "GET", null, new AbortController().signal, 20000);
+    await api("/api/state");
+    assert.deepEqual(delays, [20000, 12000]);
+  } finally {
+    Object.assign(global, previous);
+  }
+});

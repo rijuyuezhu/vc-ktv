@@ -11,6 +11,7 @@ from vc_ktv.application.errors import bail
 from vc_ktv.application.guest_lyrics import LyricSelectionService
 from vc_ktv.application.schemas import GuestLyricChoice
 from vc_ktv.core.titles import title_key
+from vc_ktv.infra.upload_limits import MAX_LRC_BYTES, read_lyric_upload
 from vc_ktv.lyrics.lyric_selection import search_lyric_candidates
 from vc_ktv.lyrics.lyric_sources import vcpedia_lyric_candidates
 
@@ -107,8 +108,10 @@ def create_lyrics_router(*, app, lyrics: LyricSelectionService):
             bail(409, "CPU 模式暂不支持上传歌词重新对齐，请选择来源逐句时间轴")
         if not (file.filename or "").lower().endswith(".lrc"):
             bail(400, "请上传 .lrc 歌词文件")
-        raw = await file.read()
-        await file.close()
+        try:
+            raw = await read_lyric_upload(file, MAX_LRC_BYTES, "LRC")
+        finally:
+            await file.close()
         # Uploaded timing is untrusted; the quality pipeline realigns text.
         text = await run_in_threadpool(lyrics.parse_lrc, raw)
         return await run_in_threadpool(
