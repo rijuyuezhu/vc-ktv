@@ -6,7 +6,7 @@ import ipaddress
 import os
 import threading
 
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 
 from vc_ktv.application.errors import bail
 from vc_ktv.core.accounts import verify_password
@@ -167,19 +167,37 @@ class AuthService:
             bucket.pop(next(iter(bucket)))
         bucket.setdefault(key, []).append(now)
 
-    def check_attempt(self, bucket: dict, key, ip: str) -> None:
+    def check_attempt(self, bucket: dict, key, ip: str, scope: str = "admin") -> None:
         with self._failure_lock:
             now = time_now()
             self._prune_failures(now)
-            if len(bucket.get(key, ())) >= 10 or len(self.failed_ips.get(ip, ())) >= 40:
-                bail(429, "登录尝试过于频繁，请稍后重试")
+            # A guest mistyping a join code must not lock out registered users
+            # or event administrators who share the venue's public IP.
+            per_identity = bucket.get(key, ())
+            per_ip = self.failed_ips.get((scope, ip), ())
+            ip_limit = 100 if scope == "user" else 40
+            # Join codes have no account identity: their key *is* the IP.
+            # Applying the account threshold of 10 would lock out a whole venue.
+            identity_limit = 40 if scope == "join" else 10
+            if len(per_identity) >= identity_limit or len(per_ip) >= ip_limit:
+                limiting = (
+                    per_identity if len(per_identity) >= identity_limit else per_ip
+                )
+                delay = max(1, limiting[0] + 300 - now)
+                raise HTTPException(
+                    429,
+                    f"尝试过于频繁，请在约 {delay} 秒后重试",
+                    headers={"Retry-After": str(delay)},
+                )
 
-    def note_failed_attempt(self, bucket: dict, key, ip: str) -> None:
+    def note_failed_attempt(
+        self, bucket: dict, key, ip: str, scope: str = "admin"
+    ) -> None:
         with self._failure_lock:
             now = time_now()
             self._prune_failures(now)
             self._add_failure(bucket, key, now)
-            self._add_failure(self.failed_ips, ip, now)
+            self._add_failure(self.failed_ips, (scope, ip), now)
 
     def clear_failed_attempt(self, bucket: dict, key) -> None:
         with self._failure_lock:
