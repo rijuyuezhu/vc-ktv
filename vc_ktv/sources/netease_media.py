@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -188,44 +189,62 @@ def assemble_album_video(
     """Minimal 720p MP4 source that the existing subtitle and TV pipeline accepts."""
     ffmpeg = os.environ.get("KTV_FFMPEG", "ffmpeg")
     args = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y"]
-    if cover:
-        args += ["-loop", "1", "-framerate", "24", "-i", str(cover)]
-        # Static cover in a subtle full-bleed frame. Video animation is not a
-        # prerequisite for this first working end-to-end path.
-        vf = "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x11192d,format=yuv420p"
-    else:
-        args += ["-f", "lavfi", "-i", "color=c=0x11192d:s=1280x720:r=24"]
-        vf = "format=yuv420p"
-    args += [
-        "-i",
-        str(audio),
-        "-t",
-        str(duration),
-        "-map",
-        "0:v:0",
-        "-map",
-        "1:a:0",
-        "-vf",
-        vf,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "ultrafast",
-        "-crf",
-        "27",
-        "-pix_fmt",
-        "yuv420p",
-        "-r",
-        "24",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-movflags",
-        "+faststart",
-        str(dest),
-    ]
-    subprocess.run(args, capture_output=True, check=True)
+    canvas = (
+        "scale=1280:720:force_original_aspect_ratio=decrease,"
+        "pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=0x11192d"
+    )
+    with tempfile.TemporaryDirectory(prefix="netease-cover-", dir=dest.parent) as temp:
+        if cover:
+            # Decode and resize the album image once rather than on every
+            # frame of a several-minute video.
+            scaled = Path(temp) / "cover.png"
+            subprocess.run(
+                [
+                    *args,
+                    "-i",
+                    str(cover),
+                    "-vf",
+                    canvas,
+                    "-frames:v",
+                    "1",
+                    str(scaled),
+                ],
+                capture_output=True,
+                check=True,
+            )
+            args += ["-loop", "1", "-framerate", "24", "-i", str(scaled)]
+        else:
+            args += ["-f", "lavfi", "-i", "color=c=0x11192d:s=1280x720:r=24"]
+        args += [
+            "-i",
+            str(audio),
+            "-t",
+            str(duration),
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-vf",
+            "format=yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "27",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            "24",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            str(dest),
+        ]
+        subprocess.run(args, capture_output=True, check=True)
     if not dest.is_file() or dest.stat().st_size < 1024:
         raise MusicUnavailable("无法生成网易云视频")
     return dest
