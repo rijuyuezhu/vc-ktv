@@ -126,7 +126,11 @@ export function setupSongDetail({
     } else {
       if (editable && song.prep_state !== "aligning")
         actionButton(actions, "编辑歌词", () => editLyrics(song.id, song.title));
-      if (song.status === "waiting" && song.prep_state === "unavailable")
+      if (
+        song.status === "waiting" &&
+        song.prep_state === "unavailable" &&
+        (song.prep_attempts || 0) >= 3
+      )
         actionButton(actions, "重试下载", async () => {
           await api("/api/admin/songs/" + song.id + "/download/retry", "POST");
           toast("已重试");
@@ -250,6 +254,14 @@ export function setupSongDetail({
     );
   }
 
+  function retryHint(song) {
+    if (song.status !== "waiting" || song.prep_state !== "unavailable") return "";
+    if (song.prep_retry_at && song.prep_attempts < 3) {
+      const remaining = Math.max(0, Math.ceil(song.prep_retry_at - Date.now() / 1000));
+      return remaining ? `约 ${remaining} 秒后自动重试` : "等待工作线程自动重试";
+    }
+    return (song.prep_attempts || 0) >= 3 ? "自动重试已结束，请管理员处理" : "";
+  }
   function renderSongSummary(panel, song) {
     const header = appendText(panel, "div", "", "detail-header");
     const coverUrl = songCoverUrl(song.cover);
@@ -276,11 +288,14 @@ export function setupSongDetail({
     const state = appendText(panel, "div", "", "detail-state");
     appendText(state, "strong", songState(song));
     if (song.priority_next) appendText(state, "span", "下一首优先", "detail-note");
-    if (showPublicPrepError(song))
+    if (showPublicPrepError(song)) {
       appendText(state, "span", song.prep_error, "ui-status ui-status-error").setAttribute(
         "role",
         "alert"
       );
+      const hint = retryHint(song);
+      if (hint) appendText(state, "span", hint, "retry-hint detail-note");
+    }
   }
 
   function renderArchivedSong(target, song) {
@@ -297,6 +312,8 @@ export function setupSongDetail({
     const song = await api("/api/songs/" + id + "/detail");
     const key = JSON.stringify([song, isAdminPath()]);
     if (detailKey === key) {
+      const retry = $("page-song").querySelector(".retry-hint");
+      if (retry) retry.textContent = retryHint(song);
       const running = $("page-song").querySelector(".stage-current-time");
       if (running && song.prep_stage_at)
         running.textContent =

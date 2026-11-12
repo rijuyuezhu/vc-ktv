@@ -80,3 +80,74 @@ def test_failure_report_preserves_terminal_status(tmp_path, reason):
         dict(store.db.execute("SELECT * FROM songs WHERE id=1").fetchone()) == original
     )
     assert not store.db.in_transaction
+
+
+def test_provider_failure_reasons_are_actionable_without_leaking_signed_urls():
+    import subprocess
+
+    import httpx
+
+    from vc_ktv.processing.task_state import download_failure_reason
+    from vc_ktv.sources.bilibili_media import PublicMediaUnavailable
+    from vc_ktv.sources.netease_media import MusicUnavailable
+
+    secret_url = "https://example.invalid/media?token=sensitive-secret"
+    request = httpx.Request("GET", secret_url)
+    errors = [
+        ("bilibili", PublicMediaUnavailable("B站视频分 P 不存在"), "分 P 不存在"),
+        ("bilibili", PublicMediaUnavailable("所有公开媒体 CDN 均失败"), "CDN"),
+        ("bilibili", RuntimeError("Unable to extract initial state"), "页面结构变化"),
+        ("netease", MusicUnavailable("此歌曲没有可用的完整音频"), "完整音频"),
+        ("netease", httpx.ReadTimeout(secret_url, request=request), "连接超时"),
+        ("bilibili", httpx.ConnectError(secret_url, request=request), "网络连接失败"),
+        (
+            "netease",
+            subprocess.CalledProcessError(1, ["ffmpeg", secret_url]),
+            "音频合成失败",
+        ),
+    ]
+    for source, error, expected in errors:
+        reason = download_failure_reason(source, error)
+        assert expected in reason, (source, reason)
+        assert "sensitive-secret" not in reason
+        assert "example.invalid" not in reason
+
+    for status in (403, 404, 429, 503):
+        response = httpx.Response(status, request=request)
+        error = httpx.HTTPStatusError(secret_url, request=request, response=response)
+        reason = download_failure_reason("bilibili", error)
+        assert str(status) in reason or status == 404
+        assert secret_url not in reason
+
+
+def test_failed_download_retry_schedule_and_terminal_message(tmp_path):
+    from vc_ktv.processing.task_state import record_failure
+    from vc_ktv.sources.bilibili_media import PublicMediaUnavailable
+
+    store = Store(tmp_path / "room")
+    with store.lock:
+        store.db.execute("INSERT INTO guests(id,name) VALUES('g','Guest')")
+        store.db.commit()
+    insert_waiting(store, 1)
+    for attempt in (1, 2, 3):
+        claimed = AutoPrep(store, lambda _: 20).claim()
+        assert claimed is not None
+        record_failure(
+            store,
+            claimed,
+            PublicMediaUnavailable("所有公开媒体 CDN 均失败"),
+            time.monotonic(),
+        )
+        state = dict(store.db.execute("SELECT * FROM songs WHERE id=1").fetchone())
+        assert state["prep_attempts"] == attempt
+        assert "CDN" in state["prep_error"]
+        if attempt < 3:
+            assert state["prep_retry_at"] > time.time()
+            with store.lock:
+                store.db.execute("UPDATE songs SET prep_retry_at=0 WHERE id=1")
+                store.db.commit()
+        else:
+            assert state["prep_retry_at"] == 0
+            assert "自动重试已结束" in state["prep_error"]
+    assert AutoPrep(store, lambda _: 20).claim() is None
+    store.db.close()

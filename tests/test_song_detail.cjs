@@ -320,7 +320,12 @@ test("role and status gate admin actions, and manual render uses editable lead t
     assert.ok(h.calls.some((x) => x.url === "/api/admin/songs/17/pin-next"));
     await button(page, "按新风格重制").onclick();
     assert.ok(h.calls.some((x) => x.url === "/api/admin/songs/17/subtitles/retry"));
-    h.state.song = baseSong({ status: "waiting", prep_state: "unavailable", downloadable: false });
+    h.state.song = baseSong({
+      status: "waiting",
+      prep_state: "unavailable",
+      prep_attempts: 3,
+      downloadable: false
+    });
     await h.refreshSongDetail();
     const upload = find(page, (x) => x.tagName === "INPUT" && x.type === "file");
     assert.ok(upload);
@@ -537,6 +542,42 @@ test("NetEase song details retain source and guest replay navigation", async () 
     await button(page, "↻ 再来一首").onclick();
     assert.equal(global.window.location.hash, "song-18");
     assert.equal(h.state.refreshes, 1);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("download retry UI distinguishes pending automatic retry from exhausted attempts", async () => {
+  const h = await harness(true);
+  try {
+    const deadline = Math.floor(Date.now() / 1000) + 60;
+    h.state.song = baseSong({
+      status: "waiting",
+      prep_state: "unavailable",
+      prep_attempts: 1,
+      prep_retry_at: deadline,
+      prep_error: "B站网络连接失败（已尝试 1/3 次）"
+    });
+    await h.refreshSongDetail();
+    const page = h.byId("page-song");
+    assert.equal(
+      find(page, (x) => x.tagName === "BUTTON" && x.textContent === "重试下载"),
+      null
+    );
+    assert.match(find(page, (x) => x.classList.contains("retry-hint")).textContent, /秒后自动重试/);
+    h.state.song = baseSong({
+      status: "waiting",
+      prep_state: "unavailable",
+      prep_attempts: 3,
+      prep_retry_at: 0,
+      prep_error: "B站公开媒体 CDN 暂不可用（已尝试 3/3 次）"
+    });
+    await h.refreshSongDetail();
+    assert.ok(find(page, (x) => x.tagName === "BUTTON" && x.textContent === "重试下载"));
+    assert.match(
+      find(page, (x) => x.classList.contains("retry-hint")).textContent,
+      /自动重试已结束/
+    );
   } finally {
     h.cleanup();
   }
