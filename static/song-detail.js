@@ -234,6 +234,7 @@ export function setupSongDetail({
 
   function songCoverUrl(cover) {
     if (!cover) return "";
+    if (/^\/api\/events\/[a-zA-Z0-9_-]+\/covers\/[0-9]+$/.test(cover)) return cover;
     try {
       const url = new URL(cover);
       if (

@@ -322,39 +322,28 @@ class Events:
                 self._archive_busy.remove(event_id)
 
     def release_media(self, event_id: str, csv_text: str):
-        """Retain the event DB, CSV and small text; remove bulky media."""
+        """Delete video files only; keep covers, audio, lyrics and records."""
         with self.archive_operation(event_id) as (folder, entry):
             self._write_atomic(
                 folder / "songs.csv", csv_text() if callable(csv_text) else csv_text
             )
             media = folder / "media"
             freed = 0
-            keep_text = {
-                ".csv",
-                ".json",
-                ".txt",
-                ".lrc",
-                ".ass",
-                ".srt",
-                ".vtt",
-                ".md",
-                ".textgrid",
-            }
+            video_ext = {".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".ts"}
             if media.is_symlink():
-                media.unlink()
-            elif media.is_dir():
+                raise HTTPException(409, "媒体目录不可为符号链接")
+            if media.is_dir():
                 for file in sorted(
                     media.rglob("*"), key=lambda p: len(p.parts), reverse=True
                 ):
                     if file.is_symlink():
-                        file.unlink()
+                        if file.suffix.lower() in video_ext:
+                            file.unlink()
                     elif file.is_dir():
                         if not any(file.iterdir()):
                             file.rmdir()
-                    elif file.is_file():
+                    elif file.is_file() and file.suffix.lower() in video_ext:
                         size = file.stat().st_size
-                        if file.suffix.lower() in keep_text and size <= 1024 * 1024:
-                            continue
                         file.unlink()
                         freed += size
                 if not any(media.iterdir()):

@@ -34,11 +34,20 @@ def test_public_archives_and_status_editing_are_event_scoped(tmp_path):
             store.db.commit()
         join_and_register(visitor, "First member", "123456")
         assert admin.post("/api/admin/events/close").status_code == 200
+        cover_dir = tmp_path / "room" / "sessions" / first["id"] / "media" / "covers"
+        cover_dir.mkdir()
+        (cover_dir / "1.jpg").write_bytes(b"test-cover")
         public = f"/api/events/{first['id']}"
         # Old session cookies are no longer archive credentials.
         for endpoint in ("/api/events", public + "/songs", public + "/songs/1"):
             assert visitor.get(endpoint).status_code == 401
         assert admin.get(public + "/songs/1").json()["song"]["title"] == "旧歌"
+        assert (
+            admin.get(public + "/songs/1").json()["song"]["cover"]
+            == public + "/covers/1"
+        )
+        assert admin.get(public + "/covers/1").content == b"test-cover"
+        assert visitor.get(public + "/covers/1").status_code == 401
         assert (
             admin.put(
                 f"/api/admin/events/{first['id']}/visibility?public=true"
@@ -64,6 +73,8 @@ def test_public_archives_and_status_editing_are_event_scoped(tmp_path):
         events = visitor.get("/api/events").json()["events"]
         assert len(events) == 1 and events[0]["name"] == "首场"
         assert "code" not in events[0]
+        assert visitor.get(public + "/covers/1").content == b"test-cover"
+        assert visitor.get(public + "/covers/99").status_code == 404
         public_songs = visitor.get(public + "/songs").json()
         assert public_songs["songs"][0]["id"] == 1
         song = visitor.get(public + "/songs/1").json()["song"]
@@ -82,6 +93,7 @@ def test_public_archives_and_status_editing_are_event_scoped(tmp_path):
         assert visitor.get(public + "/songs/1").json()["song"]["title"] == "旧歌"
         assert admin.post("/api/admin/events/close").status_code == 200
         assert visitor.get(public + "/songs/1").status_code == 401
+        assert visitor.get(public + "/covers/1").status_code == 401
         assert (
             admin.post(f"/api/admin/events/{first['id']}/release-media").status_code
             == 200
@@ -92,6 +104,7 @@ def test_public_archives_and_status_editing_are_event_scoped(tmp_path):
             ).status_code
             == 200
         )
+        assert admin.get(public + "/covers/1").content == b"test-cover"
         song = admin.get(public + "/songs/1").json()["song"]
         assert song["status"] == "closed_unplayed" and song["played_at"] is None
         csv = admin.get(f"/api/admin/events/{first['id']}/songs.csv")
