@@ -40,3 +40,6 @@ hosts.yml
 
 # JavaScript development dependencies
 node_modules/
+
+# Generated, local-only benchmark results
+/benchmarks/.results/
