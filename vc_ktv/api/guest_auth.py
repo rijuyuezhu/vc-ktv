@@ -58,13 +58,13 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
         if not info or info.get("legacy") or not info.get("code"):
             bail(409, "请等待管理员创建新 KTV 场次")
         ip = auth.client_ip(request)
-        auth.check_attempt(auth.failed_invites, ip, ip)
+        auth.check_attempt(auth.failed_invites, ip, ip, "join")
         if (
             not body.code.isascii()
             or not body.code.isdecimal()
             or not hmac.compare_digest(body.code, info["code"])
         ):
-            auth.note_failed_attempt(auth.failed_invites, ip, ip)
+            auth.note_failed_attempt(auth.failed_invites, ip, ip, "join")
             bail(401, "加入码错误")
         auth.clear_failed_attempt(auth.failed_invites, ip)
         event_id = info["id"]
@@ -130,7 +130,7 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
         auth.require_entry(vc_join)
         ip = auth.client_ip(request)
         key = (events.active_id, ip, body.username.strip())
-        auth.check_attempt(auth.failed_users, key, ip)
+        auth.check_attempt(auth.failed_users, key, ip, "user")
         with store.lock:
             auth.require_entry(vc_join)
             event_id = events.active_id
@@ -139,7 +139,7 @@ def create_guest_auth_router(*, auth: AuthService, events, store) -> APIRouter:
                 (body.username.strip(),),
             ).fetchone()
         if not row or not verify_password(body.password, row["password_hash"]):
-            auth.note_failed_attempt(auth.failed_users, key, ip)
+            auth.note_failed_attempt(auth.failed_users, key, ip, "user")
             bail(401, "用户名或密码错误")
         auth.clear_failed_attempt(auth.failed_users, key)
         auth.user_cookie(response, row["id"], event_id)
