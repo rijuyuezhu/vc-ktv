@@ -315,3 +315,32 @@ def test_guest_upload_lrc_strips_timing_and_uses_alignment_pipeline(tmp_path):
             )
             app.state.store.db.commit()
         assert upload(owner).status_code == 409
+
+
+def test_uploaded_lrc_accepts_long_valid_timeline_but_bounds_memory(tmp_path):
+    from vc_ktv.infra.upload_limits import MAX_LRC_BYTES
+
+    app, _ = app_for_lyrics(tmp_path)
+    with TestClient(app) as guest:
+        join_and_register(guest, "Long LRC")
+        sid = guest.post("/api/songs", json={"bvid": "BV0000000002"}).json()["id"]
+        url = f"/api/songs/{sid}/lyrics/upload"
+        many_lines = ("[00:01.00]一段比较长的逐字歌词\n" * 7000).encode("utf-8")
+        assert 128 * 1024 < len(many_lines) < MAX_LRC_BYTES
+        accepted = guest.post(
+            url, files={"file": ("long.lrc", many_lines, "text/plain")}
+        )
+        assert accepted.status_code == 200, accepted.text
+        base = b"[00:01.00]Hello world\n[00:03.00]Second line"
+        exact = base + b" " * (MAX_LRC_BYTES - len(base))
+        assert (
+            guest.post(
+                url, files={"file": ("exact.lrc", exact, "text/plain")}
+            ).status_code
+            == 200
+        )
+        refused = guest.post(
+            url, files={"file": ("huge.lrc", exact + b"x", "text/plain")}
+        )
+        assert refused.status_code == 413
+        assert "1 MiB" in refused.json()["detail"]

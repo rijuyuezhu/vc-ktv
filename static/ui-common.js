@@ -14,9 +14,9 @@ export function toast(message, error = false) {
     t.className = "";
   }, 4800);
 }
-export async function api(url, method = "GET", body = null, signal = null) {
+export async function api(url, method = "GET", body = null, signal = null, timeoutMs = null) {
   const controller = new AbortController();
-  const timeoutMs = method === "GET" ? 12000 : body instanceof FormData ? 300000 : 30000;
+  timeoutMs ??= method === "GET" ? 12000 : body instanceof FormData ? 300000 : 30000;
   const abort = () => controller.abort();
   signal?.addEventListener("abort", abort, { once: true });
   if (signal?.aborted) abort();
