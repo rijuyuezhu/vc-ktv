@@ -411,7 +411,6 @@ class Simulation:
                 r
                 and r["status"] in ("waiting", "ready")
                 and r["prep_state"] not in ("aligning",)
-                and not r["replay_of"]
             ),
             bias={
                 "careful": 3,
@@ -543,6 +542,8 @@ class Simulation:
                     offset=offset,
                     line_review=line_review,
                 )
+                if r["replay_of"]:
+                    self.counters["replay_lyric_edits"] += 1
             else:
                 assert (
                     after["lyric_choice"] == r["lyric_choice"]
@@ -554,6 +555,8 @@ class Simulation:
             after = self.row(id)
             assert after["lyric_timing_mode"] == "align" and not after["provider_lrc"]
             self.log("selected_gpu_alignment", id=id)
+            if r["replay_of"]:
+                self.counters["replay_lyric_edits"] += 1
         return True
 
     def skip_lyrics(self):
@@ -562,7 +565,6 @@ class Simulation:
                 r
                 and r["status"] in ("waiting", "ready")
                 and r["prep_state"] != "aligning"
-                and not r["replay_of"]
             ),
             bias={
                 "skip-heavy": 3,
@@ -584,6 +586,8 @@ class Simulation:
         self.log(
             "skip_lyrics", id=id, was_provider=(r["lyric_timing_mode"] == "provider")
         )
+        if r["replay_of"]:
+            self.counters["replay_lyric_edits"] += 1
         return True
 
     def cancel(self):

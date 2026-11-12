@@ -61,6 +61,17 @@ class LyricSelectionService:
                 bail(409, "歌曲已经开始播放或结束，不能切换歌词")
             if current["prep_state"] == "aligning":
                 bail(409, "字幕正在制作中，暂不能更换歌词")
+            ready_replay = (
+                current["status"] == "ready" and current["replay_of"] is not None
+            )
+            source_file = None
+            if ready_replay:
+                source_file = self.store.replay_assets(current).get("source_file")
+                if (
+                    not source_file
+                    or not (self.store.media / Path(source_file).name).is_file()
+                ):
+                    bail(409, "原视频尚未准备好")
             next_state = (
                 "downloaded" if current["status"] == "ready" else current["prep_state"]
             )
@@ -68,7 +79,10 @@ class LyricSelectionService:
                 self.store.db.execute(
                     "UPDATE songs SET lyric_choice=?,lyric_source=?,prep_state=?,"
                     "lyric_timing_mode=?,provider_lrc=?,source_lrc_raw=?,lyric_offset_ms=?,"
-                    "skip_subtitles=0,prep_stage='queued',prep_error='' WHERE id=?",
+                    "skip_subtitles=0,prep_stage='queued',prep_error='',"
+                    "source_file=COALESCE(source_file,?),"
+                    "media_file=CASE WHEN ? AND media_file IS NULL THEN ? ELSE media_file END "
+                    "WHERE id=?",
                     (
                         lyrics,
                         source,
@@ -77,6 +91,9 @@ class LyricSelectionService:
                         provider_lrc,
                         source_lrc_raw,
                         offset_ms,
+                        source_file,
+                        ready_replay,
+                        source_file,
                         song_id,
                     ),
                 )
@@ -90,27 +107,31 @@ class LyricSelectionService:
         song = self.own_song(song_id, guest_token)
         with self.store.lock:
             current = self.store.db.execute(
-                "SELECT status,prep_state,prep_stage,source_file FROM songs WHERE id=? AND requester=?",
+                "SELECT * FROM songs WHERE id=? AND requester=?",
                 (song_id, song["requester"]),
             ).fetchone()
             if not current or current["status"] not in ("waiting", "ready"):
                 bail(409, "只能对尚未播放的歌曲选择原片")
             ready = current["status"] == "ready"
-            if (
-                ready
-                and not (
-                    self.store.media / Path(current["source_file"] or "").name
-                ).is_file()
+            source_file = (
+                self.store.replay_assets(current).get("source_file") if ready else None
+            )
+            if ready and (
+                not source_file
+                or not (self.store.media / Path(source_file).name).is_file()
             ):
                 bail(409, "原视频尚未准备好")
             try:
                 self.store.db.execute(
                     "UPDATE songs SET skip_subtitles=1,lyric_choice='',lyric_source='',"
                     "lyric_timing_mode='align',provider_lrc='',source_lrc_raw='',lyric_offset_ms=0,"
-                    "media_file=CASE WHEN ? THEN source_file ELSE media_file END,"
+                    "source_file=COALESCE(source_file,?),"
+                    "media_file=CASE WHEN ? THEN ? ELSE media_file END,"
                     "prep_state=?,prep_stage=?,prep_stage_at=?,prep_error='' WHERE id=?",
                     (
+                        source_file,
                         ready,
+                        source_file,
                         "original" if ready else current["prep_state"],
                         "skipped" if ready else current["prep_stage"],
                         time_now(),
