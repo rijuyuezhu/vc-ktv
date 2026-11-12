@@ -34,7 +34,7 @@ uv run --no-sync python -m benchmarks.races \
 uv run --no-sync --with playwright==1.64.1 python -m benchmarks.lyric_ui \
   --offsets 0.3,-0.3,-100,1.5 --invalid-offset=-100
 
-# 重唱改词的已知缺陷 #450；严格检查修复状态时加 --require-fixed
+# 重唱改词的 #450 回归场景；严格检查可播放状态时加 --require-fixed
 uv run --no-sync python -m benchmarks.replay_lyrics
 ```
 
@@ -45,6 +45,6 @@ Chromium 首次使用时需安装相应浏览器运行文件。移动端测试�
 ## 范围
 
 - 使用虚构用户名、临时密码、本机测试地址和模拟歌曲 ID；公开的第三方歌词来源网址仅用于候选歌词的测试元数据。
-- 默认概率场景会避开已确认的 #450 重唱改词缺陷，独立 `replay_lyrics` 脚本负责检查并报告它；`--require-fixed` 在问题未修复时返回失败。
+- 概率场景包括虚拟重唱后的选词、偏移和跳过歌词；`replay_lyrics` 专门检查 #450 的源媒体继承、原片回退和重制可行性，`--require-fixed` 会把回归视为失败。
 - 公平调度的补偿规则是累计歌数差距最多 2，**不保证每个人在前两轮一定轮到**。大队列脚本会检查前一轮参与者、队列响应时间和后续调度一致性。
 - 这些基准不替代真实媒体、GPU 或不同电视硬件的端到端测试；不作为公网延迟或生产服务性能的数据来源。

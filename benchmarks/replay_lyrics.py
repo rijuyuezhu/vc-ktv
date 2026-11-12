@@ -122,10 +122,16 @@ def main() -> None:
                         "SELECT * FROM songs WHERE id=?", (replay_id,)
                     ).fetchone()
                 )
-            bug_present = skipped.status_code != 200 or (
-                selected.status_code == 200
-                and after["prep_state"] == "downloaded"
-                and not after["source_file"]
+            source_file = after["source_file"]
+            media_file = after["media_file"]
+            bug_present = (
+                skipped.status_code != 200
+                or selected.status_code != 200
+                or after["prep_state"] != "downloaded"
+                or not source_file
+                or not media_file
+                or not (store.media / Path(source_file or "").name).is_file()
+                or not (store.media / Path(media_file or "").name).is_file()
             )
             result = {
                 "issue": 450,
@@ -134,6 +140,8 @@ def main() -> None:
                 "selection_status": selected.status_code,
                 "replay_prep_state": after["prep_state"],
                 "source_inherited": bool(store.replay_assets(after)["source_file"]),
+                "replay_source_ready": bool(source_file),
+                "fallback_media_ready": bool(media_file),
             }
             args.output.mkdir(parents=True, exist_ok=True)
             (args.output / "replay-lyrics.json").write_text(
