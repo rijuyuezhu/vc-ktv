@@ -130,6 +130,6 @@ def create_history_router(
             song.pop("media_file", None)
             song["playable"] = Store.playable(song, store.settings())
             song["lyric_query"] = title_key(song["title"])
-            return song
+        return app.state.archive.with_cached_cover(events.active_id, song)
 
     return router

@@ -75,6 +75,16 @@ class EventArchiveService:
             song["cover"] = f"/api/events/{event_id}/covers/{song['id']}"
         return song
 
+    def require_cover_viewer(
+        self, event_id: str, guest: str | None, admin: str | None
+    ) -> None:
+        # Live event members may access the same stored cover files as archives.
+        # Closed events retain the existing public/global-admin visibility rule.
+        if event_id == self.events.active_id:
+            self.require_history_viewer(guest, admin)
+        else:
+            self.visible_event(event_id, guest, admin)
+
     def public_events(self, guest: str | None, admin: str | None) -> list[dict]:
         self.require_history_viewer(guest, admin)
         with self.events.lock:

@@ -2,102 +2,25 @@
 
 import argparse
 import asyncio
-import os
 import re
 import sqlite3
-import tempfile
 from pathlib import Path
-from urllib.parse import urlsplit
 
 import httpx
 from fastapi import HTTPException
 
+from vc_ktv.infra.cover_cache import (
+    cover_file,
+    download_cover,
+    normalize_existing_cover,
+)
 from vc_ktv.sources.bilibili import bilibili_lookup
 from vc_ktv.sources.netease_catalog import lookup_netease_song
 
-IMAGE_SUFFIX = {
-    "image/jpeg": ".jpg",
-    "image/jpg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-}
 EVENT_RE = re.compile(r"^[a-zA-Z0-9_-]{1,60}$")
 
 
-def cover_file(directory: Path, song_id: int) -> Path | None:
-    if directory.is_symlink():
-        return None
-    return next(
-        (
-            p
-            for ext in (".jpg", ".jpeg", ".png", ".webp")
-            if (p := directory / f"{song_id}{ext}").is_file()
-        ),
-        None,
-    )
-
-
-async def download_cover(
-    client: httpx.AsyncClient, url: str, directory: Path, song_id: int
-) -> bool:
-    try:
-        parsed = urlsplit(url)
-        host = parsed.hostname or ""
-        port = parsed.port
-    except ValueError:
-        return False
-    if (
-        parsed.scheme != "https"
-        or port is not None
-        or parsed.username
-        or parsed.password
-        or not (
-            re.fullmatch(r"i\d+\.hdslb\.com", host)
-            or re.fullmatch(r"p\d+\.music\.126\.net", host)
-        )
-    ):
-        return False
-    headers = {
-        "Referer": "https://www.bilibili.com/"
-        if "hdslb.com" in host
-        else "https://music.163.com/"
-    }
-    try:
-        async with client.stream("GET", url, headers=headers) as response:
-            response.raise_for_status()
-            suffix = IMAGE_SUFFIX.get(
-                response.headers.get("content-type", "").split(";")[0].lower()
-            )
-            if not suffix:
-                return False
-            data = bytearray()
-            async for chunk in response.aiter_bytes():
-                data.extend(chunk)
-                if len(data) > 4 * 1024 * 1024:
-                    return False
-            if not (
-                data[:3] == b"\xff\xd8\xff"
-                or data[:8] == b"\x89PNG\r\n\x1a\n"
-                or (data[:4] == b"RIFF" and data[8:12] == b"WEBP")
-            ):
-                return False
-        if directory.is_symlink():
-            return False
-        directory.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(prefix=".cover-", dir=directory)
-        try:
-            with os.fdopen(fd, "wb") as output:
-                output.write(data)
-            os.replace(temp_name, directory / f"{song_id}{suffix}")
-        finally:
-            if os.path.exists(temp_name):
-                os.unlink(temp_name)
-        return True
-    except (httpx.HTTPError, OSError, ValueError):
-        return False
-
-
-async def backfill(folder: Path, apply: bool):
+async def backfill(folder: Path, apply: bool, normalize_existing: bool = False):
     import json
 
     info = json.loads((folder / "info.json").read_text())
@@ -123,7 +46,7 @@ async def backfill(folder: Path, apply: bool):
             return
         sem = asyncio.Semaphore(3)
         fetched = {}
-        counts = {"images": 0, "metadata": 0, "failed": 0}
+        counts = {"images": 0, "metadata": 0, "resized": 0, "failed": 0}
 
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(14, connect=5),
@@ -181,7 +104,14 @@ async def backfill(folder: Path, apply: bool):
                             )
                             counts["failed"] += 1
                         await asyncio.sleep(0.25)
-                    if cover and not cover_file(covers, row["id"]):
+                    prior = cover_file(covers, row["id"])
+                    if prior and normalize_existing:
+                        if await asyncio.to_thread(normalize_existing_cover, prior):
+                            counts["resized"] += 1
+                        else:
+                            print(f"  image #{row['id']}: cannot normalize", flush=True)
+                            counts["failed"] += 1
+                    elif cover and not prior:
                         if await download_cover(client, cover, covers, row["id"]):
                             counts["images"] += 1
                         else:
@@ -204,7 +134,7 @@ async def backfill(folder: Path, apply: bool):
                 db.commit()
                 print(f"  {min(i + 20, len(rows))}/{len(rows)} scanned", flush=True)
         print(
-            f"  images={counts['images']} metadata={counts['metadata']} failures={counts['failed']}",
+            f"  images={counts['images']} metadata={counts['metadata']} resized={counts['resized']} failures={counts['failed']}",
             flush=True,
         )
 
@@ -218,11 +148,22 @@ def main():
     parser.add_argument(
         "--apply", action="store_true", help="Fetch and persist metadata and images"
     )
+    parser.add_argument(
+        "--normalize-existing",
+        action="store_true",
+        help="Re-encode existing covers within 720x720 and 256 KiB (requires --apply)",
+    )
     args = parser.parse_args()
+    if args.normalize_existing and not args.apply:
+        parser.error("--normalize-existing requires --apply")
     for event_id in args.event_ids:
         if not EVENT_RE.fullmatch(event_id):
             parser.error(f"Invalid event id: {event_id}")
-        asyncio.run(backfill(args.root / "sessions" / event_id, args.apply))
+        asyncio.run(
+            backfill(
+                args.root / "sessions" / event_id, args.apply, args.normalize_existing
+            )
+        )
 
 
 if __name__ == "__main__":

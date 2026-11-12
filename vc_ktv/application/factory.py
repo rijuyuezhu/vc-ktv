@@ -39,6 +39,7 @@ from vc_ktv.application.playback import PlaybackService
 from vc_ktv.application.tv import TVSessionService
 from vc_ktv.core.events import CurrentStore, Events
 from vc_ktv.core.store import Store, time_now
+from vc_ktv.infra.cover_cache import CoverCache, cover_file
 from vc_ktv.infra.media_pins import MediaPins
 from vc_ktv.lyrics.lyric_selection import netease_song_lyrics, search_lyric_candidates
 from vc_ktv.lyrics.lyric_sources import vcpedia_find
@@ -78,6 +79,7 @@ def create_app(
     events = Events(root, Store)
     store = CurrentStore(events)
     media_pins = MediaPins(root)
+    covers = CoverCache(events)
     if auto_prepare is None:
         auto_prepare = os.getenv("VC_KTV_AUTOPREPARE", "1") != "0"
     if gpu_alignment is None:
@@ -113,6 +115,7 @@ def create_app(
             if warning:
                 logging.getLogger(__name__).warning("KTV subtitle font: %s", warning)
         lifecycle.running = True
+        covers.start()
         if auto_prepare and events.active_id:
             lifecycle.worker.store = events.active()  # Pre-created event.
             lifecycle.worker.start()
@@ -122,6 +125,7 @@ def create_app(
         try:
             yield
         finally:
+            covers.stop()
             lifecycle.running = False
             if monitor:
                 monitor.cancel()
@@ -146,6 +150,7 @@ def create_app(
     app.state.lifecycle = lifecycle
     lifecycle.bind_state(app.state)
     app.state.media_pins = media_pins
+    app.state.covers = covers
     app.state.media = media
     app.state.store = store
     app.state.events = events
@@ -265,12 +270,19 @@ def create_app(
             auth.require_user(vc_guest)
         guest = user["id"] if user else None
         snapshot = store.state()
+        covers_dir = store.media / "covers"
         for song in [*snapshot["queue"], *snapshot["waiting"]]:
             song["mine"] = bool(guest and song["requester_id"] == guest)
+            if cover_file(covers_dir, song["id"]):
+                song["cover"] = f"/api/events/{events.active_id}/covers/{song['id']}"
         if snapshot["current"]:
             snapshot["current"]["mine"] = bool(
                 guest and snapshot["current"]["requester_id"] == guest
             )
+            if cover_file(covers_dir, snapshot["current"]["id"]):
+                snapshot["current"]["cover"] = (
+                    f"/api/events/{events.active_id}/covers/{snapshot['current']['id']}"
+                )
         return state_response(request, snapshot)
 
     app.include_router(

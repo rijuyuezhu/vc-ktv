@@ -121,6 +121,7 @@ def create_song_source_router(
             metadata,
             changed_message="场次已变化，请在新场次重新点歌",
         )
+        app.state.covers.enqueue(event_id, new_id, metadata.cover)
         return {
             "id": new_id,
             "status": "waiting",
@@ -156,6 +157,7 @@ def create_song_source_router(
             metadata,
             changed_message="场次已变化，请重新点歌",
         )
+        app.state.covers.enqueue(event_id, new_id, metadata.cover)
         return {
             "id": new_id,
             "status": "waiting",
