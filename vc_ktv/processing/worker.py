@@ -18,7 +18,10 @@ from vc_ktv.infra.disk_budget import (
     budget_scope,
     check_current_budget,
 )
-from vc_ktv.infra.process_cancel import terminate_thread_children
+from vc_ktv.infra.process_cancel import (
+    terminate_thread_children,
+    thread_external_activity,
+)
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -112,6 +115,9 @@ class AutoPrep:
         self.active_claims = 0
         self.active_tasks: dict[int, tuple[int, threading.Event]] = {}
         self.active_tasks_lock = threading.RLock()
+        # Only external child processes are monitored. Healthy long GPU tasks
+        # may remain CPU/disk-idle and must never be killed for elapsed time.
+        self._external_progress: dict[int, tuple[tuple, float]] = {}
         self.budget_watcher: threading.Thread | None = None
         self.cancel_external_tasks = lambda: None
         # Manual, optional and single-flight: no new persistent queue/worker.
@@ -291,6 +297,84 @@ class AutoPrep:
             self.cache_retry_cancel = None
             self.cache_retry_slot.release()
 
+    @staticmethod
+    def _external_advanced(before: tuple, after: tuple) -> bool:
+        # New/exited children are progress, not evidence of a stall.
+        if len(before) != len(after):
+            return True
+        for old, new in zip(before, after, strict=True):
+            if old[:2] != new[:2] or new[2] > old[2] or new[3] > old[3]:
+                return True
+        return False
+
+    def watch_external_idle(
+        self, *, now: float | None = None, idle_seconds: float = 300
+    ) -> None:
+        """Recover a child process with no CPU or I/O progress for 5 minutes.
+
+        This is an *idle* watchdog, never a song-duration, download-size,
+        or maximum total processing-time constraint. Model alignment is
+        excluded: a GPU kernel may legitimately remain quiet for a long time.
+        """
+        now = time.monotonic() if now is None else now
+        with self.active_tasks_lock:
+            tasks = dict(self.active_tasks)
+        current_ids = set(tasks)
+        for old_id in self._external_progress.keys() - current_ids:
+            del self._external_progress[old_id]
+        for song_id, (tid, cancelled) in tasks.items():
+            if cancelled.is_set() or self.stop_signal.is_set():
+                self._external_progress.pop(song_id, None)
+                continue
+            with self.store.lock:
+                row = self.store.db.execute(
+                    "SELECT status,prep_state,prep_stage FROM songs WHERE id=?",
+                    (song_id,),
+                ).fetchone()
+            eligible = bool(
+                row
+                and (
+                    (row["status"] == "waiting" and row["prep_state"] == "downloading")
+                    or (
+                        row["status"] == "ready"
+                        and row["prep_state"] == "aligning"
+                        and row["prep_stage"] == "render"
+                    )
+                )
+            )
+            if not eligible:
+                self._external_progress.pop(song_id, None)
+                continue
+            activity = thread_external_activity(tid)
+            if not activity:
+                # No children / incomplete proc reading: wait for evidence.
+                self._external_progress.pop(song_id, None)
+                continue
+            previous = self._external_progress.get(song_id)
+            if previous is None or self._external_advanced(previous[0], activity):
+                self._external_progress[song_id] = (activity, now)
+                continue
+            if now - previous[1] < idle_seconds:
+                continue
+            # Recheck that this is still the same live claim, not a stale PID.
+            with self.active_tasks_lock:
+                if (
+                    self.active_tasks.get(song_id) != (tid, cancelled)
+                    or cancelled.is_set()
+                    or self.stop_signal.is_set()
+                ):
+                    continue
+                log.error(
+                    "External process for song #%s made no CPU/I/O progress for %ss; "
+                    "terminating child tree to release worker",
+                    song_id,
+                    int(idle_seconds),
+                )
+                terminate_thread_children(tid)
+            # The original worker catches the subprocess error and commits
+            # its normal bounded retry/failure state; do not mark cancelled.
+            self._external_progress[song_id] = (activity, now)
+
     def watch_disk(self):
         budget = getattr(self.store, "disk_budget", None)
         if budget is None:
@@ -331,6 +415,10 @@ class AutoPrep:
                 self.cancel_tv_cache_retry()
             except OSError:
                 log.exception("Failed to inspect room disk usage")
+            try:
+                self.watch_external_idle()
+            except (OSError, sqlite3.Error, ValueError):
+                log.exception("External subprocess watchdog inspection failed")
 
     def resume_after_failed_stop(self):
         """Retain surviving workers and replace those that already exited."""
