@@ -63,9 +63,9 @@ def separate(
 ) -> tuple[Path, Path, float]:
     """Return model's Vocals and Instrumental stems, in that order.
 
-    For the karaoke model Vocals means *lead*, Instrumental means *everything
-    except lead* (including backing voices). For a normal vocal model Vocals
-    means *all* voices, Instrumental means instruments.
+    The model labels are *not* a guarantee of musical meaning: some karaoke
+    checkpoints target backing voices instead of lead. Confirm with listening
+    tests before using either stem in production.
     """
     if backend is None:
         from audio_separator.separator import Separator
@@ -136,6 +136,16 @@ def combine_instruments_and_harmonies(
     return gain
 
 
+def audio_rms(path: Path) -> float:
+    """Report stem energy to flag uninformative instrumental-only excerpts."""
+    power = 0.0
+    samples = 0
+    for block in sf.blocks(path, blocksize=BLOCK, dtype="float32", always_2d=True):
+        power += float(np.square(block, dtype=np.float64).sum())
+        samples += block.size
+    return float(np.sqrt(power / samples)) if samples else 0.0
+
+
 def encode_backing(source: Path, destination: Path) -> None:
     validate_audio(source)
     ffmpeg("-i", str(source), "-vn", "-c:a", "aac", "-b:a", "192k", str(destination))
@@ -200,8 +210,16 @@ def run(
         raise ValueError("Backing length differs from source by more than 100 ms")
     encoded = output / "backing.m4a"
     encode_backing(backing, encoded)
+    original_rms = audio_rms(original)
+    target_rms = audio_rms(lead)
     report = {
         "mode": mode,
+        "original_rms": round(original_rms, 5),
+        "model_target_rms": round(target_rms, 5),
+        "target_to_original_rms": round(target_rms / original_rms, 4)
+        if original_rms
+        else 0.0,
+        "candidate_rms": round(audio_rms(backing), 5),
         "models": [karaoke_model]
         if mode == "direct"
         else [vocals_model, karaoke_model],

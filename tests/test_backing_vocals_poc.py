@@ -103,6 +103,8 @@ def test_completes_audio_poc_without_real_models(tmp_path, mode, models):
     assert report["mode"] == mode
     assert report["models"] == models
     assert report["backing_duration_delta_ms"] == 0
+    assert report["target_to_original_rms"] > 0.2
+    assert report["candidate_rms"] > 0
     assert report["encoded_bytes"] > 0
     assert (output / "backing.m4a").is_file()
     assert (output / "report.json").is_file()
