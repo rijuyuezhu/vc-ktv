@@ -321,8 +321,72 @@ class Events:
             with self.lock:
                 self._archive_busy.remove(event_id)
 
+    @staticmethod
+    def _remove_intermediate(path: Path) -> int:
+        """Remove a generated artifact without following symlinks."""
+        if path.is_symlink():
+            path.unlink()
+            return 0
+        if path.is_dir():
+            size = sum(
+                file.stat().st_size
+                for file in path.rglob("*")
+                if file.is_file() and not file.is_symlink()
+            )
+            shutil.rmtree(path)
+            return size
+        if path.is_file():
+            size = path.stat().st_size
+            path.unlink()
+            return size
+        return 0
+
+    @classmethod
+    def _release_alignment_intermediates(cls, media: Path) -> int:
+        """Retain final subtitle bundles and lyrics, not pipeline scratch data."""
+        freed = 0
+        for archive in media.iterdir():
+            if (
+                not re.fullmatch(r"[0-9]+-auto-alignment", archive.name)
+                or archive.is_symlink()
+                or not archive.is_dir()
+            ):
+                continue
+            for attempt in archive.iterdir():
+                if (
+                    not attempt.name.startswith("attempt-")
+                    or attempt.is_symlink()
+                    or not attempt.is_dir()
+                ):
+                    continue
+                for item in attempt.iterdir():
+                    if item.name in {
+                        "attempt.json",
+                        "aligned.lrc",
+                        "source-provider.lrc",
+                        "confirmed_lyrics.txt",
+                        "provider_subtitles",
+                    }:
+                        continue
+                    if (
+                        item.name == "pipeline"
+                        and item.is_dir()
+                        and not item.is_symlink()
+                    ):
+                        for stage in item.iterdir():
+                            if stage.name in {
+                                "subtitles",
+                                "confirmed_lyrics.txt",
+                                "lyrics.lrc",
+                            }:
+                                continue
+                            freed += cls._remove_intermediate(stage)
+                    else:
+                        freed += cls._remove_intermediate(item)
+        return freed
+
     def release_media(self, event_id: str, csv_text: str):
-        """Delete video files only; keep covers, audio, lyrics and records."""
+        """Remove videos and alignment scratch; retain covers, lyrics and records."""
         with self.archive_operation(event_id) as (folder, entry):
             self._write_atomic(
                 folder / "songs.csv", csv_text() if callable(csv_text) else csv_text
@@ -346,6 +410,7 @@ class Events:
                         size = file.stat().st_size
                         file.unlink()
                         freed += size
+                freed += self._release_alignment_intermediates(media)
                 if not any(media.iterdir()):
                     media.rmdir()
             entry["media_released_at"] = entry.get(
