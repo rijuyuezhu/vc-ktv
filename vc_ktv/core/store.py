@@ -56,6 +56,13 @@ class Store:
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
                 revision INTEGER NOT NULL DEFAULT 1);
+            CREATE TABLE IF NOT EXISTS backing_tracks(
+                cache_key TEXT PRIMARY KEY,
+                source_file TEXT NOT NULL,
+                model_sha256 TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                error TEXT NOT NULL DEFAULT '',
+                updated_at INTEGER NOT NULL DEFAULT 0);
         """)
         # Scheduling offsets are deliberately separate from real performance
         # statistics: late arrivals must not appear to have sung before joining.
