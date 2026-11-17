@@ -65,6 +65,7 @@ class TVRemoteReport(BaseModel):
     smooth: bool = False
     started: bool = False
     overlay: bool = False
+    audio_mode: Literal["original", "backing"] = "original"
     error: str = Field(default="", max_length=150)
 
 

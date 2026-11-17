@@ -35,6 +35,8 @@
     #now-playing{margin:0 0 2px!important;color:#d2dfed!important;overflow-wrap:anywhere}
     #controls button:disabled{opacity:.35;cursor:default}
     #controls input{min-width:0;accent-color:#7e92ed}
+    #audio-mode{width:100%;margin-top:8px;padding:9px 12px;font-size:13px;background:#253146;border:1px solid #ffffff31;border-radius:9px}
+    #audio-mode[hidden]{display:none}
     .remote-buttons{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
     .remote-buttons button,.remote-offsets button{display:grid;place-items:center;min-height:48px;padding:8px 4px;border:1px solid #ffffff31;border-radius:9px;background:#253146;color:#e8f1ff;cursor:pointer}
     .remote-buttons button:hover,.remote-offsets button:hover{background:#354463;border-color:#7d91e8}
@@ -69,6 +71,7 @@
 <body>
   <video id="video" playsinline preload="auto"></video>
   <video id="preload" class="preloading" playsinline preload="auto"></video>
+  <audio id="backing-audio" preload="none"></audio>
   <div id="html-captions" aria-label="实时卡拉 OK 字幕" hidden></div>
   <div id="cover">
     <h1>♪ VC-KTV</h1>
@@ -90,6 +93,7 @@
       <button id="replay-next" type="button" aria-label="下一首重唱" title="下一首重唱"><img src="/icons/repeat-2.svg" alt=""></button>
     </div>
     <p id="progress" class="remote-progress">0:00 / 0:00</p>
+    <button id="audio-mode" type="button" hidden disabled>切换伴唱</button>
     <label class="remote-range"><img src="/icons/volume-2.svg" alt="" aria-hidden="true"><input id="volume" type="range" min="0" max="100" value="100" aria-label="音量"></label>
     <div class="remote-extra">
       <div id="offset-controls" class="remote-offset-section" hidden>
