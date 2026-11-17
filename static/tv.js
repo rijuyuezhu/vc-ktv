@@ -246,9 +246,13 @@ function updateControls() {
   document.getElementById("pause-icon").src =
     "/icons/" + (video.paused ? "play" : "pause") + ".svg";
   progress.textContent = clock(video.currentTime) + " / " + clock(video.duration);
-  audioModeButton.hidden = !backingOffer && audioMode !== "backing";
+  const backingVisible = Boolean(backingOffer) || audioMode === "backing";
+  audioModeButton.hidden = !backingVisible;
   audioModeButton.disabled = !available || (!backingOffer && audioMode === "original");
-  audioModeButton.textContent = audioMode === "backing" ? "切回原唱" : "切换伴唱";
+  audioModeButton.title = audioMode === "backing" ? "切回原唱" : "切换伴唱";
+  audioModeButton.setAttribute("aria-label", audioModeButton.title);
+  audioModeButton.setAttribute("aria-pressed", String(audioMode === "backing"));
+  audioModeButton.closest(".remote-buttons").classList.toggle("has-backing", backingVisible);
 }
 function originalAudio(message = "") {
   audioVersion++;

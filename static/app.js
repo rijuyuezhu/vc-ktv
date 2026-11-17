@@ -143,7 +143,8 @@ const guestRemote = setupGuestRemote({
   container: $("current-guest"),
   api,
   refresh: () => refresh(),
-  confirmSkip: () => confirm("跳过正在播放的这首歌？")
+  confirmSkip: () => confirm("跳过正在播放的这首歌？"),
+  toast
 });
 function renderCurrent(id, song) {
   const key = song ? songRowSignature(song, "▶") : "empty";
@@ -645,5 +646,6 @@ refresh();
 setInterval(adminPlayback.pollTVRemoteStatus, 350);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") refresh();
+  else guestRemote.disconnect();
 });
 window.addEventListener("online", () => refresh());
