@@ -5,7 +5,7 @@
 ## 方法
 
 - **Direct**：Karaoke MelBand RoFormer 直接处理完整原音轨，取去掉目标主唱后的 residual。
-- **Two-stage**：先通过现有 Kim MelBand 模型提取全部人声，再用 Karaoke 模型从人声中提取主唱，把人声 residual（和声候选）与乐器混合。只有最终 WAV 会按实际峰值防止削波，两个声部保持相对响度。
+- **Two-stage**：先通过现有 Kim MelBand 模型提取全部人声，再用 Karaoke 模型从人声中提取主唱，把人声 residual（和声候选）与乐器混合。两种输出均使用统一的峰值保护，两个声部保持相对响度。
 
 两条路线均复用项目可选 GPU 对齐环境中的 MelBandRoformer 及其 `demix_track` 推理实现。模型经严格权重加载，输出统一为 44.1 kHz 立体声；AAC 成品使用 192 kbps。没有额外安装第二套 RoFormer 推理框架。
 

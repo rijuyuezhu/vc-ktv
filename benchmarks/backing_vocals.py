@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import time
+from contextlib import ExitStack
 from pathlib import Path
 
 import numpy as np
@@ -120,37 +121,33 @@ def _read(reader: sf.SoundFile, length: int) -> np.ndarray:
     return np.pad(data, ((0, length - len(data)), (0, 0)))
 
 
-def combine_instruments_and_harmonies(
-    instruments: Path, harmonies: Path, destination: Path
-) -> float:
-    """Mix without stem rescaling; protect against clipping in fixed-point output."""
-    first, second = validate_audio(instruments), validate_audio(harmonies)
-    if abs(first.frames - second.frames) > SAMPLE_RATE // 10:
+def mix_stems(stems: tuple[Path, ...], destination: Path) -> float:
+    """Combine one or more stems at their original relative gain, limiting peaks."""
+    if not stems:
+        raise ValueError("At least one stem is required")
+    infos = [validate_audio(path) for path in stems]
+    frames = infos[0].frames
+    if any(abs(info.frames - frames) > SAMPLE_RATE // 10 for info in infos[1:]):
         raise ValueError("Stem length differs by more than 100 ms")
 
-    peak = 0.0
-    with sf.SoundFile(instruments) as a, sf.SoundFile(harmonies) as b:
-        for start in range(0, first.frames, BLOCK):
-            mixed = _read(a, min(BLOCK, first.frames - start)) + _read(
-                b, min(BLOCK, first.frames - start)
-            )
-            peak = max(peak, float(np.max(np.abs(mixed))))
+    def blocks():
+        with ExitStack() as stack:
+            readers = [stack.enter_context(sf.SoundFile(path)) for path in stems]
+            for start in range(0, frames, BLOCK):
+                length = min(BLOCK, frames - start)
+                mixed = sum(_read(reader, length) for reader in readers)
+                if not np.isfinite(mixed).all():
+                    raise ValueError("Stem contains invalid samples")
+                yield mixed
+
+    peak = max((float(np.max(np.abs(block))) for block in blocks()), default=0.0)
     gain = min(1.0, 0.99 / peak) if peak else 1.0
 
-    with (
-        sf.SoundFile(instruments) as a,
-        sf.SoundFile(harmonies) as b,
-        sf.SoundFile(
-            destination,
-            "w",
-            samplerate=SAMPLE_RATE,
-            channels=CHANNELS,
-            subtype="PCM_24",
-        ) as out,
-    ):
-        for start in range(0, first.frames, BLOCK):
-            length = min(BLOCK, first.frames - start)
-            out.write((_read(a, length) + _read(b, length)) * gain)
+    with sf.SoundFile(
+        destination, "w", samplerate=SAMPLE_RATE, channels=CHANNELS, subtype="PCM_24"
+    ) as out:
+        for block in blocks():
+            out.write(block * gain)
     return gain
 
 
@@ -212,9 +209,7 @@ def run(
             worker_python=worker_python,
             role="karaoke",
         )
-        gain = combine_instruments_and_harmonies(
-            instrumental, harmonies, output / "backing.wav"
-        )
+        gain = mix_stems((instrumental, harmonies), output / "backing.wav")
     else:
         lead, harmonies, seconds = separate(
             original,
@@ -226,13 +221,9 @@ def run(
             worker_python=worker_python,
             role="karaoke",
         )
-        gain = 1.0
-        # The one-pass model's Instrumental stem already contains harmonies.
-        # The separately named path is the model output, not a synthetic remix.
+        gain = mix_stems((harmonies,), output / "backing.wav")
     stages["lead_vocals_seconds"] = round(seconds, 2)
-    backing = output / (
-        "backing.wav" if mode == "two-stage" else "lead-vocals/other.wav"
-    )
+    backing = output / "backing.wav"
     validate_audio(lead)
     backing_info = validate_audio(backing)
     if abs(source_info.frames - backing_info.frames) > SAMPLE_RATE // 10:

@@ -22,7 +22,7 @@ def test_mix_preserves_instruments_and_harmonies(tmp_path):
     harmony = wave(tmp_path / "harmony.wav", length - 15, 0.2)
     target = tmp_path / "mixed.wav"
 
-    gain = poc.combine_instruments_and_harmonies(inst, harmony, target)
+    gain = poc.mix_stems((inst, harmony), target)
 
     combined, sr = sf.read(target, dtype="float32", always_2d=True)
     assert gain == 1
@@ -37,7 +37,7 @@ def test_mix_prevents_fixed_point_clipping(tmp_path):
     harmony = wave(tmp_path / "harmony.wav", 350, 0.8)
     target = tmp_path / "mixed.wav"
 
-    gain = poc.combine_instruments_and_harmonies(inst, harmony, target)
+    gain = poc.mix_stems((inst, harmony), target)
 
     samples, _ = sf.read(target)
     assert gain == pytest.approx(0.99 / 1.6, abs=1e-7)
@@ -62,7 +62,7 @@ def test_rejects_stems_with_different_length(tmp_path):
     inst = wave(tmp_path / "inst.wav", 1000)
     harmony = wave(tmp_path / "harmony.wav", 1000 + poc.SAMPLE_RATE // 5)
     with pytest.raises(ValueError, match="100 ms"):
-        poc.combine_instruments_and_harmonies(inst, harmony, tmp_path / "out.wav")
+        poc.mix_stems((inst, harmony), tmp_path / "out.wav")
 
 
 class FakeSeparator:
@@ -109,9 +109,7 @@ def test_completes_audio_poc_without_real_models(tmp_path, mode, models):
     assert (output / "backing.m4a").is_file()
     assert (output / "report.json").is_file()
     assert "input" not in (output / "report.json").read_text()
-    data, _ = sf.read(
-        output / ("backing.wav" if mode == "two-stage" else "lead-vocals/other.wav")
-    )
+    data, _ = sf.read(output / "backing.wav")
     expected = 0.72 * 0.3 if mode == "two-stage" else 0.2 * 0.3
     np.testing.assert_allclose(data, expected, atol=3e-6)
 
@@ -193,3 +191,12 @@ def test_requires_real_model_source_and_checkpoint(tmp_path):
             model_dir=tmp_path,
             model_source=model_source,
         )
+
+
+def test_direct_stem_peak_is_limited_without_clipping(tmp_path):
+    high = wave(tmp_path / "high.wav", 2048, 1.2)
+    result = tmp_path / "limited.wav"
+    gain = poc.mix_stems((high,), result)
+    audio, _ = sf.read(result, dtype="float32", always_2d=True)
+    assert gain == pytest.approx(0.99 / 1.2, abs=2e-7)
+    assert float(np.max(audio)) == pytest.approx(0.99, abs=2e-6)
