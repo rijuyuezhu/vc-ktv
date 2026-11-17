@@ -103,6 +103,18 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
         principal = tv.auth.require_admin(vc_admin)
         return tv.send_command(principal, body.action, body.song_id, body.value)
 
+    @router.get("/api/guest/tv-remote")
+    def guest_remote_state(vc_guest: str | None = Cookie(default=None)):
+        user = tv.auth.require_user(vc_guest)
+        return tv.guest_remote_state(user["id"])
+
+    @router.post("/api/guest/tv-remote")
+    def guest_remote_send(
+        body: TVRemoteCommand, vc_guest: str | None = Cookie(default=None)
+    ):
+        user = tv.auth.require_user(vc_guest)
+        return tv.send_guest_command(user["id"], body.action, body.song_id, body.value)
+
     @router.post("/api/tv/report")
     def tv_report(
         body: TVRemoteReport,

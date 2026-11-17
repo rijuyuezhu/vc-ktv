@@ -451,6 +451,7 @@ function remoteReport(error = "") {
     started,
     overlay: activeOverlay,
     audio_mode: audioMode,
+    backing_ready: Boolean(backingOffer),
     error: String(error || "").slice(0, 150)
   };
 }
@@ -475,6 +476,9 @@ async function handleRemote(command) {
       case "resume":
         cancelWarmup();
         await video.play();
+        break;
+      case "audio_mode":
+        if (!(await switchAudioMode(command.value))) throw Error("伴唱模式不可用");
         break;
       case "restart":
         cancelWarmup();

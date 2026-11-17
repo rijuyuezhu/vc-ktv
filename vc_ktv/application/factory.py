@@ -95,7 +95,7 @@ def create_app(
     media = MediaService(store, events, auth, media_pins)
     orders = OrderService(store, events)
     playback = PlaybackService(store, orders)
-    tv = TVSessionService(store, events, auth)
+    tv = TVSessionService(store, events, auth, media)
     manual = ManualRenderManager(store, events)
     netease_login = NeteaseLogin(
         storage_path=root / ".private" / "netease-session.json"

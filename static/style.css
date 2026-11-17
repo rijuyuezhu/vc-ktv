@@ -406,6 +406,12 @@ button, input, select { min-height: 44px; }
 .song-chevron { color: #a0a7b7; font-size: 23px; font-weight: 300; }
 .source-tag img { width: 15px; height: 15px; display: block; flex: 0 0 15px; }
 .current-card .song-row { border-color: #c8cdf4; background: #f7f7ff; }
+.guest-remote { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 9px 2px 3px; }
+.guest-remote-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.guest-remote-actions .btn { display: grid; place-items: center; width: 42px; height: 39px; min-width: 0; padding: 7px; border-radius: 9px; }
+.guest-remote-actions img { width: 19px; height: 19px; }
+.guest-remote-status { font-size: 12px; color: var(--muted); }
+.guest-remote-status:empty { display: none; }
 .song-detail-panel { max-width: 880px; margin: auto; gap: 0; padding: 27px; border-radius: 15px; }
 .detail-header { display: flex; align-items: center; gap: 18px; min-width: 0; }
 .detail-cover { width: 144px; height: 96px; flex: 0 0 144px; object-fit: cover; border-radius: 10px; background: #eef0f7; }

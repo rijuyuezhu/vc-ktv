@@ -880,3 +880,38 @@ test("backing decode failure never mutes the original soundtrack", async () => {
   assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
   assert.equal(h.el("control-error").textContent.includes("切回原唱"), true);
 });
+
+test("guest-issued audio mode command uses the primary TV and reports its ACK", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "same", url: "/media/1/backing?token=one" }
+  };
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("video").muted, false);
+  await h.evaluate('handleRemote({ seq: 1, action: "audio_mode", song_id: 1, value: "backing" })');
+  assert.equal(h.el("video").muted, true);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(h.evaluate("remoteReport().backing_ready"), true);
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 1);
+  await h.evaluate('handleRemote({ seq: 2, action: "audio_mode", song_id: 1, value: "original" })');
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 2);
+  await h.evaluate('handleRemote({ seq: 3, action: "audio_mode", song_id: 2, value: "backing" })');
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 3);
+});
+
+test("guest audio command cannot activate unavailable backing audio", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  await h.evaluate('handleRemote({ seq: 1, action: "audio_mode", song_id: 1, value: "backing" })');
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 1);
+});
