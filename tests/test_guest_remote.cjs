@@ -130,6 +130,8 @@ test("guest controller appears only on the requester's live song", async () => {
       "no silent backing button before ready"
     );
     assert.equal(h.buttons()[1].title, "暂停");
+    assert.equal(h.buttons()[2].title, "从头重播");
+    assert.equal(h.buttons()[3].title, "跳过");
     component.render(own, { ...remote, online: false });
     assert.equal(h.buttons()[1].disabled, true);
     assert.equal(h.message(), "主屏离线");

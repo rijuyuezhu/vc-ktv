@@ -93,7 +93,7 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }
   const mode = button("切换伴唱", "audio-lines");
   const pause = button("暂停", "pause");
   const restart = button("从头重播", "rotate-ccw");
-  const skip = button("跳过自己的歌", "skip-forward");
+  const skip = button("跳过", "skip-forward");
 
   async function send(action, value = null) {
     if (!songId || !remote?.available || !remote.online || remote.pending || sending) return;
