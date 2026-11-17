@@ -215,12 +215,13 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay','force_h264_originals','original_codec_mode')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay','force_h264_originals','original_codec_mode','require_backing_ready')"
             )
         }
         return {
             "queue_policy": values.get("queue_policy", "fair"),
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
+            "require_backing_ready": values.get("require_backing_ready", "0") == "1",
             "subtitle_style": values.get("subtitle_style", "classic"),
             "video_quality": int(values.get("video_quality", "720")),
             "max_bandwidth_mbps": self._playback_bandwidth(
@@ -250,6 +251,7 @@ class Store:
         orders_paused: bool | None = None,
         tv_html_overlay: bool | None = None,
         original_codec_mode: Literal["default", "h264", "av1"] | None = None,
+        require_backing_ready: bool | None = None,
     ):
         # Optional values are updates, not resets; legacy admin clients omit them.
         if max_bandwidth_mbps is not None and not (
@@ -261,6 +263,8 @@ class Store:
             updates["queue_policy"] = queue_policy
         if allow_unsubtitled is not None:
             updates["allow_unsubtitled"] = "1" if allow_unsubtitled else "0"
+        if require_backing_ready is not None:
+            updates["require_backing_ready"] = "1" if require_backing_ready else "0"
         for key, value in (
             ("subtitle_style", subtitle_style),
             ("video_quality", video_quality),
@@ -299,6 +303,65 @@ class Store:
             )
         )
 
+    def can_play(self, song, settings):
+        if not self.playable(song, settings):
+            return False
+        if not settings.get("require_backing_ready"):
+            return True
+        return self.backing_ready(song)
+
+    def backing_ready(self, song):
+        """Use the same source-identity and cache validation as the media API."""
+        return self.backing_asset(song)[0] == "ready"
+
+    def backing_asset(self, song):
+        from vc_ktv.processing.backing_audio import KARAOKE_SHA256, source_identity
+
+        # Queue previews are compact rows without source_file; resolve their
+        # real source before applying the same content-identity cache gate.
+        if "source_file" not in song:
+            row = self.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song["id"],)
+            ).fetchone()
+            if not row:
+                return "unavailable", None, None
+            song = dict(row)
+        name = self.replay_assets(song).get("source_file")
+        if not name or Path(name).name != name:
+            return "unavailable", None, None
+        source = self.media / name
+        if source.is_symlink() or not source.is_file():
+            return "unavailable", None, None
+        try:
+            key = source_identity(source, KARAOKE_SHA256)
+        except OSError:
+            return "unavailable", None, None
+        with self.lock:
+            row = self.db.execute(
+                "SELECT status FROM backing_tracks WHERE cache_key=?", (key,)
+            ).fetchone()
+        state = row["status"] if row else "pending"
+        if state == "pending" and not row:
+            import os
+
+            if os.getenv("VC_KTV_BACKING_TRACKS", "0") != "1":
+                state = "unavailable"
+        if state == "ready":
+            folder = self.root / "backing"
+            file = folder / f"{key}.m4a"
+            try:
+                if (
+                    not folder.is_symlink()
+                    and not file.is_symlink()
+                    and file.is_file()
+                    and file.stat().st_size >= 1024
+                ):
+                    return "ready", key, file
+            except OSError:
+                pass
+            state = "pending"
+        return state, key, None
+
     def fair_queue(self, pool=None, settings=None, *, persist=False):
         """Order ready songs with at most two turns of accumulated catch-up.
 
@@ -309,7 +372,7 @@ class Store:
             pool = self.songs()
         if settings is None:
             settings = self.settings()
-        ready = [s for s in pool if self.playable(s, settings)]
+        ready = [s for s in pool if self.can_play(s, settings)]
         # The single admin-selected next song precedes ordinary fair/FCFS ordering.
         priority = [s for s in ready if s["priority_next"]]
         ready = [s for s in ready if not s["priority_next"]]
@@ -483,10 +546,17 @@ class Store:
                 "current": next((s for s in pool if s["status"] == "playing"), None),
                 "queue": self.fair_queue(pool, settings),
                 "waiting": [
-                    {**s, "awaiting_subtitles": s["status"] == "ready"}
+                    {
+                        **s,
+                        "awaiting_subtitles": s["status"] == "ready"
+                        and not self.playable(s, settings),
+                        "awaiting_backing": s["status"] == "ready"
+                        and self.playable(s, settings)
+                        and not self.can_play(s, settings),
+                    }
                     for s in pool
                     if s["status"] in ("waiting", "rendering")
-                    or (s["status"] == "ready" and not self.playable(s, settings))
+                    or (s["status"] == "ready" and not self.can_play(s, settings))
                 ],
                 "guests": self.rows(
                     "SELECT name,plays,seconds FROM guests ORDER BY name"

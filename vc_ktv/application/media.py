@@ -6,8 +6,6 @@ from urllib.parse import quote
 
 from fastapi.responses import FileResponse
 
-from vc_ktv.processing.backing_audio import KARAOKE_SHA256, source_identity
-
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
 
@@ -51,42 +49,7 @@ class MediaService:
         return f"/media/{song['id']}?token={quote(token)}"
 
     def backing_asset(self, song: dict) -> tuple[str, str | None, Path | None]:
-        """Resolve an event-local backing asset against the effective replay source."""
-        source_name = self.store.replay_assets(song).get("source_file")
-        if not source_name or Path(source_name).name != source_name:
-            return "unavailable", None, None
-        source = self.store.media / source_name
-        if source.is_symlink() or not source.is_file():
-            return "unavailable", None, None
-        try:
-            key = source_identity(source, KARAOKE_SHA256)
-        except OSError:
-            return "unavailable", None, None
-        with self.store.lock:
-            row = self.store.db.execute(
-                "SELECT status FROM backing_tracks WHERE cache_key=?", (key,)
-            ).fetchone()
-        state = row["status"] if row else "pending"
-        if state == "ready":
-            directory = self.store.root / "backing"
-            candidate = directory / f"{key}.m4a"
-            try:
-                if (
-                    not directory.is_symlink()
-                    and not candidate.is_symlink()
-                    and candidate.is_file()
-                    and candidate.stat().st_size >= 1024
-                ):
-                    return "ready", key, candidate
-            except OSError:
-                pass
-            state = "pending"
-        if state == "pending" and not row:
-            from os import getenv
-
-            if getenv("VC_KTV_BACKING_TRACKS", "0") != "1":
-                state = "unavailable"
-        return state, key, None
+        return self.store.backing_asset(song)
 
     def backing_view(self, song: dict) -> dict:
         state, key, path = self.backing_asset(song)

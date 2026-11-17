@@ -518,7 +518,8 @@ test("administrator can switch backing, including while preempting a guest comma
     const button = h.byId("remote-audio-mode");
     assert.equal(button.classList.contains("hidden"), false);
     assert.equal(button.disabled, false);
-    assert.equal(button.title, "切换伴唱");
+    assert.equal(button.title, "切换伴奏");
+    assert.equal(h.byId("remote-audio-mode-icon").src, "/icons/audio-backing.svg");
     assert.equal(button.getAttribute("aria-pressed"), "false");
     await button.onclick();
     assert.ok(
@@ -540,6 +541,7 @@ test("administrator can switch backing, including while preempting a guest comma
     await h.playback.pollTVRemoteStatus();
     assert.equal(button.disabled, false, "administrator can override guest remote command");
     assert.equal(button.title, "切回原唱");
+    assert.equal(h.byId("remote-audio-mode-icon").src, "/icons/audio-original.svg");
     assert.equal(button.getAttribute("aria-pressed"), "true");
     await button.onclick();
     const cmds = h.calls.filter((c) => c.url === "/api/admin/tv/remote" && c.method === "POST");

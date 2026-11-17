@@ -18,6 +18,7 @@ class EventCreate(BaseModel):
 class PlaybackSettings(BaseModel):
     queue_policy: Literal["fair", "fcfs"] | None = None
     allow_unsubtitled: bool | None = None
+    require_backing_ready: bool | None = None
     # Old clients that omit the new field must not reset the chosen preset.
     subtitle_style: StylePreset | None = None
     video_quality: Literal[1080, 720, 480] | None = None
@@ -75,6 +76,7 @@ def create_event_admin_router(
                 body.orders_paused,
                 body.tv_html_overlay,
                 body.original_codec_mode,
+                body.require_backing_ready,
             )
 
     @router.put("/api/admin/events/{event_id}/visibility")

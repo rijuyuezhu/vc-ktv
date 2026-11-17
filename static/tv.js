@@ -98,6 +98,11 @@ let audioMode = "original";
 let audioVersion = 0;
 let resumingBacking = false;
 let videoBuffering = false;
+let lastBackingSeekAt = -Infinity;
+let backingStallTimer = null;
+let backingStallPausedVideo = false;
+let backingRecovering = false;
+const BACKING_STALL_TIMEOUT_MS = 5000;
 const START_BUFFER_SECONDS = 12;
 const START_BUFFER_WAIT_MS = 12000;
 let warmup = null;
@@ -249,18 +254,30 @@ function updateControls() {
   const backingVisible = Boolean(backingOffer) || audioMode === "backing";
   audioModeButton.hidden = !backingVisible;
   audioModeButton.disabled = !available || (!backingOffer && audioMode === "original");
-  audioModeButton.title = audioMode === "backing" ? "切回原唱" : "切换伴唱";
+  audioModeButton.title = audioMode === "backing" ? "切回原唱" : "切换伴奏";
+  document.getElementById("audio-mode-icon").src =
+    "/icons/" + (audioMode === "backing" ? "audio-original" : "audio-backing") + ".svg";
   audioModeButton.setAttribute("aria-label", audioModeButton.title);
   audioModeButton.setAttribute("aria-pressed", String(audioMode === "backing"));
   audioModeButton.closest(".remote-buttons").classList.toggle("has-backing", backingVisible);
 }
+function clearBackingStall() {
+  if (backingStallTimer !== null) clearTimeout(backingStallTimer);
+  backingStallTimer = null;
+  const resume = backingStallPausedVideo;
+  backingStallPausedVideo = false;
+  return resume;
+}
 function originalAudio(message = "") {
+  const resume = clearBackingStall();
   audioVersion++;
   audioMode = "original";
   backingAudio.pause();
+  backingAudio.playbackRate = video.playbackRate;
   video.muted = false;
   if (message) controlError.textContent = message;
   updateControls();
+  if (resume && activeId !== null && !pendingFinish && !video.ended) video.play().catch(() => {});
 }
 function resetBacking() {
   originalAudio();
@@ -312,8 +329,29 @@ async function switchAudioMode(mode) {
     backingAudio.volume = video.volume;
     backingAudio.playbackRate = video.playbackRate;
     backingAudio.currentTime = video.currentTime;
+    lastBackingSeekAt = performance.now();
     // Keep the original video audible until the replacement audio can play.
-    if (!video.paused) await backingAudio.play();
+    if (!video.paused) {
+      await backingAudio.play();
+      // An initial network/decoder delay advances the video but not the AAC.
+      // Seek once before changing the audible source, never on every timeupdate.
+      if (Math.abs(backingAudio.currentTime - video.currentTime) > 0.15) {
+        backingAudio.currentTime = video.currentTime;
+        lastBackingSeekAt = performance.now();
+        if (backingAudio.readyState < 3)
+          await new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+              backingAudio.removeEventListener("canplay", ready);
+              reject(Error("伴奏加载超时"));
+            }, BACKING_STALL_TIMEOUT_MS);
+            function ready() {
+              clearTimeout(timer);
+              resolve();
+            }
+            backingAudio.addEventListener("canplay", ready, { once: true });
+          });
+      }
+    }
     if (
       version !== audioVersion ||
       activeId !== songId ||
@@ -336,12 +374,25 @@ async function switchAudioMode(mode) {
   }
 }
 function syncBacking() {
-  if (audioMode !== "backing" || activeId === null) return;
+  if (audioMode !== "backing" || activeId === null || backingStallTimer !== null) return;
   try {
     backingAudio.volume = video.volume;
-    backingAudio.playbackRate = video.playbackRate;
-    if (Math.abs(backingAudio.currentTime - video.currentTime) > 0.18)
+    const drift = video.currentTime - backingAudio.currentTime;
+    // Small differences are smoothed by rate adjustment; repeated seeks cause
+    // repeated AAC stalls on browsers which buffer after each seek.
+    const manualSeek = video.paused || video.seeking;
+    if (
+      Math.abs(drift) > (manualSeek ? 0.1 : 0.4) &&
+      (manualSeek || backingAudio.readyState >= 2) &&
+      (manualSeek || performance.now() - lastBackingSeekAt > 2000)
+    ) {
       backingAudio.currentTime = video.currentTime;
+      lastBackingSeekAt = performance.now();
+      backingAudio.playbackRate = video.playbackRate;
+    } else {
+      const correction = Math.max(-0.08, Math.min(0.08, drift * 0.4));
+      backingAudio.playbackRate = video.playbackRate * (1 + correction);
+    }
     if (video.paused || video.seeking || videoBuffering || video.readyState < 2) {
       backingAudio.pause();
     } else if (backingAudio.paused && !resumingBacking) {
@@ -349,16 +400,46 @@ function syncBacking() {
       resumingBacking = true;
       backingAudio
         .play()
-        .catch(() => {
-          if (version === audioVersion) originalAudio("伴唱中断，已切回原唱");
+        .catch((error) => {
+          // A video seek, waiting event, or pause can cancel an in-flight
+          // play() with AbortError. This is not a decoder failure.
+          if (version === audioVersion && error?.name !== "AbortError")
+            originalAudio("伴奏中断，已切回原唱");
         })
         .finally(() => {
           resumingBacking = false;
         });
     }
   } catch {
-    originalAudio("伴唱同步失败，已切回原唱");
+    originalAudio("伴奏同步失败，已切回原唱");
   }
+}
+function recoverBackingStall() {
+  if (
+    backingStallTimer === null ||
+    backingRecovering ||
+    audioMode !== "backing" ||
+    backingAudio.readyState < 3
+  )
+    return;
+  const version = audioVersion;
+  const resumeVideo = backingStallPausedVideo;
+  backingRecovering = true;
+  backingAudio.currentTime = video.currentTime;
+  lastBackingSeekAt = performance.now();
+  backingAudio
+    .play()
+    .then(() => {
+      if (version !== audioVersion) return;
+      clearBackingStall();
+      if (resumeVideo) return video.play();
+    })
+    .catch(() => {
+      if (version === audioVersion) originalAudio("伴奏无法恢复，已切回原唱");
+    })
+    .finally(() => {
+      backingRecovering = false;
+    });
 }
 audioModeButton.onclick = async () => {
   await switchAudioMode(audioMode === "backing" ? "original" : "backing");
@@ -368,8 +449,25 @@ backingAudio.addEventListener("error", () => {
   if (audioMode === "backing") originalAudio("伴唱加载失败，已切回原唱");
 });
 backingAudio.addEventListener("waiting", () => {
-  if (audioMode === "backing") originalAudio("伴唱缓冲失败，已切回原唱");
+  if (
+    audioMode !== "backing" ||
+    backingStallTimer !== null ||
+    video.paused ||
+    video.seeking ||
+    videoBuffering
+  )
+    return;
+  // waiting is normal during a seek or brief rebuffer. Freeze the video
+  // clock instead of letting the two tracks drift apart.
+  const version = audioVersion;
+  backingStallPausedVideo = true;
+  video.pause();
+  backingStallTimer = setTimeout(() => {
+    if (version === audioVersion) originalAudio("伴奏缓冲超时，已切回原唱");
+  }, BACKING_STALL_TIMEOUT_MS);
+  recoverBackingStall();
 });
+backingAudio.addEventListener("canplay", recoverBackingStall);
 backingAudio.addEventListener("ended", () => {
   if (audioMode === "backing" && !video.ended) originalAudio("伴唱提前结束，已切回原唱");
 });
@@ -888,6 +986,7 @@ for (const element of [video, standby]) {
     element.addEventListener(event, () => {
       if (element === video) {
         videoBuffering = false;
+        if (event === "seeked") lastBackingSeekAt = -Infinity;
         syncBacking();
       }
     });

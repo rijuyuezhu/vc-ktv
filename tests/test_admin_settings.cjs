@@ -15,6 +15,7 @@ async function fixture() {
     subtitle_style: "classic",
     video_quality: 1080,
     allow_unsubtitled: false,
+    require_backing_ready: false,
     max_bandwidth_mbps: 3,
     orders_paused: false,
     tv_html_overlay: true,
@@ -29,7 +30,12 @@ async function fixture() {
     if (!elements.has(id)) {
       elements.set(id, {
         id,
-        type: ["allow-unsubtitled", "pause-orders", "tv-html-overlay"].includes(id)
+        type: [
+          "allow-unsubtitled",
+          "require-backing-ready",
+          "pause-orders",
+          "tv-html-overlay"
+        ].includes(id)
           ? "checkbox"
           : "select-one",
         value: "",
@@ -102,6 +108,7 @@ test("unsaved select, checkbox and numeric settings persist across blur and refr
     await h.refreshAdminSettings("first");
     h.edit("queue-policy", "fcfs");
     h.edit("pause-orders", true);
+    h.edit("require-backing-ready", true);
     h.edit("max-bandwidth-mbps", "4");
     h.setServer({ video_quality: 720, max_bandwidth_mbps: 2 });
     await h.refreshAdminSettings("first");
@@ -116,6 +123,11 @@ test("unsaved select, checkbox and numeric settings persist across blur and refr
     await h.refreshAdminSettings("first");
     assert.equal(h.get("queue-policy").value, "fair", "saved fields are no longer dirty");
     assert.equal(h.get("pause-orders").checked, false);
+    assert.equal(
+      h.get("require-backing-ready").checked,
+      true,
+      "queue gate retains its own setting"
+    );
     assert.equal(h.get("max-bandwidth-mbps").value, "4", "other form remains dirty");
   } finally {
     h.cleanup();
