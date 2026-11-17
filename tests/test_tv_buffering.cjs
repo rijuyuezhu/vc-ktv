@@ -53,6 +53,12 @@ function tvHarness() {
           },
           contains(name) {
             return classes.has(name);
+          },
+          toggle(name, forced) {
+            const enabled = forced ?? !classes.has(name);
+            if (enabled) classes.add(name);
+            else classes.delete(name);
+            return enabled;
           }
         },
         replacements: 0,
@@ -66,6 +72,9 @@ function tvHarness() {
         },
         matches() {
           return false;
+        },
+        closest() {
+          return element;
         },
         setAttribute(k, v) {
           attrs.set(k, v);
@@ -735,7 +744,8 @@ test("backing mode appears only after its asset is ready, and retains the video 
   assert.equal(h.el("backing-audio").currentTime, 65);
   assert.equal(h.el("backing-audio").volume, h.el("video").volume);
   assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
-  assert.equal(h.el("audio-mode").textContent, "切回原唱");
+  assert.equal(h.el("audio-mode").title, "切回原唱");
+  assert.equal(h.el("audio-mode").getAttribute("aria-pressed"), "true");
 
   // Signed links can renew on every state poll without resetting the audio.
   h.calls.current.backing.url = "/media/1/backing?token=two";

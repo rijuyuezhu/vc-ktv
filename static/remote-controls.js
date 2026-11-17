@@ -88,13 +88,14 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     $("tv-coming").textContent = nextAdminSong ? "下一首：" + nextAdminSong.title : "";
     const audioMode = $("remote-audio-mode");
     const backingAvailable = Boolean(status.backing_ready);
-    audioMode.classList.toggle(
-      "hidden",
-      !isTV || (!backingAvailable && status.audio_mode !== "backing")
-    );
-    audioMode.textContent = status.audio_mode === "backing" ? "切回原唱" : "切换伴唱";
-    audioMode.disabled =
-      !canTV || !tvPlaying || (!backingAvailable && status.audio_mode !== "backing");
+    const activeBacking = status.audio_mode === "backing";
+    const showBacking = isTV && (backingAvailable || activeBacking);
+    audioMode.classList.toggle("hidden", !showBacking);
+    audioMode.title = activeBacking ? "切回原唱" : "切换伴唱";
+    audioMode.setAttribute("aria-label", audioMode.title);
+    audioMode.setAttribute("aria-pressed", String(activeBacking));
+    audioMode.disabled = !canTV || !tvPlaying || (!backingAvailable && !activeBacking);
+    audioMode.closest(".remote-buttons").classList.toggle("has-backing", showBacking);
     if (status.error && isTV) $("remote-error").textContent = status.error;
     else $("remote-error").textContent = "";
   }

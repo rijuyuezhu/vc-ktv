@@ -1,7 +1,7 @@
 "use strict";
 
 // One compact controller below the current guest's own song card.
-export function setupGuestRemote({ container, api, refresh, confirmSkip }) {
+export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }) {
   const panel = document.createElement("div");
   panel.className = "guest-remote";
   const actions = document.createElement("div");
@@ -16,8 +16,63 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip }) {
   let songId = null;
   let remote = null;
   let sending = false;
-  let failure = "";
   let generation = 0;
+  let lastError = "";
+  let lastOnline = null;
+  let stream = null;
+  let statusInFlight = false;
+  let statusWakeQueued = false;
+
+  async function syncRemote() {
+    if (!songId) return;
+    if (statusInFlight) {
+      statusWakeQueued = true;
+      return;
+    }
+    statusInFlight = true;
+    const watchedSong = songId;
+    const watchedGeneration = generation;
+    try {
+      const state = await api("/api/guest/tv-remote");
+      if (songId !== watchedSong || generation !== watchedGeneration) return;
+      if (!state.available || state.song_id !== watchedSong) {
+        reset();
+        refresh();
+      } else {
+        render({ id: watchedSong, mine: true, status: "playing" }, state);
+      }
+    } catch {
+      // The normal page refresh is already the network/SSE fallback.
+    } finally {
+      statusInFlight = false;
+      if (statusWakeQueued) {
+        statusWakeQueued = false;
+        if (songId) syncRemote();
+      }
+    }
+  }
+
+  function disconnect() {
+    stream?.close();
+    stream = null;
+  }
+  function connect() {
+    if (stream || typeof EventSource !== "function" || document.visibilityState === "hidden")
+      return;
+    const source = new EventSource("/api/guest/tv/events");
+    stream = source;
+    for (const event of ["ready", "update"]) {
+      source.addEventListener(event, () => {
+        if (stream === source) syncRemote();
+      });
+    }
+    source.addEventListener("revoked", () => {
+      if (stream !== source) return;
+      disconnect();
+      refresh();
+    });
+    // EventSource reconnects automatically; existing page refresh is the fallback.
+  }
 
   function button(title, icon) {
     const el = document.createElement("button");
@@ -35,9 +90,9 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip }) {
     actions.append(el);
     return el;
   }
-  const mode = button("切换伴唱", null);
+  const mode = button("切换伴唱", "audio-lines");
   const pause = button("暂停", "pause");
-  const restart = button("从头重唱", "rotate-ccw");
+  const restart = button("从头重播", "rotate-ccw");
   const skip = button("跳过自己的歌", "skip-forward");
 
   async function send(action, value = null) {
@@ -46,13 +101,12 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip }) {
     const id = songId;
     const currentGeneration = generation;
     sending = true;
-    failure = "";
     update();
     try {
       await api("/api/guest/tv-remote", "POST", { action, song_id: id, value });
       if (generation === currentGeneration) message.textContent = "等待主屏确认…";
     } catch (error) {
-      if (generation === currentGeneration) failure = error.message || String(error);
+      if (generation === currentGeneration) toast(error.message || String(error), true);
     } finally {
       if (generation === currentGeneration) {
         sending = false;
@@ -77,21 +131,27 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip }) {
     const original = remote.audio_mode === "backing";
     mode.title = original ? "切回原唱" : "切换伴唱";
     mode.setAttribute("aria-label", mode.title);
-    mode.textContent = original ? "原唱" : "伴唱";
+    mode.setAttribute("aria-pressed", String(original));
     mode.classList.toggle("hidden", !remote.backing_ready && !original);
     pause.title = remote.paused ? "继续播放" : "暂停";
     pause.setAttribute("aria-label", pause.title);
     pause.querySelector("img").src = "/icons/" + (remote.paused ? "play" : "pause") + ".svg";
-    message.textContent =
-      failure || (!remote.online ? "主屏离线" : sending || remote.pending ? "等待主屏确认…" : "");
+    const status = !remote.online ? "主屏离线" : sending || remote.pending ? "等待主屏确认…" : "";
+    for (const button of actions.children) {
+      button.setAttribute("aria-busy", String(sending || remote.pending));
+      button.setAttribute("aria-disabled", String(button.disabled));
+    }
+    message.textContent = status;
   }
 
   function reset() {
-    generation++;
+    if (songId !== null) generation++;
+    disconnect();
     panel.remove();
     remote = null;
     songId = null;
-    failure = "";
+    lastError = "";
+    lastOnline = null;
     sending = false;
   }
 
@@ -108,13 +168,21 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip }) {
     if (songId !== song.id) {
       generation++;
       songId = song.id;
-      failure = "";
+      lastError = "";
+      lastOnline = null;
       sending = false;
     }
     remote = state;
+    if (!state.online && lastOnline !== false) toast("主屏离线", true);
+    lastOnline = state.online;
+    if (!state.pending) {
+      if (state.error && state.error !== lastError) toast(state.error, true);
+      lastError = state.error || "";
+    }
     if (panel.parentElement !== container) container.append(panel);
     update();
+    connect();
   }
 
-  return { render, reset };
+  return { render, reset, disconnect };
 }

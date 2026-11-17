@@ -242,6 +242,7 @@ class TVSessionService:
             self.write_record("tv_remote", remote)
             self.store.db.commit()
             self.notifications.notify("tv")
+            self.notifications.notify("admin")
             return {"seq": seq}
 
     def report(self, ack_seq: int, report: dict) -> dict:
