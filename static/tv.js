@@ -12,6 +12,8 @@ const restart = document.getElementById("restart");
 const skip = document.getElementById("skip");
 const replayNext = document.getElementById("replay-next");
 const volume = document.getElementById("volume");
+const backingAudio = document.getElementById("backing-audio");
+const audioModeButton = document.getElementById("audio-mode");
 const banner = document.getElementById("song-banner");
 const bannerTransparency = document.getElementById("banner-transparency");
 const bannerTransparencyValue = document.getElementById("banner-transparency-value");
@@ -90,6 +92,12 @@ let nextKey = null;
 let highlightTimer = null;
 let playbackMode = "tv";
 let lastRemoteSeq = 0;
+let backingOffer = null;
+let backingKey = null;
+let audioMode = "original";
+let audioVersion = 0;
+let resumingBacking = false;
+let videoBuffering = false;
 const START_BUFFER_SECONDS = 12;
 const START_BUFFER_WAIT_MS = 12000;
 let warmup = null;
@@ -238,7 +246,129 @@ function updateControls() {
   document.getElementById("pause-icon").src =
     "/icons/" + (video.paused ? "play" : "pause") + ".svg";
   progress.textContent = clock(video.currentTime) + " / " + clock(video.duration);
+  audioModeButton.hidden = !backingOffer && audioMode !== "backing";
+  audioModeButton.disabled = !available || (!backingOffer && audioMode === "original");
+  audioModeButton.textContent = audioMode === "backing" ? "切回原唱" : "切换伴唱";
 }
+function originalAudio(message = "") {
+  audioVersion++;
+  audioMode = "original";
+  backingAudio.pause();
+  video.muted = false;
+  if (message) controlError.textContent = message;
+  updateControls();
+}
+function resetBacking() {
+  originalAudio();
+  videoBuffering = false;
+  backingOffer = null;
+  backingKey = null;
+  backingAudio.removeAttribute("src");
+  backingAudio.load();
+  // The standby player may become the active video on the next song.
+  standby.muted = false;
+  updateControls();
+}
+function offerBacking(song) {
+  if (!song || song.id !== activeId) return;
+  const available = song.backing?.status === "ready";
+  const offer = available ? song.backing.url : null;
+  const key = available ? song.backing.cache_key : null;
+  if (!offer && audioMode === "backing") originalAudio("伴唱不可用，已切回原唱");
+  if (key !== backingKey && audioMode === "backing") originalAudio();
+  backingOffer = offer || null;
+  backingKey = key || null;
+  updateControls();
+}
+async function switchAudioMode(mode) {
+  if (mode === "original") {
+    originalAudio();
+    return true;
+  }
+  if (
+    mode !== "backing" ||
+    !backingOffer ||
+    activeId === null ||
+    playbackMode !== "tv" ||
+    finishing ||
+    pendingFinish
+  )
+    return false;
+  if (audioMode === "backing") return true;
+  const songId = activeId;
+  const currentVideo = video;
+  const url = backingOffer;
+  const key = backingKey;
+  const version = ++audioVersion;
+  try {
+    if (backingAudio.getAttribute("src") !== url) {
+      backingAudio.src = url;
+      backingAudio.load();
+    }
+    backingAudio.volume = video.volume;
+    backingAudio.playbackRate = video.playbackRate;
+    backingAudio.currentTime = video.currentTime;
+    // Keep the original video audible until the replacement audio can play.
+    if (!video.paused) await backingAudio.play();
+    if (
+      version !== audioVersion ||
+      activeId !== songId ||
+      video !== currentVideo ||
+      backingKey !== key ||
+      pendingFinish
+    ) {
+      if (audioMode !== "backing") backingAudio.pause();
+      return false;
+    }
+    if (video.paused) backingAudio.pause();
+    audioMode = "backing";
+    video.muted = true;
+    updateControls();
+    reportRemote("", true).catch(() => {});
+    return true;
+  } catch {
+    if (version === audioVersion) originalAudio("伴唱不可播放，已切回原唱");
+    return false;
+  }
+}
+function syncBacking() {
+  if (audioMode !== "backing" || activeId === null) return;
+  try {
+    backingAudio.volume = video.volume;
+    backingAudio.playbackRate = video.playbackRate;
+    if (Math.abs(backingAudio.currentTime - video.currentTime) > 0.18)
+      backingAudio.currentTime = video.currentTime;
+    if (video.paused || video.seeking || videoBuffering || video.readyState < 2) {
+      backingAudio.pause();
+    } else if (backingAudio.paused && !resumingBacking) {
+      const version = audioVersion;
+      resumingBacking = true;
+      backingAudio
+        .play()
+        .catch(() => {
+          if (version === audioVersion) originalAudio("伴唱中断，已切回原唱");
+        })
+        .finally(() => {
+          resumingBacking = false;
+        });
+    }
+  } catch {
+    originalAudio("伴唱同步失败，已切回原唱");
+  }
+}
+audioModeButton.onclick = async () => {
+  await switchAudioMode(audioMode === "backing" ? "original" : "backing");
+  showPanel();
+};
+backingAudio.addEventListener("error", () => {
+  if (audioMode === "backing") originalAudio("伴唱加载失败，已切回原唱");
+});
+backingAudio.addEventListener("waiting", () => {
+  if (audioMode === "backing") originalAudio("伴唱缓冲失败，已切回原唱");
+});
+backingAudio.addEventListener("ended", () => {
+  if (audioMode === "backing" && !video.ended) originalAudio("伴唱提前结束，已切回原唱");
+});
 let queueInFlight = false;
 let queuedStreamWake = false;
 let remoteStream = null;
@@ -277,8 +407,10 @@ async function syncQueue(fromStream = false) {
         nextList.append(li);
       }
     }
-    if (state.current) showSongLabel(nowPlaying, state.current);
-    else {
+    if (state.current) {
+      showSongLabel(nowPlaying, state.current);
+      offerBacking(state.active || state.current);
+    } else {
       nowPlaying.textContent = "暂无正在播放的歌曲";
       nowPlaying.removeAttribute("data-provider");
     }
@@ -318,6 +450,7 @@ function remoteReport(error = "") {
     smooth: smoothPlayback,
     started,
     overlay: activeOverlay,
+    audio_mode: audioMode,
     error: String(error || "").slice(0, 150)
   };
 }
@@ -357,6 +490,7 @@ async function handleRemote(command) {
       case "volume":
         volume.value = String(command.value);
         video.volume = standby.volume = Number(command.value) / 100;
+        syncBacking();
         break;
       case "offset":
         if (!activeOverlay) throw Error("当前没有实时字幕");
@@ -416,6 +550,7 @@ function losePrimary(message = "主屏权限已撤回，请管理员重新连接
   cancelWarmup();
   clearPreload();
   resetOverlay();
+  resetBacking();
   activeBakedUrl = null;
   for (const element of [video, standby]) {
     element.pause();
@@ -571,7 +706,9 @@ async function next() {
       cover.classList.remove("hidden");
       return;
     }
+    resetBacking();
     activeId = answer.active.id;
+    offerBacking(answer.active);
     cancelWarmup();
     const useOverlay = await loadOverlay(answer.active);
     if (!token || activeId !== answer.active.id || pendingFinish) {
@@ -667,6 +804,7 @@ async function settleFinish() {
 async function complete(reason = "") {
   if (activeId === null || pendingFinish) return;
   pendingFinish = { id: activeId, reason };
+  resetBacking();
   cancelWarmup();
   resetOverlay();
   activeBakedUrl = null;
@@ -687,6 +825,7 @@ for (const element of [video, standby]) {
       return;
     }
     if (activeId !== null && !pendingFinish) {
+      if (audioMode === "backing") originalAudio();
       if (activeOverlay && activeBakedUrl) {
         const fallback = activeBakedUrl;
         const position = video.currentTime;
@@ -713,15 +852,43 @@ for (const element of [video, standby]) {
   element.addEventListener("timeupdate", () => {
     if (element === video) {
       checkPreload();
+      syncBacking();
       updateControls();
     }
   });
   element.addEventListener("play", () => {
-    if (element === video) updateControls();
+    if (element === video) {
+      syncBacking();
+      updateControls();
+    }
   });
   element.addEventListener("pause", () => {
-    if (element === video) updateControls();
+    if (element === video) {
+      backingAudio.pause();
+      updateControls();
+    }
   });
+  for (const event of ["seeking", "waiting"]) {
+    element.addEventListener(event, () => {
+      if (element === video) {
+        videoBuffering = true;
+        backingAudio.pause();
+      }
+    });
+  }
+  for (const event of ["seeked", "playing"]) {
+    element.addEventListener(event, () => {
+      if (element === video) {
+        videoBuffering = false;
+        syncBacking();
+      }
+    });
+  }
+  for (const event of ["ratechange", "volumechange"]) {
+    element.addEventListener(event, () => {
+      if (element === video) syncBacking();
+    });
+  }
 }
 start.onclick = async () => {
   if (!token || pendingFinish) return;
@@ -795,6 +962,7 @@ replayNext.onclick = async () => {
 };
 volume.oninput = () => {
   video.volume = standby.volume = Number(volume.value) / 100;
+  syncBacking();
   showPanel();
 };
 // SSE carries prompt notifications; polling reconciles queue state and handles old TVs or outages.
