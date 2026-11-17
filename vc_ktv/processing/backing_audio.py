@@ -179,11 +179,17 @@ class BackingTracks:
                 "Backing audio disabled: optional model/runtime is not installed"
             )
             return
-        with self.checkpoint.open("rb") as stream:
-            if hashlib.file_digest(stream, "sha256").hexdigest() != self.model_sha256:
-                self.unavailable = True
-                log.error("Backing audio disabled: unverified model checkpoint")
-                return
+        try:
+            with self.checkpoint.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        except OSError:
+            self.unavailable = True
+            log.warning("Backing audio disabled: cannot read optional checkpoint")
+            return
+        if digest != self.model_sha256:
+            self.unavailable = True
+            log.error("Backing audio disabled: unverified model checkpoint")
+            return
         self.unavailable = False
         with self.store.lock:
             self.store.db.execute(
@@ -202,7 +208,10 @@ class BackingTracks:
             ):
                 return
             self.cancelled.set()
-            terminate_thread_children(self.active_tid)
+            try:
+                terminate_thread_children(self.active_tid)
+            except OSError:
+                log.warning("Unable to terminate optional backing process")
 
     def stop(self) -> bool:
         self.cancel_current()
@@ -383,7 +392,7 @@ class BackingTracks:
                 self.store.db.commit()
 
     def loop(self) -> None:
-        while not self.owner.stop_signal.wait(1):
+        while not self.owner.stop_signal.wait(3):
             try:
                 candidate = self._candidate()
                 if candidate is None:

@@ -480,12 +480,12 @@ class AutoPrep:
             claimed = claim_next_locked(self.store, lane, self.gpu_alignment)
             if claimed is None:
                 return None
-            # Preparing songs takes priority over optional backing generation.
-            self.backing.cancel_current()
             # Keep claim and in-memory accounting under the same Store lock.
             self.active_claims += 1
             self.busy.set()
-            return claimed
+        # Keep optional backing cancellation out of the Store mutex.
+        self.backing.cancel_current()
+        return claimed
 
     def _record_failure(self, row, error, attempt_started):
         record_failure(self.store, row, error, attempt_started)
