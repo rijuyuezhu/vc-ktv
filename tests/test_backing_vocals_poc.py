@@ -135,3 +135,61 @@ def test_rejects_incorrect_model_output_labels(tmp_path):
 def test_rejects_unknown_route(tmp_path):
     with pytest.raises(ValueError, match="Unknown separation route"):
         poc.run(tmp_path / "missing.wav", tmp_path, mode="wrong", model_dir=tmp_path)
+
+
+@pytest.mark.parametrize("role", ["vocals", "karaoke"])
+def test_cuda_worker_request_without_gpu(monkeypatch, tmp_path, role):
+    """Verify the real-worker protocol without loading checkpoints in CI."""
+    import json
+    import sys
+
+    model_dir = tmp_path / "models"
+    model_dir.mkdir()
+    (model_dir / "model.ckpt").write_bytes(b"fake-weights")
+    model_source = tmp_path / "model-source"
+    model_source.mkdir()
+    mixture = wave(tmp_path / "mixture.wav", amplitude=0.27)
+    invoked = []
+
+    def fake_run(command, *, check):
+        assert check
+        assert command[0] == sys.executable
+        assert Path(command[1]).name == "backing_vocals_worker.py"
+        req = json.loads(Path(command[2]).read_text())
+        invoked.append(req)
+        assert req["checkpoint"] == str(model_dir / "model.ckpt")
+        assert req["model_source"] == str(model_source)
+        assert req["role"] == role
+        assert req["mixture"] == str(mixture)
+        for name, level in (("vocals.wav", 0.2), ("other.wav", 0.07)):
+            wave(Path(req["output_dir"]) / name, amplitude=level)
+
+    monkeypatch.setattr(poc.subprocess, "run", fake_run)
+    target, other, seconds = poc.separate(
+        mixture,
+        tmp_path / "stage",
+        "model.ckpt",
+        model_dir=model_dir,
+        model_source=model_source,
+        worker_python=Path(sys.executable),
+        role=role,
+    )
+    assert (target.name, other.name) == ("vocals.wav", "other.wav")
+    assert len(invoked) == 1
+    assert seconds >= 0
+
+
+def test_requires_real_model_source_and_checkpoint(tmp_path):
+    mixture = wave(tmp_path / "mix.wav")
+    with pytest.raises(ValueError, match="model-source"):
+        poc.separate(mixture, tmp_path / "stage", "model.ckpt", model_dir=tmp_path)
+    model_source = tmp_path / "source"
+    model_source.mkdir()
+    with pytest.raises(FileNotFoundError, match="model.ckpt"):
+        poc.separate(
+            mixture,
+            tmp_path / "stage",
+            "model.ckpt",
+            model_dir=tmp_path,
+            model_source=model_source,
+        )

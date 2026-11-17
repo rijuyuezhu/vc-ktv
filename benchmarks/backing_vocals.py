@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -13,7 +13,7 @@ import numpy as np
 import soundfile as sf
 
 KARAOKE_MODEL = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
-VOCALS_MODEL = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+VOCALS_MODEL = "MelBandRoformer.ckpt"
 SAMPLE_RATE = 44100
 CHANNELS = 2
 BLOCK = 65536
@@ -59,40 +59,58 @@ def separate(
     model: str,
     *,
     model_dir: Path,
+    model_source: Path | None = None,
+    worker_python: Path | None = None,
+    role: str = "karaoke",
     backend=None,
 ) -> tuple[Path, Path, float]:
-    """Return model's Vocals and Instrumental stems, in that order.
+    """Produce target and residual stems using the existing Kim engine.
 
-    The model labels are *not* a guarantee of musical meaning: some karaoke
-    checkpoints target backing voices instead of lead. Confirm with listening
-    tests before using either stem in production.
+    The optional backend argument is only a seam for synthetic test models.
+    Actual inference runs in the separate CUDA runtime, never in the server.
     """
-    if backend is None:
-        from audio_separator.separator import Separator
-
-        backend = Separator
     stage.mkdir(parents=True, exist_ok=True)
-    separator = backend(
-        model_file_dir=str(model_dir),
-        output_dir=str(stage),
-        output_format="WAV",
-        sample_rate=SAMPLE_RATE,
-        normalization_threshold=1.0,
-        amplification_threshold=0.0,
-        log_level=logging.WARNING,
-    )
-    started = time.monotonic()
-    separator.load_model(model_filename=model)
-    names = {"Vocals": "vocals", "Instrumental": "other"}
-    outputs = separator.separate(str(source), names)
-    elapsed = time.monotonic() - started
     expected = (stage / "vocals.wav", stage / "other.wav")
-    reported = {Path(name).name for name in outputs}
-    if reported != {path.name for path in expected}:
-        raise RuntimeError(f"Unexpected separation stems: {sorted(reported)}")
+    started = time.monotonic()
+    if backend is None:
+        if model_source is None or not model_source.is_dir():
+            raise ValueError("A valid --model-source is required for real separation")
+        checkpoint = model_dir / model
+        if not checkpoint.is_file():
+            raise FileNotFoundError(f"Missing model checkpoint: {checkpoint.name}")
+        request = stage / "request.json"
+        request.write_text(
+            json.dumps(
+                {
+                    "model_source": str(model_source),
+                    "checkpoint": str(checkpoint),
+                    "mixture": str(source),
+                    "output_dir": str(stage),
+                    "role": role,
+                }
+            ),
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                str(worker_python or Path(sys.executable)),
+                str(Path(__file__).with_name("backing_vocals_worker.py")),
+                str(request),
+            ],
+            check=True,
+        )
+    else:
+        separator = backend(model_file_dir=str(model_dir), output_dir=str(stage))
+        separator.load_model(model_filename=model)
+        outputs = separator.separate(
+            str(source), {"Vocals": "vocals", "Instrumental": "other"}
+        )
+        reported = {Path(name).name for name in outputs}
+        if reported != {path.name for path in expected}:
+            raise RuntimeError(f"Unexpected separation stems: {sorted(reported)}")
     for path in expected:
         validate_audio(path)
-    return *expected, elapsed
+    return *expected, time.monotonic() - started
 
 
 def _read(reader: sf.SoundFile, length: int) -> np.ndarray:
@@ -160,6 +178,8 @@ def run(
     karaoke_model: str = KARAOKE_MODEL,
     vocals_model: str = VOCALS_MODEL,
     backend=None,
+    model_source: Path | None = None,
+    worker_python: Path | None = None,
 ) -> dict:
     if mode not in ("direct", "two-stage"):
         raise ValueError(f"Unknown separation route: {mode}")
@@ -177,6 +197,9 @@ def run(
             vocals_model,
             model_dir=model_dir,
             backend=backend,
+            model_source=model_source,
+            worker_python=worker_python,
+            role="vocals",
         )
         stages["all_vocals_seconds"] = round(seconds, 2)
         lead, harmonies, seconds = separate(
@@ -185,6 +208,9 @@ def run(
             karaoke_model,
             model_dir=model_dir,
             backend=backend,
+            model_source=model_source,
+            worker_python=worker_python,
+            role="karaoke",
         )
         gain = combine_instruments_and_harmonies(
             instrumental, harmonies, output / "backing.wav"
@@ -196,6 +222,9 @@ def run(
             karaoke_model,
             model_dir=model_dir,
             backend=backend,
+            model_source=model_source,
+            worker_python=worker_python,
+            role="karaoke",
         )
         gain = 1.0
         # The one-pass model's Instrumental stem already contains harmonies.
@@ -253,6 +282,18 @@ def main() -> None:
     )
     parser.add_argument("--karaoke-model", default=KARAOKE_MODEL)
     parser.add_argument("--vocals-model", default=VOCALS_MODEL)
+    parser.add_argument(
+        "--model-source",
+        type=Path,
+        required=True,
+        help="Local Kim model source tree with MelBandRoformer and demix_track",
+    )
+    parser.add_argument(
+        "--worker-python",
+        type=Path,
+        default=Path(sys.executable),
+        help="Python interpreter in the optional CUDA model runtime",
+    )
     options = parser.parse_args()
     if not options.source.is_file():
         parser.error("Input file does not exist")
@@ -265,6 +306,8 @@ def main() -> None:
             model_dir=options.model_dir,
             karaoke_model=options.karaoke_model,
             vocals_model=options.vocals_model,
+            model_source=options.model_source,
+            worker_python=options.worker_python,
         )
         print(json.dumps(report, ensure_ascii=False))
 

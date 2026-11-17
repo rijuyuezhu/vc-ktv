@@ -1,48 +1,64 @@
-# 伴唱音轨 POC
+# 伴唱分离 POC
 
-目标是 **保留乐器和和声、尽可能去除主唱**，而不是删除所有人声。本实验不改变点歌、视频或生产媒体。
+目标是保留乐器与和声，同时尽可能去掉主唱。视频、字幕和当前点歌流程不变。
 
-## 两条路线
+## 方法
 
-- **Direct**：用 Karaoke（lead / other）模型直接处理完整歌曲，以 `other` 作为候选输出（目标是乐器 + 和声；实际声部语义必须验证）。
-- **Two-stage**：用普通 vocals / instrumental 模型先分离全部人声，再用 Karaoke 模型将人声分成两个候选声部；初版假定 primary 为 lead，把 `instrumental + residual` 混合。该假定有待验证，部分 Karaoke 模型可能恰好将 primary 定义为伴唱。合成时保留相对响度，只有发生削波风险时才整体衰减。
+- **Direct**：Karaoke MelBand RoFormer 直接处理完整原音轨，取去掉目标主唱后的 residual。
+- **Two-stage**：先通过现有 Kim MelBand 模型提取全部人声，再用 Karaoke 模型从人声中提取主唱，把人声 residual（和声候选）与乐器混合。只有最终 WAV 会按实际峰值防止削波，两个声部保持相对响度。
 
-默认候选是 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 支持的 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 和 `model_bs_roformer_ep_317_sdr_12.9755.ckpt`。当前 Kim 人声模型只用于字幕对齐，不能直接提供“去主唱、留和声”音轨；本 POC 的 two-stage 首级是可复现的通用 vocals 模型，尚未验证改用 Kim 的效果。
+两条路线均复用项目可选 GPU 对齐环境中的 MelBandRoformer 及其 `demix_track` 推理实现。模型经严格权重加载，输出统一为 44.1 kHz 立体声；AAC 成品使用 192 kbps。没有额外安装第二套 RoFormer 推理框架。
 
-## 本地运行
+## 本地实验
 
-在独立 Python 3.12 环境安装 [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) 0.48.0。模型会在首次使用时下载；权重和源音频只保存在指定的本地目录，不放进 Git 仓库。
+先运行项目的可选 GPU 资源安装，确认 Kim 的源码、Python CUDA 环境及 checkpoint 已齐备。另行准备 Karaoke checkpoint `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt`。Karaoke 权重经 SHA-256 `1de20d459332fe8869aeb01327a31df0032262706e1365114e852dc271779813` 核验；现有 Kim checkpoint 的验证参见 `ktv_app/separation.py`。
 
 ```sh
-uv venv --python 3.12 /tmp/vcktv-separator
-uv pip install --python /tmp/vcktv-separator/bin/python 'audio-separator==0.48.0'
-/tmp/vcktv-separator/bin/python -m benchmarks.backing_vocals ./sample.mp4 \
-  --output /tmp/vcktv-backing-results \
-  --model-dir /tmp/vcktv-backing-models \
-  --mode both
+# 仅供本地运行：模型和原始音频均不提交 Git。
+# model-cache 中需放置：
+#   MelBandRoformer.ckpt（可以链接到已安装的 Kim 权重）
+#   mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt
+uv run --no-sync python -m benchmarks.backing_vocals sample.mp4 \
+  --mode both \
+  --model-dir /path/to/model-cache \
+  --model-source /path/to/Kim-source \
+  --worker-python /path/to/separation-python \
+  --output /tmp/vcktv-backing-results
 ```
 
-每条路线生成 `backing.m4a`（AAC 192 kbps）、`report.json`、分离出的 WAV 音轨。报告记录模型、生成耗时、文件大小、音频长度差、混音增益，以及模型目标声部 RMS。成品只是待验证候选，不代表通过伴唱音质验收。**这些指标不能代替人工试听**：需分别检查主唱残留、和声保留、乐器损伤以及声相位。使用相同音频片段和硬件运行两个模式才有可比性。
+输出 `direct/` 与 `two-stage/`，分别包括目标人声音轨、残余声部、可播放 `backing.m4a` 和 `report.json`。报告记录模型、时间、时长差、音量 RMS、成品大小和混音增益；`model-run.json` 还记录 CUDA 模型推理情况。候选音轨必须经过主唱残留、和声保留和乐器损伤的试听比较。
 
-当前 POC 将提取的音频视为从 0 开始的时间轴；与视频 PTS、HTML 字幕和多媒体元素的最终同步由后续播放器 PR 验证。不得仅凭片段长度一致就认定音画已同步。分离模型权重的使用条款须在接入正式流程前确认。
-
-不需要 GPU 或第三方模型即可执行合成音频测试：
+常规 CI 使用合成音频与模拟模型，无需下载权重或使用 GPU：
 
 ```sh
 uv run --no-sync pytest -q tests/test_backing_vocals_poc.py
 ```
 
+## 实测：2026-11-17，CUDA GPU
 
-## 初次真实实验（2026-11-17）
+在一段 20 秒真人演唱音频上，相同 Karaoke 权重在 `audio-separator==0.48.0` 的推理路径输出接近全零的目标人声音轨；复用已验证的 Kim MelBand 实现、严格加载同一权重后，人声 RMS 为 **0.06919**，现有 Kim 对照为 **0.06972**。确认故障来自原 POC 的推理实现或其配置组合，而不是模型权重损坏。
 
-使用 CUDA GPU，对同一段 20 秒音乐进行模型推理；模型权重通过 SHA-256 核验，媒体与权重均保存在临时目录。两条路线均生成了可解码的 AAC 192 kbps，时长与输入一致（偏差 0 ms）。
-
-| 指标 | Direct | Two-stage |
+| 指标 | Direct | Kim + Karaoke |
 | --- | ---: | ---: |
-| 首次完整耗时 | 39.85 s | 32.13 s |
-| 预热后两次耗时 | 16.30 / 13.77 s | 23.99 / 23.83 s |
-| AAC 成品体积（20s） | 493,847 B | 495,301 B |
+| 20 秒样本完整耗时 | 18.61 s | 24.51 s |
+| 模型目标人声 RMS | 0.06919 | 0.06946 |
+| 目标人声 / 原混合音 RMS | 0.6972 | 0.6999 |
+| AAC 192 kbps 大小 | 484,137 B | 484,155 B |
+| 输出时长差 | 0 ms | 0 ms |
 
-**实际声部分离尚未达到验收要求。** 在真人演唱片段，已有 Kim 模型能提取非零人声（RMS 0.06972），但本次两款 RoFormer 的模型目标声部 RMS 均低于实际 WAV 输出的有效精度，文件全零，候选成品基本等于原音频。换用另一段歌曲及合成语音对照后仍未产生有效目标声部。时间与文件结果仅证明调用和产出路径可运行，**不能证明去主唱已生效，更不能用于判断和声保留程度**。
+不同模型的首次加载和缓存预热会影响计时；更长歌曲需另外评估峰值显存与端到端吞吐。当前 POC 仅验证音频生成与候选声部分离：后续需要用包含明确和声的歌曲确认伴唱音质，以及在主屏中验证音视频播放时钟的同步。
 
-待解决：明确每个 Karaoke 模型的 primary / residual 对应哪种音乐声部；排查当前音频分离推理与 CUDA 环境适配差异；使用确认含主唱与和声的样本试听验证。已验证现有 Kim 能产生非零人声，因此可以作为后续两级方案的一级基线，但仅凭 Kim 不能区分主唱与和声。PR 在完成真实音质验证前保持 Draft，不进入生产 Pipeline。
+输出中的原始和分离 WAV、AAC 与 checkpoint 均留在本地实验区。正式集成前还需核实第三方权重许可。
+
+## 两首 Vocaloid 歌曲的补充实验（各 20 秒）
+
+| 样本 | Direct 目标人声 RMS | Kim + Karaoke 目标人声 RMS | Direct 耗时 | Two-stage 耗时 |
+| --- | ---: | ---: | ---: | ---: |
+| 心华《冻夏》 | 0.08513 | 0.08499 | 13.70 s | 23.73 s |
+| 洛天依《hello&bye,days》 | 0.14171 | 0.07975 | 14.09 s | 22.44 s |
+
+两首歌的两种路线均输出准确的 20 秒音频。单次推理阶段的 PyTorch 显存分配峰值约 1.55 GiB（不含 CUDA/驱动的其他显存占用）；模型两阶段之间独立运行，不同时占用 GPU。
+
+《冻夏》两种方案的目标人声结果非常接近（两种目标音轨相关系数约 0.998）。《hello&bye,days》差异较大（相关系数约 0.755）：Kim + Karaoke 在第二阶段得到 RMS 0.10401 的残余人声候选。**这些残余可能包括真正的和声，也可能有尚未去除的主唱**。因此虽然 Direct 更快，尚不能以速度代替和声保留的听感决策。
+
+后续在正式接入点歌 Pipeline 前，需要对这两首歌的 `original.wav`、`backing.m4a` 及二级 `other.wav` 做 A/B 试听，确认主唱残留和和声保留。性能评估也需覆盖完整歌曲而非仅用短片段估计总耗时。
