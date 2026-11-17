@@ -90,7 +90,7 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }
     actions.append(el);
     return el;
   }
-  const mode = button("切换伴唱", "audio-lines");
+  const mode = button("切换伴奏", "audio-backing");
   const pause = button("暂停", "pause");
   const restart = button("从头重播", "rotate-ccw");
   const skip = button("跳过", "skip-forward");
@@ -129,7 +129,9 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }
     mode.disabled = blocked || (!remote.backing_ready && remote.audio_mode !== "backing");
     for (const el of [pause, restart, skip]) el.disabled = blocked;
     const original = remote.audio_mode === "backing";
-    mode.title = original ? "切回原唱" : "切换伴唱";
+    mode.title = original ? "切回原唱" : "切换伴奏";
+    mode.querySelector("img").src =
+      "/icons/" + (original ? "audio-original" : "audio-backing") + ".svg";
     mode.setAttribute("aria-label", mode.title);
     mode.setAttribute("aria-pressed", String(original));
     mode.classList.toggle("hidden", !remote.backing_ready && !original);

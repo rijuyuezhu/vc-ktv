@@ -91,7 +91,9 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     const activeBacking = status.audio_mode === "backing";
     const showBacking = isTV && (backingAvailable || activeBacking);
     audioMode.classList.toggle("hidden", !showBacking);
-    audioMode.title = activeBacking ? "切回原唱" : "切换伴唱";
+    audioMode.title = activeBacking ? "切回原唱" : "切换伴奏";
+    $("remote-audio-mode-icon").src =
+      "/icons/" + (activeBacking ? "audio-original" : "audio-backing") + ".svg";
     audioMode.setAttribute("aria-label", audioMode.title);
     audioMode.setAttribute("aria-pressed", String(activeBacking));
     audioMode.disabled = !canTV || !tvPlaying || (!backingAvailable && !activeBacking);

@@ -75,6 +75,7 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
         assert admin.get("/api/admin/settings").json() == {
             "queue_policy": "fair",
             "allow_unsubtitled": False,
+            "require_backing_ready": False,
             "subtitle_style": "classic",
             "video_quality": 1080,
             "max_bandwidth_mbps": 3.0,
@@ -200,6 +201,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
         assert admin.get("/api/admin/settings").json() == {
             "queue_policy": "fair",
             "allow_unsubtitled": False,
+            "require_backing_ready": False,
             "subtitle_style": "classic",
             "video_quality": 1080,
             "max_bandwidth_mbps": 3.0,
@@ -217,6 +219,7 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
     assert reopened.state.store.settings() == {
         "queue_policy": "fair",
         "allow_unsubtitled": False,
+        "require_backing_ready": False,
         "subtitle_style": "classic",
         "video_quality": 1080,
         "max_bandwidth_mbps": 3.0,
@@ -307,6 +310,7 @@ def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
                 json={
                     "queue_policy": "fair",
                     "allow_unsubtitled": False,
+                    "require_backing_ready": False,
                     "video_quality": 480,
                 },
             ).status_code
@@ -318,6 +322,7 @@ def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
                 json={
                     "queue_policy": "fair",
                     "allow_unsubtitled": False,
+                    "require_backing_ready": False,
                     "video_quality": 1440,
                 },
             ).status_code
@@ -333,6 +338,7 @@ def test_video_quality_setting_is_admin_only_persistent_and_per_event(tmp_path):
             json={
                 "queue_policy": "fair",
                 "allow_unsubtitled": False,
+                "require_backing_ready": False,
                 "video_quality": 480,
             },
         )

@@ -60,6 +60,7 @@ function songState(song) {
   if (song.status === "rendering") return "制作中";
   if (song.prep_state === "unavailable") return "下载失败";
   if (song.prep_state === "original" && !song.skip_subtitles) return "字幕失败";
+  if (song.awaiting_backing) return "待伴奏";
   if (song.status === "ready" && !song.awaiting_subtitles) return "待播";
   if (song.prep_state === "downloaded" && !song.lyric_selected && !song.skip_subtitles)
     return "待选歌词";

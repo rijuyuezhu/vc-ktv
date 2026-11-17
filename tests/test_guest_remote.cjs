@@ -155,7 +155,8 @@ test("backing switch uses same guest endpoint, pause/resume and restart share ac
   try {
     const ready = { ...h.remote, backing_ready: true };
     h.component.render(h.own, ready);
-    assert.equal(h.buttons()[0].title, "切换伴唱");
+    assert.equal(h.buttons()[0].title, "切换伴奏");
+    assert.equal(h.buttons()[0].querySelector("img").src, "/icons/audio-backing.svg");
     assert.equal(h.buttons()[0].getAttribute("aria-pressed"), "false");
     assert.equal(h.buttons()[0].disabled, false);
     await h.buttons()[0].onclick();
@@ -171,6 +172,7 @@ test("backing switch uses same guest endpoint, pause/resume and restart share ac
     assert.equal(h.refreshed(), 1);
     h.component.render(h.own, { ...ready, audio_mode: "backing" });
     assert.equal(h.buttons()[0].title, "切回原唱");
+    assert.equal(h.buttons()[0].querySelector("img").src, "/icons/audio-original.svg");
     assert.equal(h.buttons()[0].getAttribute("aria-pressed"), "true");
     await h.buttons()[0].onclick();
     assert.equal(h.calls.at(-1)[2].value, "original");

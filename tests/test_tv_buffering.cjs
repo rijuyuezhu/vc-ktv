@@ -41,6 +41,8 @@ function tvHarness() {
         paused: true,
         currentTime: 0,
         duration: 180,
+        readyState: 4,
+        playbackRate: 1,
         bufferEnd: 0,
         error: null,
         buffered: { length: 1, start: () => 0, end: () => element.bufferEnd },
@@ -745,6 +747,7 @@ test("backing mode appears only after its asset is ready, and retains the video 
   assert.equal(h.el("backing-audio").volume, h.el("video").volume);
   assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
   assert.equal(h.el("audio-mode").title, "切回原唱");
+  assert.equal(h.el("audio-mode-icon").src, "/icons/audio-original.svg");
   assert.equal(h.el("audio-mode").getAttribute("aria-pressed"), "true");
 
   // Signed links can renew on every state poll without resetting the audio.
@@ -756,7 +759,11 @@ test("backing mode appears only after its asset is ready, and retains the video 
   h.el("video").currentTime = 89;
   h.el("backing-audio").currentTime = 87;
   h.el("video").listeners.timeupdate();
-  assert.equal(h.el("backing-audio").currentTime, 89);
+  assert.equal(h.el("backing-audio").currentTime, 87, "avoid thrashing while the audio buffers");
+  assert.ok(h.el("backing-audio").playbackRate > 1, "temporarily accelerate lagging audio");
+  await h.advance(2200);
+  h.el("video").listeners.timeupdate();
+  assert.equal(h.el("backing-audio").currentTime, 89, "seek once when genuinely out of sync");
   h.el("volume").value = "45";
   h.el("volume").oninput();
   assert.equal(h.el("backing-audio").volume, 0.45);
@@ -802,10 +809,40 @@ test("backing follows pause/seek/resume and falls back if its audio stalls", asy
   video.playbackRate = 1.25;
   video.listeners.ratechange();
   assert.equal(audio.playbackRate, 1.25);
+  audio.readyState = 1;
   audio.listeners.waiting();
-  assert.equal(video.muted, false);
-  assert.equal(audio.paused, true);
+  assert.equal(video.paused, true, "pause video while accompaniment buffers");
+  assert.equal(video.muted, true, "do not treat waiting as a decode failure");
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  await h.advance(1000);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  audio.readyState = 4;
+  audio.listeners.canplay();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(video.paused, false, "resume video after accompaniment can play");
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+});
+
+test("sustained accompaniment buffering falls back to original and resumes video", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "a", url: "/media/1/backing?token=a" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  h.el("backing-audio").readyState = 1;
+  h.el("backing-audio").listeners.waiting();
+  assert.equal(h.el("video").paused, true);
+  await h.advance(5200);
   assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.el("video").paused, false);
 });
 
 test("switching songs invalidates a pending audio play and resets to original", async () => {
@@ -924,4 +961,33 @@ test("guest audio command cannot activate unavailable backing audio", async () =
   assert.equal(h.el("video").muted, false);
   assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
   assert.equal(h.evaluate("remoteReport().ack_seq"), 1);
+});
+
+test("a cancelled audio play during seek is transient and preserves accompaniment", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "source", url: "/media/1/backing?token=one" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  const video = h.el("video");
+  const audio = h.el("backing-audio");
+  audio.play = async () => {
+    const error = new Error("The play request was interrupted by a new load request");
+    error.name = "AbortError";
+    throw error;
+  };
+  video.currentTime = 60;
+  video.seeking = true;
+  video.listeners.seeking();
+  video.seeking = false;
+  video.listeners.seeked();
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(video.muted, true);
+  assert.equal(h.el("control-error").textContent, "");
 });
