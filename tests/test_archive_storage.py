@@ -72,6 +72,28 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         covers.mkdir()
         (covers / "1.jpg").write_bytes(b"image")
         (work / "sound.mp3").write_bytes(b"audio")
+        alignment = first_dir / "media" / "1-auto-alignment" / "attempt-100-abc"
+        pipeline = alignment / "pipeline"
+        (pipeline / "separation" / "kim").mkdir(parents=True)
+        (pipeline / "separation" / "kim" / "vocals.wav").write_bytes(b"x" * 1000)
+        (pipeline / "alignment").mkdir()
+        (pipeline / "alignment" / "trace.json").write_bytes(b"x" * 200)
+        (pipeline / "audio.wav").write_bytes(b"x" * 300)
+        external_audio = tmp_path / "external-audio.wav"
+        external_audio.write_bytes(b"outside")
+        (pipeline / "external.wav").symlink_to(external_audio)
+        (pipeline / "subtitles").mkdir()
+        (pipeline / "subtitles" / "timeline.json").write_text("{}")
+        (pipeline / "subtitles" / "display_plan.json").write_text("{}")
+        (pipeline / "subtitles" / "style.json").write_text("{}")
+        (pipeline / "confirmed_lyrics.txt").write_text("歌词")
+        (alignment / "aligned.lrc").write_text("[00:00.00]歌词")
+        (alignment / "attempt.json").write_text('{"outcome":"rendered"}')
+        (alignment / "provider_subtitles").mkdir()
+        (alignment / "provider_subtitles" / "timeline.json").write_text("{}")
+        unknown = first_dir / "media" / "unrelated-aligner"
+        unknown.mkdir()
+        (unknown / "scratch.wav").write_bytes(b"keep")
         external = tmp_path / "outside.mp4"
         external.write_bytes(b"never delete this")
         (work / "external.mp4").symlink_to(external)
@@ -80,6 +102,9 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         second = admin.post("/api/admin/events", json={"name": "后场"}).json()
         second_dir = root / "sessions" / second["id"]
         (second_dir / "media" / "active.mp4").write_bytes(b"active")
+        active_attempt = second_dir / "media" / "1-auto-alignment" / "attempt-200-abc"
+        active_attempt.mkdir(parents=True)
+        (active_attempt / "audio.wav").write_bytes(b"active-scratch")
         create_account(admin)
         assert event_login(operator).status_code == 200
 
@@ -99,8 +124,21 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
 
         freed = admin.post(release)
         assert freed.status_code == 200, freed.text
-        assert freed.json()["freed_bytes"] == 500
+        assert freed.json()["freed_bytes"] == 2000
         assert not (first_dir / "media" / "a.mp4").exists()
+        assert not (pipeline / "separation").exists()
+        assert not (pipeline / "alignment").exists()
+        assert not (pipeline / "audio.wav").exists()
+        assert not (pipeline / "external.wav").exists()
+        assert external_audio.read_bytes() == b"outside"
+        assert (pipeline / "subtitles" / "timeline.json").read_text() == "{}"
+        assert (pipeline / "subtitles" / "display_plan.json").read_text() == "{}"
+        assert (pipeline / "subtitles" / "style.json").read_text() == "{}"
+        assert (pipeline / "confirmed_lyrics.txt").read_text() == "歌词"
+        assert (alignment / "aligned.lrc").read_text() == "[00:00.00]歌词"
+        assert (alignment / "attempt.json").is_file()
+        assert (alignment / "provider_subtitles" / "timeline.json").is_file()
+        assert (unknown / "scratch.wav").read_bytes() == b"keep"
         assert (work / "large.json").is_file()
         assert (covers / "1.jpg").read_bytes() == b"image"
         assert (work / "sound.mp3").read_bytes() == b"audio"
@@ -116,6 +154,7 @@ def test_closed_event_release_media_and_delete_record(tmp_path):
         assert rows[1]["source_id"] == "2613869782"
         assert admin.get(f"{delete}/songs.csv").content == csv_bytes
         assert (second_dir / "media" / "active.mp4").read_bytes() == b"active"
+        assert (active_attempt / "audio.wav").read_bytes() == b"active-scratch"
         status = next(
             e
             for e in admin.get("/api/admin/events").json()["events"]
