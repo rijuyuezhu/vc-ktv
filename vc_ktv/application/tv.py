@@ -12,10 +12,11 @@ from vc_ktv.core.store import time_now
 
 
 class TVSessionService:
-    def __init__(self, store, events, auth):
+    def __init__(self, store, events, auth, media):
         self.store = store
         self.events = events
         self.auth = auth
+        self.media = media
         self.notifications = TVNotifications()
 
     def read_record(self, name: str) -> dict | None:
@@ -97,17 +98,69 @@ class TVSessionService:
         with self.store.lock:
             primary = self.read_record("tv_primary")
             remote = self.remote_record()
+            pending = bool(
+                remote["seq"] > remote["ack"] and remote["issued"] > time_now() - 20
+            )
+            rank = 2 if principal["role"] == "global" else 1
             return {
                 "online": bool(primary and remote["seen"] > time_now() - 15),
                 "can_manage": self.can_manage(principal, primary),
+                "can_override": bool(pending and rank > remote.get("issuer_rank", 2)),
                 "report": remote["report"],
+                "pending": pending,
+            }
+
+    def guest_remote_state(self, guest_id: str) -> dict:
+        """Expose only the signed-in requester's active TV controls."""
+        with self.store.lock:
+            current = self.store.current()
+            if (
+                not current
+                or current["requester"] != guest_id
+                or self.store.playback_mode() != "tv"
+            ):
+                return {"available": False}
+            primary = self.read_record("tv_primary")
+            if not primary or not self.owner_valid(primary):
+                return {"available": False}
+            remote = self.remote_record()
+            report = remote["report"]
+            online = bool(
+                remote["seen"] > time_now() - 15
+                and report.get("active_id") == current["id"]
+            )
+            state = self.media.backing_asset(current)[0]
+            return {
+                "available": True,
+                "song_id": current["id"],
+                "online": online,
                 "pending": bool(
                     remote["seq"] > remote["ack"] and remote["issued"] > time_now() - 20
                 ),
+                "paused": bool(report.get("paused", False)),
+                "audio_mode": report.get("audio_mode", "original"),
+                "backing_ready": state == "ready",
+                "error": report.get("error", "") if online else "",
             }
+
+    def send_guest_command(
+        self, guest_id: str, action: str, song_id: int | None, value
+    ) -> dict:
+        return self._send_command(None, action, song_id, value, guest_id=guest_id)
 
     def send_command(
         self, principal: dict, action: str, song_id: int | None, value
+    ) -> dict:
+        return self._send_command(principal, action, song_id, value)
+
+    def _send_command(
+        self,
+        principal: dict | None,
+        action: str,
+        song_id: int | None,
+        value,
+        *,
+        guest_id: str | None = None,
     ) -> dict:
         with self.store.lock:
             if self.store.playback_mode() != "tv":
@@ -115,18 +168,43 @@ class TVSessionService:
             primary = self.read_record("tv_primary")
             if not primary or not self.owner_valid(primary):
                 bail(409, "主屏未连接")
-            if not self.can_manage(principal, primary):
+            rank = (
+                0
+                if guest_id is not None
+                else (2 if principal and principal["role"] == "global" else 1)
+            )
+            if guest_id is None and (
+                principal is None or not self.can_manage(principal, primary)
+            ):
                 bail(403, "无权遥控全局管理员的主屏")
-            remote = self.remote_record()
-            if remote["seen"] < time_now() - 15:
-                bail(409, "主屏离线")
-            if remote["seq"] > remote["ack"] and remote["issued"] > time_now() - 20:
-                bail(409, "上一条遥控命令尚未完成")
-            song_actions = ("pause", "resume", "restart", "skip", "replay_next")
+            guest_actions = ("pause", "resume", "restart", "skip", "audio_mode")
+            if guest_id is not None and action not in guest_actions:
+                bail(403, "点歌人只能控制自己的当前歌曲")
+            current = self.store.current()
+            if guest_id is not None:
+                if not current or current["requester"] != guest_id:
+                    bail(403, "只能遥控自己正在播放的歌曲")
+                if song_id != current["id"]:
+                    bail(409, "歌曲已切换，请刷新")
+            song_actions = (
+                "pause",
+                "resume",
+                "restart",
+                "skip",
+                "replay_next",
+                "audio_mode",
+            )
             if action in song_actions:
-                current = self.store.current()
                 if not current or song_id != current["id"]:
                     bail(409, "歌曲已切换，请刷新")
+                if action == "audio_mode":
+                    if value not in ("original", "backing"):
+                        bail(400, "未知的原唱/伴唱模式")
+                    if (
+                        value == "backing"
+                        and self.media.backing_asset(current)[0] != "ready"
+                    ):
+                        bail(409, "伴唱音轨尚未就绪")
             else:
                 limit = {"volume": (0, 100), "offset": (-600, 600), "opacity": (0, 100)}
                 if action == "smooth":
@@ -138,10 +216,22 @@ class TVSessionService:
                     or not limit[action][0] <= value <= limit[action][1]
                 ):
                     bail(400, "遥控参数超出范围")
+            remote = self.remote_record()
+            if remote["seen"] < time_now() - 15:
+                bail(409, "主屏离线")
+            if guest_id is not None and remote["report"].get("active_id") != song_id:
+                bail(409, "主屏尚未开始播放这首歌")
+            if (
+                remote["seq"] > remote["ack"]
+                and remote["issued"] > time_now() - 20
+                and rank <= remote.get("issuer_rank", 2)
+            ):
+                bail(409, "上一条遥控命令尚未完成")
             seq = remote["seq"] + 1
             remote.update(
                 seq=seq,
                 issued=time_now(),
+                issuer_rank=rank,
                 command={
                     "seq": seq,
                     "action": action,

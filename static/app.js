@@ -1,5 +1,6 @@
 import { setupAdminPlayback } from "./admin-playback.js";
 import { setupSongDetail } from "./song-detail.js";
+import { setupGuestRemote } from "./guest-remote.js";
 import { setupArchiveNavigation } from "./archive-navigation.js";
 import { setupAdminEvents } from "./admin-events.js";
 import { setupSongRequests, setupBilibiliPreview } from "./song-requests.js";
@@ -138,6 +139,12 @@ function fillList(id, songs) {
     if (target.children[i] !== row) target.insertBefore(row, target.children[i] || null);
   });
 }
+const guestRemote = setupGuestRemote({
+  container: $("current-guest"),
+  api,
+  refresh: () => refresh(),
+  confirmSkip: () => confirm("跳过正在播放的这首歌？")
+});
 function renderCurrent(id, song) {
   const key = song ? songRowSignature(song, "▶") : "empty";
   if (listKeys.get(id) === key) return;
@@ -444,6 +451,7 @@ function renderEntry(entry) {
     playedKey = null;
     currentEventId = entry.event?.id || null;
     listKeys.clear();
+    guestRemote.reset();
     $("join-code").value = "";
     $("auth-login").classList.add("hidden");
     $("auth-register").classList.remove("hidden");
@@ -530,7 +538,13 @@ async function refresh() {
           fillList("queue-waiting", state.waiting);
           renderCurrent("current-guest", state.current);
         }
+        const remote =
+          state.current?.mine && state.playback_mode === "tv"
+            ? await api("/api/guest/tv-remote")
+            : null;
+        guestRemote.render(state.current, remote);
       } else {
+        guestRemote.reset();
         guestStateKey = null;
         hasPreparingSongs = false;
       }
