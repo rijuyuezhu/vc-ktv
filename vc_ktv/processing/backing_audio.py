@@ -30,6 +30,23 @@ def source_identity(source: Path, model_sha256: str) -> str:
     return hashlib.sha256(identity.encode()).hexdigest()
 
 
+def ready_audio_file(root: Path, key: str) -> Path | None:
+    """Shared cache validity rule for scheduling and signed playback."""
+    directory = root / "backing"
+    file = directory / f"{key}.m4a"
+    try:
+        if (
+            not directory.is_symlink()
+            and not file.is_symlink()
+            and file.is_file()
+            and file.stat().st_size >= 1024
+        ):
+            return file
+    except OSError:
+        pass
+    return None
+
+
 def run_direct(
     source: Path,
     target: Path,
@@ -252,7 +269,7 @@ class BackingTracks:
                     "SELECT status FROM backing_tracks WHERE cache_key=?", (key,)
                 ).fetchone()
                 if item and item["status"] == "ready":
-                    if (self.store.root / "backing" / f"{key}.m4a").is_file():
+                    if ready_audio_file(self.store.root, key) is not None:
                         continue
                     self.store.db.execute(
                         "DELETE FROM backing_tracks WHERE cache_key=?", (key,)
@@ -264,7 +281,8 @@ class BackingTracks:
                        (cache_key,source_file,model_sha256,status,updated_at)
                        VALUES(?,?,?,'processing',?)
                        ON CONFLICT(cache_key) DO UPDATE SET
-                         status='processing',updated_at=excluded.updated_at""",
+                         status='processing',updated_at=excluded.updated_at,
+                         error='',elapsed_seconds=NULL""",
                     (key, name, self.model_sha256, int(time.time())),
                 )
                 self.store.db.commit()
@@ -287,7 +305,7 @@ class BackingTracks:
             if (
                 row
                 and row["status"] == "ready"
-                and not (self.store.root / "backing" / f"{key}.m4a").is_file()
+                and ready_audio_file(self.store.root, key) is None
             ):
                 return "pending"
         return (
@@ -309,14 +327,16 @@ class BackingTracks:
         key = source_identity(source, self.model_sha256)
         with self.store.lock:
             cursor = self.store.db.execute(
-                "UPDATE backing_tracks SET status='pending',error='' "
+                "UPDATE backing_tracks SET status='pending',error='',elapsed_seconds=NULL "
                 "WHERE cache_key=? AND status='failed'",
                 (key,),
             )
             self.store.db.commit()
             return bool(cursor.rowcount)
 
-    def _publish(self, key: str, source: Path, staged: Path) -> None:
+    def _publish(
+        self, key: str, source: Path, staged: Path, elapsed_seconds: float
+    ) -> None:
         with self.store.lock:
             if self.cancelled.is_set() or self.owner.stop_signal.is_set():
                 return
@@ -337,13 +357,14 @@ class BackingTracks:
             target = folder / f"{key}.m4a"
             staged.replace(target)
             self.store.db.execute(
-                "UPDATE backing_tracks SET status='ready',error='',updated_at=? "
-                "WHERE cache_key=?",
-                (int(time.time()), key),
+                "UPDATE backing_tracks SET status='ready',error='',"
+                "elapsed_seconds=?,updated_at=? WHERE cache_key=?",
+                (elapsed_seconds, int(time.time()), key),
             )
             self.store.db.commit()
 
     def _process(self, song_id: int, source: Path, key: str) -> None:
+        started = time.monotonic()
         try:
             if self.cancelled.is_set() or self.owner.stop_signal.is_set():
                 return
@@ -367,7 +388,9 @@ class BackingTracks:
                 self.store.disk_budget.check()
                 if candidate.stat().st_size < 1024:
                     raise ValueError("Backing audio output is empty")
-                self._publish(key, source, candidate)
+                self._publish(
+                    key, source, candidate, round(time.monotonic() - started, 2)
+                )
         except Exception as error:
             if not self.cancelled.is_set() and not self.owner.stop_signal.is_set():
                 log.warning(
@@ -377,9 +400,14 @@ class BackingTracks:
                 )
                 with self.store.lock:
                     self.store.db.execute(
-                        "UPDATE backing_tracks SET status='failed',error=?,updated_at=? "
-                        "WHERE cache_key=?",
-                        (type(error).__name__, int(time.time()), key),
+                        "UPDATE backing_tracks SET status='failed',error=?,"
+                        "elapsed_seconds=?,updated_at=? WHERE cache_key=?",
+                        (
+                            type(error).__name__,
+                            round(time.monotonic() - started, 2),
+                            int(time.time()),
+                            key,
+                        ),
                     )
                     self.store.db.commit()
         finally:

@@ -6,6 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Cookie
 from pydantic import BaseModel, Field, field_validator
 
+from vc_ktv.application.errors import bail
 from vc_ktv.application.event_lifecycle import EventLifecycle
 from vc_ktv.rendering.subtitle_styles import StylePreset
 
@@ -66,6 +67,13 @@ def create_event_admin_router(
         body: PlaybackSettings, vc_admin: str | None = Cookie(default=None)
     ):
         require_admin(vc_admin)
+        backing = lifecycle.worker.backing
+        if body.require_backing_ready is True and (
+            not backing.enabled
+            or backing.unavailable
+            or not (backing.thread and backing.thread.is_alive())
+        ):
+            bail(409, "伴奏后台未运行或模型不可用，无法要求伴奏就绪")
         with store.lock:
             return store.save_settings(
                 body.queue_policy,

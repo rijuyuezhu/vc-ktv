@@ -582,3 +582,110 @@ test("download retry UI distinguishes pending automatic retry from exhausted att
     h.cleanup();
   }
 });
+
+test("admin song detail shows accompaniment state, duration, size and retry", async () => {
+  const h = await harness(true);
+  try {
+    const started = Math.floor(Date.now() / 1000) - 17;
+    h.state.song = baseSong({
+      backing: {
+        status: "processing",
+        started_at: started,
+        elapsed_seconds: null,
+        size_bytes: null,
+        error: ""
+      }
+    });
+    await h.refreshSongDetail();
+    const page = h.byId("page-song");
+    const first = page.children[0];
+    const details = find(page, (node) => node.classList.contains("timing-details"));
+    assert.ok(details);
+    assert.equal(find(details, (node) => node.textContent === "伴奏生成") !== null, true);
+    const running = find(details, (node) => node.classList.contains("backing-current-time"));
+    assert.ok(running);
+    assert.match(running.textContent, /^\d+ 秒$/);
+    running.textContent = "stale";
+    await h.refreshSongDetail();
+    assert.strictEqual(page.children[0], first, "poll does not rebuild unchanged detail");
+    assert.match(running.textContent, /^\d+ 秒$/);
+
+    h.state.song = baseSong({
+      backing: {
+        status: "ready",
+        started_at: null,
+        elapsed_seconds: 75.35,
+        size_bytes: 6193347,
+        error: ""
+      }
+    });
+    await h.refreshSongDetail();
+    const rows = all(page, (node) => node.classList.contains("timing-row"));
+    assert.ok(
+      rows.some(
+        (row) =>
+          row.children[0]?.textContent === "伴奏生成" &&
+          row.children[1]?.textContent === "已就绪（75.3 秒）"
+      )
+    );
+    assert.ok(
+      rows.some(
+        (row) =>
+          row.children[0]?.textContent === "伴奏文件" && row.children[1]?.textContent === "5.9 MiB"
+      )
+    );
+    assert.equal(
+      find(page, (node) => node.textContent === "重试伴奏"),
+      null
+    );
+
+    h.state.song = baseSong({
+      backing: {
+        status: "failed",
+        started_at: null,
+        elapsed_seconds: 13.2,
+        size_bytes: null,
+        retryable: true,
+        error: "RuntimeError"
+      }
+    });
+    await h.refreshSongDetail();
+    assert.ok(find(page, (node) => node.textContent === "伴奏生成失败：RuntimeError"));
+    await button(page, "重试伴奏").onclick();
+    assert.ok(
+      h.calls.some(
+        (item) => item.url === "/api/admin/songs/17/backing/retry" && item.method === "POST"
+      )
+    );
+    assert.equal(h.state.refreshes > 0, true);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("guest song detail never renders administrator accompaniment controls", async () => {
+  const h = await harness(false);
+  try {
+    h.state.song = baseSong({
+      awaiting_backing: true,
+      playable: false,
+      backing: { status: "failed", error: "InternalError" }
+    });
+    await h.refreshSongDetail();
+    const page = h.byId("page-song");
+    assert.equal(
+      find(page, (node) => node.textContent === "重试伴奏"),
+      null
+    );
+    assert.equal(
+      find(page, (node) => node.textContent === "伴奏生成"),
+      null
+    );
+    assert.equal(
+      find(page, (node) => node.textContent === "InternalError"),
+      null
+    );
+  } finally {
+    h.cleanup();
+  }
+});

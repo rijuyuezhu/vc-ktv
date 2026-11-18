@@ -67,8 +67,11 @@ jobs:
 
       - name: Install media test dependencies
         run: |
+          # Font diagnostics are stubbed in unit tests; installing the 61 MB
+          # Noto CJK package here can stall apt mirrors and time out the job.
+          # Production font requirements remain in docs/INSTALL.md.
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ffmpeg fontconfig fonts-noto-cjk fonts-noto-color-emoji
+          sudo apt-get install -y --no-install-recommends ffmpeg fontconfig
 
       - name: Python tests
         run: uv run --no-sync pytest -q --durations=15

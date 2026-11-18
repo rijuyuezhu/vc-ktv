@@ -7,6 +7,7 @@ from pathlib import Path
 from ktv_app import model_runtime
 from scripts.setup_pipeline_assets import ASSETS, selected
 from vc_ktv.infra.config import pipeline_settings
+from vc_ktv.processing.backing_audio import KARAOKE_FILENAME, KARAOKE_SHA256
 
 
 def test_upstream_pin_and_manifest_consistent():
@@ -30,6 +31,12 @@ def test_upstream_pin_and_manifest_consistent():
         "Kim-MelBandRoformer.ckpt",
     ]
     assert len(list(selected("qwen"))) >= 5
+
+    (karaoke,) = list(selected("karaoke"))
+    assert karaoke["sha256"] == KARAOKE_SHA256
+    assert karaoke["target"].endswith("/Karaoke/" + KARAOKE_FILENAME)
+    assert karaoke in list(selected("all"))
+    assert karaoke not in list(selected("kim"))
 
 
 def test_pipeline_settings_use_one_permanent_pipeline_root(tmp_path):

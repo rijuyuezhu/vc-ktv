@@ -131,6 +131,13 @@
       "sha256": "5058416891bc47a2051557765997e8c42f8eb78a0e33c3e775bd17d4b0ba4d50",
       "target": "models/Qwen3-ASR-1.7B/README.md",
       "kind": "file"
+    },
+    {
+      "name": "karaoke-melband-roformer.ckpt",
+      "url": "https://huggingface.co/Derur/UVR-models/resolve/main/mel_band_roformer_karaoke_aufr33_viperx_sdr_10/mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+      "sha256": "1de20d459332fe8869aeb01327a31df0032262706e1365114e852dc271779813",
+      "target": "models/separation/Karaoke/mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+      "kind": "file"
     }
   ]
 }

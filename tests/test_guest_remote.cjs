@@ -368,9 +368,9 @@ test("reported TV failure uses shared toast exactly once without changing the ro
   try {
     h.component.render(h.own, h.remote);
     const row = h.container.children[0];
-    h.component.render(h.own, { ...h.remote, error: "伴唱不可播放，已切回原唱" });
-    assert.deepEqual(h.toasts, [["伴唱不可播放，已切回原唱", true]]);
-    h.component.render(h.own, { ...h.remote, error: "伴唱不可播放，已切回原唱" });
+    h.component.render(h.own, { ...h.remote, error: "伴奏不可播放，已切回原唱" });
+    assert.deepEqual(h.toasts, [["伴奏不可播放，已切回原唱", true]]);
+    h.component.render(h.own, { ...h.remote, error: "伴奏不可播放，已切回原唱" });
     assert.equal(h.toasts.length, 1);
     assert.equal(h.container.children[0], row);
     h.component.render(h.own, { ...h.remote, error: "" });
