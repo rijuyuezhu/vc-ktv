@@ -689,3 +689,62 @@ test("guest song detail never renders administrator accompaniment controls", asy
     h.cleanup();
   }
 });
+
+test("guest can move an eligible own song to the personal queue front", async () => {
+  const h = await harness();
+  try {
+    h.state.song = baseSong({ can_move_first: true });
+    await h.refreshSongDetail();
+    const panel = h.byId("page-song");
+    await button(panel, "移到我的最前面").onclick();
+    assert.ok(
+      h.calls.some((call) => call.url === "/api/songs/17/move-first" && call.method === "POST")
+    );
+    assert.equal(h.state.refreshes, 1);
+    assert.ok(
+      find(h.byId("toast"), (node) => node.textContent === "已调整我的点歌顺序") ||
+        h.byId("toast").textContent === "已调整我的点歌顺序"
+    );
+
+    h.state.song = baseSong({ can_move_first: false });
+    await h.refreshSongDetail();
+    assert.equal(
+      find(panel, (node) => node.textContent === "移到我的最前面"),
+      null
+    );
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("unready, already playing, foreign songs and administrator views cannot move-first", async () => {
+  for (const props of [
+    { mine: true, status: "waiting", playable: false, can_move_first: false },
+    { mine: true, status: "ready", playable: false, can_move_first: false },
+    { mine: true, status: "playing", playable: false, can_move_first: false },
+    { mine: false, status: "ready", playable: true, can_move_first: false }
+  ]) {
+    const h = await harness();
+    try {
+      h.state.song = baseSong(props);
+      await h.refreshSongDetail();
+      assert.equal(
+        find(h.byId("page-song"), (node) => node.textContent === "移到我的最前面"),
+        null
+      );
+    } finally {
+      h.cleanup();
+    }
+  }
+  const admin = await harness(true);
+  try {
+    admin.state.song = baseSong({ can_move_first: true });
+    await admin.refreshSongDetail();
+    assert.equal(
+      find(admin.byId("page-song"), (node) => node.textContent === "移到我的最前面"),
+      null
+    );
+  } finally {
+    admin.cleanup();
+  }
+});
