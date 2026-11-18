@@ -76,7 +76,11 @@ uv run --no-sync python -m vc_ktv
 | `VC_KTV_PREP_WORKERS` | `1` | 普通 Worker 数量（1–4，可处理 GPU 对齐） |
 | `VC_KTV_FAST_WORKERS` | `0` | 额外 CPU Fast Worker 数量（0–2，只处理来源时间轴任务；生产推荐 2） |
 | `VC_KTV_PIPELINE_ROOT` | `~/.local/share/vc-ktv/pipeline` | 模型路径 |
+| `VC_KTV_BACKING_TRACKS` | `0` | 可选的低优先级 Direct Karaoke 伴唱预生成 |
+| `VC_KTV_BACKING_CHECKPOINT` | Pipeline 模型目录下的 Karaoke 权重 | 指定经过验证的 Direct Karaoke 模型文件 |
 | `KTV_FFMPEG` / `KTV_FFPROBE` | `ffmpeg` / `ffprobe` | 自定义媒体工具路径 |
+
+启用伴唱预生成前，将 `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt` 放在 Pipeline 的 `models/separation/Karaoke/`（或设置 `VC_KTV_BACKING_CHECKPOINT`），然后设置 `VC_KTV_BACKING_TRACKS=1`。此任务在普通制作空闲时运行，产生可复用的 AAC 文件；重唱沿用缓存，原片播放不等待伴唱。伴唱准备好后，主屏“控制”面板提供原唱/伴唱切换；音轨不兼容或缓冲失败时自动回退原唱，不影响视频与字幕时间轴。当前歌曲的点歌人还可在自己的“正在播放”卡片遥控原唱/伴唱、暂停、从头重唱和跳过；管理员命令优先。
 
 GPU 对齐的高级参数：`VC_KTV_PIPELINE_MODE` 默认为 `quality`，还可使用 `fast`、`global`、`global-kim`；`VC_KTV_KIM_SINGLE_FLIGHT=1` 可让 Kim 音频分离任务串行执行。
 

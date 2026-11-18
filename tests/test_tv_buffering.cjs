@@ -10,7 +10,15 @@ function tvHarness() {
     nextTimer = 1;
   const timers = new Map();
   const intervals = [];
-  const calls = { plays: [], preloads: 0, nexts: 0, queue: [], current: null, reports: 0 };
+  const calls = {
+    plays: [],
+    preloads: 0,
+    nexts: 0,
+    queue: [],
+    current: null,
+    active: null,
+    reports: 0
+  };
   const storage = new Map([["vcktv-smooth-buffer", "1"]]);
   function el(id) {
     if (!nodes.has(id)) {
@@ -33,6 +41,8 @@ function tvHarness() {
         paused: true,
         currentTime: 0,
         duration: 180,
+        readyState: 4,
+        playbackRate: 1,
         bufferEnd: 0,
         error: null,
         buffered: { length: 1, start: () => 0, end: () => element.bufferEnd },
@@ -45,6 +55,12 @@ function tvHarness() {
           },
           contains(name) {
             return classes.has(name);
+          },
+          toggle(name, forced) {
+            const enabled = forced ?? !classes.has(name);
+            if (enabled) classes.add(name);
+            else classes.delete(name);
+            return enabled;
           }
         },
         replacements: 0,
@@ -58,6 +74,9 @@ function tvHarness() {
         },
         matches() {
           return false;
+        },
+        closest() {
+          return element;
         },
         setAttribute(k, v) {
           attrs.set(k, v);
@@ -135,7 +154,12 @@ function tvHarness() {
           return { candidate: { id: 2, media_url: "/media/2", media_file: "2.mp4" } };
         }
         if (url.includes("/api/tv/state"))
-          return { queue: calls.queue, playback_mode: "tv", current: calls.current };
+          return {
+            queue: calls.queue,
+            playback_mode: "tv",
+            current: calls.current,
+            active: calls.active
+          };
         return { ok: true };
       }
     })
@@ -697,4 +721,273 @@ test("late subtitle response cannot restart a song already skipped", async () =>
   await begin;
   assert.equal(h.calls.plays.length, 0);
   assert.equal(h.evaluate("activeId"), null);
+});
+
+test("backing mode appears only after its asset is ready, and retains the video clock", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  assert.equal(h.el("audio-mode").hidden, true);
+  assert.equal(await h.evaluate('switchAudioMode("backing")'), false);
+
+  h.calls.current = {
+    id: 1,
+    title: "Song",
+    backing: { status: "ready", cache_key: "same-audio", url: "/media/1/backing?token=one" }
+  };
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("audio-mode").hidden, false);
+  assert.equal(h.el("audio-mode").disabled, false);
+
+  h.el("video").currentTime = 65;
+  await h.el("audio-mode").onclick();
+  assert.equal(h.el("video").muted, true);
+  assert.equal(h.el("backing-audio").currentTime, 65);
+  assert.equal(h.el("backing-audio").volume, h.el("video").volume);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(h.el("audio-mode").title, "切回原唱");
+  assert.equal(h.el("audio-mode-icon").src, "/icons/audio-original.svg");
+  assert.equal(h.el("audio-mode").getAttribute("aria-pressed"), "true");
+
+  // Signed links can renew on every state poll without resetting the audio.
+  h.calls.current.backing.url = "/media/1/backing?token=two";
+  await h.evaluate("syncQueue()");
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(h.el("video").muted, true);
+
+  h.el("video").currentTime = 89;
+  h.el("backing-audio").currentTime = 87;
+  h.el("video").listeners.timeupdate();
+  assert.equal(h.el("backing-audio").currentTime, 87, "avoid thrashing while the audio buffers");
+  assert.ok(h.el("backing-audio").playbackRate > 1, "temporarily accelerate lagging audio");
+  await h.advance(2200);
+  h.el("video").listeners.timeupdate();
+  assert.equal(h.el("backing-audio").currentTime, 89, "seek once when genuinely out of sync");
+  h.el("volume").value = "45";
+  h.el("volume").oninput();
+  assert.equal(h.el("backing-audio").volume, 0.45);
+
+  await h.el("audio-mode").onclick();
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.el("backing-audio").paused, true);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+});
+
+test("backing follows pause/seek/resume and falls back if its audio stalls", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "a", url: "/media/1/backing?token=a" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  const video = h.el("video");
+  const audio = h.el("backing-audio");
+  video.pause();
+  video.listeners.pause();
+  assert.equal(audio.paused, true);
+  video.currentTime = 35;
+  video.listeners.seeked();
+  assert.equal(audio.currentTime, 35);
+  await video.play();
+  video.listeners.play();
+  await Promise.resolve();
+  assert.equal(audio.paused, false);
+  video.listeners.waiting();
+  assert.equal(audio.paused, true, "a stalled video must pause its backing track");
+  video.listeners.playing();
+  // Playback events and resolved play promises can arrive in either order.
+  await Promise.resolve();
+  await Promise.resolve();
+  video.listeners.timeupdate();
+  await Promise.resolve();
+  assert.equal(audio.paused, false);
+  video.playbackRate = 1.25;
+  video.listeners.ratechange();
+  assert.equal(audio.playbackRate, 1.25);
+  audio.readyState = 1;
+  audio.listeners.waiting();
+  assert.equal(video.paused, true, "pause video while accompaniment buffers");
+  assert.equal(video.muted, true, "do not treat waiting as a decode failure");
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  await h.advance(1000);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  audio.readyState = 4;
+  audio.listeners.canplay();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(video.paused, false, "resume video after accompaniment can play");
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+});
+
+test("sustained accompaniment buffering falls back to original and resumes video", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "a", url: "/media/1/backing?token=a" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  h.el("backing-audio").readyState = 1;
+  h.el("backing-audio").listeners.waiting();
+  assert.equal(h.el("video").paused, true);
+  await h.advance(5200);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.el("video").paused, false);
+});
+
+test("switching songs invalidates a pending audio play and resets to original", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "song1", url: "/media/1/backing?token=a" }
+  };
+  await h.evaluate("syncQueue()");
+  let resolveAudio;
+  const audio = h.el("backing-audio");
+  audio.play = () =>
+    new Promise((resolve) => {
+      resolveAudio = resolve;
+    });
+  const switching = h.el("audio-mode").onclick();
+  assert.equal(h.el("video").muted, false); // Original remains audible while loading.
+  await h.evaluate('complete("skip")');
+  resolveAudio();
+  await switching;
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.el("video").muted, false);
+  assert.equal(audio.paused, true);
+  assert.equal(h.el("audio-mode").hidden, true);
+});
+
+test("revoking the primary TV restores original sound and drops the backing URL", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "song1", url: "/media/1/backing?token=a" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  h.evaluate('losePrimary("revoked")');
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.el("backing-audio").paused, true);
+  assert.equal(h.el("audio-mode").hidden, true);
+});
+
+test("TV poll uses the signed active view, not the compact queue song record", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = { id: 1, title: "Song", nickname: "A" };
+  h.calls.active = {
+    id: 1,
+    backing: { status: "ready", cache_key: "stable", url: "/media/1/backing?token=one" }
+  };
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("audio-mode").hidden, false);
+  await h.el("audio-mode").onclick();
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("video").muted, true);
+});
+
+test("backing decode failure never mutes the original soundtrack", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "x", url: "/media/1/backing?token=x" }
+  };
+  await h.evaluate("syncQueue()");
+  const audio = h.el("backing-audio");
+  audio.play = async () => {
+    throw Error("Not supported");
+  };
+  await h.el("audio-mode").onclick();
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.el("control-error").textContent.includes("切回原唱"), true);
+});
+
+test("guest-issued audio mode command uses the primary TV and reports its ACK", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "same", url: "/media/1/backing?token=one" }
+  };
+  await h.evaluate("syncQueue()");
+  assert.equal(h.el("video").muted, false);
+  await h.evaluate('handleRemote({ seq: 1, action: "audio_mode", song_id: 1, value: "backing" })');
+  assert.equal(h.el("video").muted, true);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(h.evaluate("remoteReport().backing_ready"), true);
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 1);
+  await h.evaluate('handleRemote({ seq: 2, action: "audio_mode", song_id: 1, value: "original" })');
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 2);
+  await h.evaluate('handleRemote({ seq: 3, action: "audio_mode", song_id: 2, value: "backing" })');
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 3);
+});
+
+test("guest audio command cannot activate unavailable backing audio", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  await h.evaluate('handleRemote({ seq: 1, action: "audio_mode", song_id: 1, value: "backing" })');
+  assert.equal(h.el("video").muted, false);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "original");
+  assert.equal(h.evaluate("remoteReport().ack_seq"), 1);
+});
+
+test("a cancelled audio play during seek is transient and preserves accompaniment", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "source", url: "/media/1/backing?token=one" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  const video = h.el("video");
+  const audio = h.el("backing-audio");
+  audio.play = async () => {
+    const error = new Error("The play request was interrupted by a new load request");
+    error.name = "AbortError";
+    throw error;
+  };
+  video.currentTime = 60;
+  video.seeking = true;
+  video.listeners.seeking();
+  video.seeking = false;
+  video.listeners.seeked();
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(video.muted, true);
+  assert.equal(h.el("control-error").textContent, "");
 });

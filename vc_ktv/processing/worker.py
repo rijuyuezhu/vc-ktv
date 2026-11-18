@@ -22,6 +22,7 @@ from vc_ktv.infra.process_cancel import (
     terminate_thread_children,
     thread_external_activity,
 )
+from vc_ktv.processing.backing_audio import BackingTracks
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -125,6 +126,7 @@ class AutoPrep:
         self.cache_retry_thread: threading.Thread | None = None
         self.cache_retry_cancel: threading.Event | None = None
         self.cache_retry_song_id: int | None = None
+        self.backing = BackingTracks(self)
 
     def start(self):
         with self.store.lock:
@@ -147,19 +149,27 @@ class AutoPrep:
     def stop(self):
         self.stop_signal.set()
         self.cancel_tv_cache_retry()
+        self.backing.cancel_current()
         for thread in self.workers:
             thread.join(timeout=2)
         if self.cache_retry_thread:
             self.cache_retry_thread.join(timeout=2)
         if self.budget_watcher:
             self.budget_watcher.join(timeout=2)
-        return all(not thread.is_alive() for thread in self.workers) and (
-            self.cache_retry_thread is None or not self.cache_retry_thread.is_alive()
+        backing_stopped = self.backing.stop()
+        return (
+            backing_stopped
+            and all(not thread.is_alive() for thread in self.workers)
+            and (
+                self.cache_retry_thread is None
+                or not self.cache_retry_thread.is_alive()
+            )
         )
 
     def cancel_song(self, song_id: int) -> list[int]:
         """Stop active child processes of a cancelled song, not other workers."""
         self.cancel_tv_cache_retry(song_id)
+        self.backing.cancel_current(song_id)
         with self.active_tasks_lock:
             task = self.active_tasks.get(song_id)
             if task is None:
@@ -413,6 +423,7 @@ class AutoPrep:
                     self.cancel_song(song_id)
                 self.cancel_external_tasks()
                 self.cancel_tv_cache_retry()
+                self.backing.cancel_current()
             except OSError:
                 log.exception("Failed to inspect room disk usage")
             try:
@@ -457,6 +468,7 @@ class AutoPrep:
                 target=self.watch_disk, name="vc-ktv-disk-budget", daemon=True
             )
             self.budget_watcher.start()
+        self.backing.start()
 
     def claim(self, lane="general"):
         with self.store.lock:
@@ -471,7 +483,9 @@ class AutoPrep:
             # Keep claim and in-memory accounting under the same Store lock.
             self.active_claims += 1
             self.busy.set()
-            return claimed
+        # Keep optional backing cancellation out of the Store mutex.
+        self.backing.cancel_current()
+        return claimed
 
     def _record_failure(self, row, error, attempt_started):
         record_failure(self.store, row, error, attempt_started)

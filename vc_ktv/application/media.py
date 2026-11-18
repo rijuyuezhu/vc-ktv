@@ -48,6 +48,21 @@ class MediaService:
         )
         return f"/media/{song['id']}?token={quote(token)}"
 
+    def backing_asset(self, song: dict) -> tuple[str, str | None, Path | None]:
+        return self.store.backing_asset(song)
+
+    def backing_view(self, song: dict) -> dict:
+        state, key, path = self.backing_asset(song)
+        if state != "ready" or not path:
+            return {"status": state}
+        identity = f"{self.events.active_id}:{song['id']}:{key}"
+        token = self.auth.sign("backing", identity, 8 * 3600)
+        return {
+            "status": "ready",
+            "cache_key": key,
+            "url": f"/media/{song['id']}/backing?token={quote(token)}",
+        }
+
     def overlay_bundle(self, song: dict) -> Path | None:
         """Find a compatible subtitle archive along the virtual replay lineage."""
         if song.get("prep_state") != "done" or song.get("skip_subtitles"):
@@ -159,6 +174,7 @@ class MediaService:
         info = self.store.replay_assets(info)
         info["media_url"] = self.signed_media(info)
         info["html_overlay"] = self.overlay_view(info)
+        info["backing"] = self.backing_view(info)
         return info
 
     def state_with_active(self) -> dict:

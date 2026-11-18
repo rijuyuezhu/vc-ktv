@@ -8,6 +8,7 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
     "subtitle-style": "subtitle_style",
     "video-quality": "video_quality",
     "allow-unsubtitled": "allow_unsubtitled",
+    "require-backing-ready": "require_backing_ready",
     "max-bandwidth-mbps": "max_bandwidth_mbps",
     "pause-orders": "orders_paused",
     "tv-html-overlay": "tv_html_overlay",
@@ -78,10 +79,16 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
     }, $("settings-save-btn"));
   $("queue-settings-save").onclick = () =>
     guarded(async () => {
-      const snapshot = savedValues(["queue-policy", "allow-unsubtitled", "pause-orders"]);
+      const snapshot = savedValues([
+        "queue-policy",
+        "allow-unsubtitled",
+        "require-backing-ready",
+        "pause-orders"
+      ]);
       await api("/api/admin/settings", "PUT", {
         queue_policy: $("queue-policy").value,
         allow_unsubtitled: $("allow-unsubtitled").checked,
+        require_backing_ready: $("require-backing-ready").checked,
         orders_paused: $("pause-orders").checked
       });
       markSaved(snapshot);

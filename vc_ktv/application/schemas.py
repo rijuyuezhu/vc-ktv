@@ -44,13 +44,14 @@ class TVRemoteCommand(BaseModel):
         "restart",
         "skip",
         "replay_next",
+        "audio_mode",
         "volume",
         "offset",
         "opacity",
         "smooth",
     ]
     song_id: int | None = Field(default=None, ge=1)
-    value: float | bool | None = None
+    value: float | bool | str | None = None
 
 
 class TVRemoteReport(BaseModel):
@@ -65,6 +66,8 @@ class TVRemoteReport(BaseModel):
     smooth: bool = False
     started: bool = False
     overlay: bool = False
+    audio_mode: Literal["original", "backing"] = "original"
+    backing_ready: bool = False
     error: str = Field(default="", max_length=150)
 
 

@@ -392,6 +392,9 @@ class Events:
                 folder / "songs.csv", csv_text() if callable(csv_text) else csv_text
             )
             media = folder / "media"
+            backing = folder / "backing"
+            if backing.is_symlink():
+                raise HTTPException(409, "伴唱目录不可为符号链接")
             freed = 0
             video_ext = {".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".ts"}
             if media.is_symlink():
@@ -413,6 +416,17 @@ class Events:
                 freed += self._release_alignment_intermediates(media)
                 if not any(media.iterdir()):
                     media.rmdir()
+            # Accompaniment is a generated media asset, unlike small retained
+            # covers and lyric metadata. Release it with the videos.
+            if backing.is_dir():
+                for file in backing.iterdir():
+                    if file.is_symlink():
+                        file.unlink()
+                    elif file.is_file():
+                        freed += file.stat().st_size
+                        file.unlink()
+                if not any(backing.iterdir()):
+                    backing.rmdir()
             entry["media_released_at"] = entry.get(
                 "media_released_at"
             ) or datetime.now().isoformat(timespec="seconds")

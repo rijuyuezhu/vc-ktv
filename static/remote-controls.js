@@ -30,7 +30,9 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
         ? "正在发送指令…"
         : "等待主屏确认…"
       : "";
-    const canTV = Boolean(online && tvRemoteState?.can_manage && !pending);
+    const canTV = Boolean(
+      online && tvRemoteState?.can_manage && (!pending || (tvRemoteState?.can_override && !sending))
+    );
     const songId = currentAdminSong?.id || null;
     const tvPlaying = online && status.active_id === songId && Boolean(songId);
     const playable = Boolean(
@@ -84,18 +86,36 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     displayTitle.href = currentAdminSong ? "#song-" + currentAdminSong.id : "#";
     displayTitle.tabIndex = currentAdminSong ? 0 : -1;
     $("tv-coming").textContent = nextAdminSong ? "下一首：" + nextAdminSong.title : "";
+    const audioMode = $("remote-audio-mode");
+    const backingAvailable = Boolean(status.backing_ready);
+    const activeBacking = status.audio_mode === "backing";
+    const showBacking = isTV && (backingAvailable || activeBacking);
+    audioMode.classList.toggle("hidden", !showBacking);
+    audioMode.title = activeBacking ? "切回原唱" : "切换伴奏";
+    $("remote-audio-mode-icon").src =
+      "/icons/" + (activeBacking ? "audio-original" : "audio-backing") + ".svg";
+    audioMode.setAttribute("aria-label", audioMode.title);
+    audioMode.setAttribute("aria-pressed", String(activeBacking));
+    audioMode.disabled = !canTV || !tvPlaying || (!backingAvailable && !activeBacking);
+    audioMode.closest(".remote-buttons").classList.toggle("has-backing", showBacking);
     if (status.error && isTV) $("remote-error").textContent = status.error;
     else $("remote-error").textContent = "";
   }
   async function sendRemote(action, value = null) {
     const { playbackMode, currentAdminSong, tvRemoteState } = getState();
     if (playbackMode !== "tv") throw Error("当前不是电视模式");
-    if (sending || tvRemoteState?.pending) throw Error("上一条指令正在执行");
-    const hasSong = ["pause", "resume", "restart", "skip", "replay_next"].includes(action);
+    if (sending || (tvRemoteState?.pending && !tvRemoteState?.can_override))
+      throw Error("上一条指令正在执行");
+    const hasSong = ["pause", "resume", "restart", "skip", "replay_next", "audio_mode"].includes(
+      action
+    );
     sending = true;
     if (action === "pause") optimisticPaused = true;
     if (action === "resume") optimisticPaused = false;
-    if (tvRemoteState) tvRemoteState.pending = true;
+    if (tvRemoteState) {
+      tvRemoteState.pending = true;
+      tvRemoteState.can_override = false;
+    }
     updateRemoteControls();
     try {
       await api("/api/admin/tv/remote", "POST", {
@@ -124,6 +144,11 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
       updateRemoteControls();
     }
   }
+  $("remote-audio-mode").onclick = () =>
+    remoteAction($("remote-audio-mode"), async () => {
+      const mode = getState().tvRemoteState?.report?.audio_mode;
+      await sendRemote("audio_mode", mode === "backing" ? "original" : "backing");
+    });
   $("remote-pause").onclick = () =>
     remoteAction($("remote-pause"), async () => {
       const { playbackMode, tvRemoteState } = getState();

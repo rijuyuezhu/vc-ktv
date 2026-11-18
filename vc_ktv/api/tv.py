@@ -103,6 +103,35 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
         principal = tv.auth.require_admin(vc_admin)
         return tv.send_command(principal, body.action, body.song_id, body.value)
 
+    @router.get("/api/guest/tv/events")
+    async def guest_remote_events(
+        request: Request, vc_guest: str | None = Cookie(default=None)
+    ):
+        # Same wakeup channel and SSE transport as the administrator remote.
+        # It carries no state; each subscriber separately checks song ownership.
+        event_id = tv.events.active_id
+
+        def authorize():
+            user = tv.auth.require_user(vc_guest)
+            if tv.events.active_id != event_id:
+                raise HTTPException(401, "场次已切换")
+            if not tv.guest_remote_state(user["id"]).get("available"):
+                raise HTTPException(403, "当前没有遥控权限")
+
+        return await events(request, "admin", authorize)
+
+    @router.get("/api/guest/tv-remote")
+    def guest_remote_state(vc_guest: str | None = Cookie(default=None)):
+        user = tv.auth.require_user(vc_guest)
+        return tv.guest_remote_state(user["id"])
+
+    @router.post("/api/guest/tv-remote")
+    def guest_remote_send(
+        body: TVRemoteCommand, vc_guest: str | None = Cookie(default=None)
+    ):
+        user = tv.auth.require_user(vc_guest)
+        return tv.send_guest_command(user["id"], body.action, body.song_id, body.value)
+
     @router.post("/api/tv/report")
     def tv_report(
         body: TVRemoteReport,

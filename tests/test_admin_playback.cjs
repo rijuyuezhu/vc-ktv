@@ -502,3 +502,51 @@ test("revoking a TV with an active song requests a full queue refresh", async ()
     h.cleanup();
   }
 });
+
+test("administrator can switch backing, including while preempting a guest command", async () => {
+  const h = await harness();
+  try {
+    h.state.tv = { active: true, can_manage: true };
+    h.state.remote = {
+      online: true,
+      can_manage: true,
+      can_override: false,
+      pending: false,
+      report: { active_id: 3, paused: false, audio_mode: "original", backing_ready: true }
+    };
+    await h.sync("tv", song(3));
+    const button = h.byId("remote-audio-mode");
+    assert.equal(button.classList.contains("hidden"), false);
+    assert.equal(button.disabled, false);
+    assert.equal(button.title, "切换伴奏");
+    assert.equal(h.byId("remote-audio-mode-icon").src, "/icons/audio-backing.svg");
+    assert.equal(button.getAttribute("aria-pressed"), "false");
+    await button.onclick();
+    assert.ok(
+      h.calls.some(
+        (c) =>
+          c.url === "/api/admin/tv/remote" &&
+          c.method === "POST" &&
+          JSON.parse(c.body).action === "audio_mode" &&
+          JSON.parse(c.body).value === "backing" &&
+          JSON.parse(c.body).song_id === 3
+      )
+    );
+    h.state.remote = {
+      ...h.state.remote,
+      pending: true,
+      can_override: true,
+      report: { active_id: 3, paused: true, audio_mode: "backing", backing_ready: true }
+    };
+    await h.playback.pollTVRemoteStatus();
+    assert.equal(button.disabled, false, "administrator can override guest remote command");
+    assert.equal(button.title, "切回原唱");
+    assert.equal(h.byId("remote-audio-mode-icon").src, "/icons/audio-original.svg");
+    assert.equal(button.getAttribute("aria-pressed"), "true");
+    await button.onclick();
+    const cmds = h.calls.filter((c) => c.url === "/api/admin/tv/remote" && c.method === "POST");
+    assert.equal(JSON.parse(cmds.at(-1).body).value, "original");
+  } finally {
+    h.cleanup();
+  }
+});
