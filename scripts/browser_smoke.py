@@ -657,7 +657,9 @@ def check_ui(
     page.locator("#login-btn").click()
     page.locator("#login-box").wait_for(state="hidden")
     page.locator("#admin-settings-link").wait_for(state="visible")
-    assert page.locator("#account-name").text_content() == "管理员"
+    page.wait_for_function(
+        "document.querySelector('#account-name').textContent === '管理员'"
+    )
     assert page.locator(".quick-nav").count() == 0
     page.locator("#account-menu summary").click()
     assert page.locator(".account-dropdown").inner_text().strip() == "退出登录"
