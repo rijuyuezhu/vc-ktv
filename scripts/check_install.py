@@ -7,6 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts.setup_pipeline_assets import digest
+from vc_ktv.processing.backing_audio import KARAOKE_FILENAME, KARAOKE_SHA256
+
 
 def probe(command: list[str]) -> str:
     try:
@@ -62,6 +65,19 @@ def checks(mode: str, config: Path, pipeline: Path) -> list[tuple[bool, str]]:
                 (
                     path.is_dir() if relative.endswith("/Kim") else path.is_file(),
                     f"pipeline/{relative}",
+                )
+            )
+        if os.getenv("VC_KTV_BACKING_TRACKS", "0") == "1":
+            checkpoint = Path(
+                os.getenv(
+                    "VC_KTV_BACKING_CHECKPOINT",
+                    str(pipeline / "models/separation/Karaoke" / KARAOKE_FILENAME),
+                )
+            ).expanduser()
+            results.append(
+                (
+                    checkpoint.is_file() and digest(checkpoint) == KARAOKE_SHA256,
+                    "Direct Karaoke checkpoint (SHA-256)",
                 )
             )
     return results

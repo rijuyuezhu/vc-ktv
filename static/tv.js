@@ -295,7 +295,7 @@ function offerBacking(song) {
   const available = song.backing?.status === "ready";
   const offer = available ? song.backing.url : null;
   const key = available ? song.backing.cache_key : null;
-  if (!offer && audioMode === "backing") originalAudio("伴唱不可用，已切回原唱");
+  if (!offer && audioMode === "backing") originalAudio("伴奏不可用，已切回原唱");
   if (key !== backingKey && audioMode === "backing") originalAudio();
   backingOffer = offer || null;
   backingKey = key || null;
@@ -369,7 +369,7 @@ async function switchAudioMode(mode) {
     reportRemote("", true).catch(() => {});
     return true;
   } catch {
-    if (version === audioVersion) originalAudio("伴唱不可播放，已切回原唱");
+    if (version === audioVersion) originalAudio("伴奏不可播放，已切回原唱");
     return false;
   }
 }
@@ -446,7 +446,7 @@ audioModeButton.onclick = async () => {
   showPanel();
 };
 backingAudio.addEventListener("error", () => {
-  if (audioMode === "backing") originalAudio("伴唱加载失败，已切回原唱");
+  if (audioMode === "backing") originalAudio("伴奏加载失败，已切回原唱");
 });
 backingAudio.addEventListener("waiting", () => {
   if (
@@ -469,7 +469,7 @@ backingAudio.addEventListener("waiting", () => {
 });
 backingAudio.addEventListener("canplay", recoverBackingStall);
 backingAudio.addEventListener("ended", () => {
-  if (audioMode === "backing" && !video.ended) originalAudio("伴唱提前结束，已切回原唱");
+  if (audioMode === "backing" && !video.ended) originalAudio("伴奏提前结束，已切回原唱");
 });
 let queueInFlight = false;
 let queuedStreamWake = false;
@@ -580,7 +580,7 @@ async function handleRemote(command) {
         await video.play();
         break;
       case "audio_mode":
-        if (!(await switchAudioMode(command.value))) throw Error("伴唱模式不可用");
+        if (!(await switchAudioMode(command.value))) throw Error("伴奏模式不可用");
         break;
       case "restart":
         cancelWarmup();

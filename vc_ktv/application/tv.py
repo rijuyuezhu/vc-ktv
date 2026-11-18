@@ -199,12 +199,12 @@ class TVSessionService:
                     bail(409, "歌曲已切换，请刷新")
                 if action == "audio_mode":
                     if value not in ("original", "backing"):
-                        bail(400, "未知的原唱/伴唱模式")
+                        bail(400, "未知的原唱/伴奏模式")
                     if (
                         value == "backing"
                         and self.media.backing_asset(current)[0] != "ready"
                     ):
-                        bail(409, "伴唱音轨尚未就绪")
+                        bail(409, "伴奏音轨尚未就绪")
             else:
                 limit = {"volume": (0, 100), "offset": (-600, 600), "opacity": (0, 100)}
                 if action == "smooth":

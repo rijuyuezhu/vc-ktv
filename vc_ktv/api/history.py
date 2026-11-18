@@ -46,8 +46,15 @@ def create_history_router(
             )
             rank = {song_id: i for i, song_id in enumerate(order)}
             records.sort(key=lambda song: rank.get(song["id"], len(rank)))
+            settings = store.settings()
             for song in records:
                 asset = store.replay_assets(song)
+                playable = {**song, "has_media": bool(asset.get("media_file"))}
+                song["awaiting_backing"] = (
+                    song["status"] == "ready"
+                    and Store.playable(playable, settings)
+                    and not store.can_play(playable, settings)
+                )
                 song["downloadable"] = (
                     Store.downloadable(asset)
                     and (
@@ -91,7 +98,8 @@ def create_history_router(
         vc_admin: str | None = Cookie(default=None),
     ):
         guest = current_user(vc_guest)
-        if guest is None and admin_principal(vc_admin) is None:
+        admin = admin_principal(vc_admin)
+        if guest is None and admin is None:
             require_user(vc_guest)
         with store.lock:
             row = store.db.execute(
@@ -126,9 +134,58 @@ def create_history_router(
                 and source.is_file()
                 and song["status"] in ("ready", "playing", "played", "skipped")
             )
+            settings = store.settings()
+            song["playable"] = store.can_play(song, settings)
+            song["awaiting_backing"] = (
+                song["status"] == "ready"
+                and Store.playable(song, settings)
+                and not song["playable"]
+            )
+            if (
+                admin is not None
+                and song["source_file"]
+                and source.is_file()
+                and not source.is_symlink()
+            ):
+                status, key, asset = store.backing_asset(song)
+                if status == "pending" and (
+                    not app.state.autoprep.backing.enabled
+                    or app.state.autoprep.backing.unavailable
+                    or not (
+                        app.state.autoprep.backing.thread
+                        and app.state.autoprep.backing.thread.is_alive()
+                    )
+                ):
+                    status = "unavailable"
+                row = (
+                    store.db.execute(
+                        "SELECT status,error,updated_at,elapsed_seconds "
+                        "FROM backing_tracks WHERE cache_key=?",
+                        (key,),
+                    ).fetchone()
+                    if key
+                    else None
+                )
+                current = (
+                    dict(row) if row is not None and row["status"] == status else None
+                )
+                song["backing"] = {
+                    "status": status,
+                    "elapsed_seconds": current["elapsed_seconds"]
+                    if current is not None
+                    else None,
+                    "started_at": (
+                        current["updated_at"]
+                        if current is not None and status == "processing"
+                        else None
+                    ),
+                    "size_bytes": asset.stat().st_size if asset else None,
+                    "error": current["error"]
+                    if current is not None and status == "failed"
+                    else "",
+                }
             song.pop("source_file", None)
             song.pop("media_file", None)
-            song["playable"] = Store.playable(song, store.settings())
             song["lyric_query"] = title_key(song["title"])
         return app.state.archive.with_cached_cover(events.active_id, song)
 

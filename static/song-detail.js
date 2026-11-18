@@ -153,6 +153,12 @@ export function setupSongDetail({
             await refresh();
           });
       }
+      if (song.backing?.status === "failed" && ["ready", "playing"].includes(song.status))
+        actionButton(actions, "重试伴奏", async () => {
+          await api("/api/admin/songs/" + song.id + "/backing/retry", "POST");
+          toast("已重新排队生成伴奏");
+          await refresh();
+        });
       if (song.status === "ready" && song.prep_state === "done" && song.has_media)
         actionButton(actions, "补做电视缓存", async () => {
           const result = await api("/api/admin/songs/" + song.id + "/tv-cache/retry", "POST");
@@ -299,6 +305,26 @@ export function setupSongDetail({
     }
   }
 
+  function backingStatus(backing) {
+    const elapsed =
+      backing.elapsed_seconds == null ? "" : `（${Number(backing.elapsed_seconds).toFixed(1)} 秒）`;
+    switch (backing.status) {
+      case "ready":
+        return "已就绪" + elapsed;
+      case "processing":
+        return "生成中";
+      case "failed":
+        return "失败" + elapsed;
+      case "pending":
+        return "等待生成";
+      default:
+        return "不可用";
+    }
+  }
+  function backingElapsed(startedAt) {
+    return Math.max(0, Math.floor(Date.now() / 1000 - startedAt)) + " 秒";
+  }
+
   function renderArchivedSong(target, song) {
     target.replaceChildren();
     const panel = appendText(target, "section", "", "panel song-detail-panel");
@@ -319,6 +345,9 @@ export function setupSongDetail({
       if (running && song.prep_stage_at)
         running.textContent =
           Math.max(0, Math.floor(Date.now() / 1000 - song.prep_stage_at)) + " 秒";
+      const backingRunning = $("page-song").querySelector(".backing-current-time");
+      if (backingRunning && song.backing?.started_at)
+        backingRunning.textContent = backingElapsed(song.backing.started_at);
       return;
     }
     detailKey = key;
@@ -347,7 +376,8 @@ export function setupSongDetail({
       const running =
         song.status !== "cancelled" && ["downloading", "aligning"].includes(song.prep_state);
       const privateError = song.prep_error && !song.skip_subtitles && !showPublicPrepError(song);
-      if (entries.length || running || privateError) {
+      const backing = song.backing;
+      if (entries.length || running || privateError || backing) {
         const details = appendText(panel, "details", "", "timing-details");
         details.open = timingWasOpen;
         appendText(details, "summary", "制作详情");
@@ -371,6 +401,27 @@ export function setupSongDetail({
             "role",
             "alert"
           );
+        if (backing) {
+          const line = appendText(details, "div", "", "timing-row");
+          appendText(line, "span", "伴奏生成");
+          const status = appendText(line, "span", backingStatus(backing));
+          if (backing.status === "processing" && backing.started_at) {
+            status.textContent = "生成中 ";
+            appendText(status, "span", backingElapsed(backing.started_at), "backing-current-time");
+          }
+          if (backing.size_bytes != null) {
+            const size = appendText(details, "div", "", "timing-row");
+            appendText(size, "span", "伴奏文件");
+            appendText(size, "span", (backing.size_bytes / 1024 / 1024).toFixed(1) + " MiB");
+          }
+          if (backing.error)
+            appendText(
+              details,
+              "span",
+              "伴奏生成失败：" + backing.error,
+              "ui-status ui-status-error"
+            ).setAttribute("role", "alert");
+        }
       }
     }
     if (isAdminPath() && song.status === "ready") {

@@ -24,10 +24,10 @@ def create_media_router(*, media, auth):
                 "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
             if not row:
-                bail(404, "伴唱音轨不存在")
+                bail(404, "伴奏音轨不存在")
             state, key, path = media.backing_asset(dict(row))
             if state != "ready" or not path:
-                bail(404, "伴唱尚未就绪")
+                bail(404, "伴奏尚未就绪")
             if read_signed(token, "backing") != (f"{events.active_id}:{song_id}:{key}"):
                 bail(403, "媒体链接无效或已过期")
             return media.pinned_response(

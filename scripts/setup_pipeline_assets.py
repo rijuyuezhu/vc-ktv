@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download pinned TIFA/Kim/Qwen assets into a configurable pipeline directory.
+"""Download pinned TIFA/Kim/Qwen/Karaoke assets into a configurable pipeline directory.
 
 This installs sources and model files, not CUDA/Python model runtimes.
 """
@@ -18,7 +18,7 @@ LOCK = (
     Path(__file__).resolve().parents[1] / "third_party/autoassrenderer/assets.lock.json"
 )
 ASSETS = json.loads(LOCK.read_text(encoding="utf-8"))["assets"]
-CHOICES = {"tifa", "kim", "qwen", "all"}
+CHOICES = {"tifa", "kim", "qwen", "karaoke", "all"}
 
 
 def selected(group):
@@ -34,6 +34,7 @@ def selected(group):
                 and name in ("kim-source.zip", "Kim-MelBandRoformer.ckpt")
             )
             or (group in ("qwen", "all") and name.startswith("qwen-"))
+            or (group in ("karaoke", "all") and name.startswith("karaoke-"))
         ):
             yield item
 

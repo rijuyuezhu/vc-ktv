@@ -89,6 +89,28 @@ class AdminPreparationService:
                 bail(409, str(error))
         return {"ok": True, "status": "started"}
 
+    def retry_backing(self, song_id: int):
+        worker = self.worker().backing
+        if (
+            not worker.enabled
+            or worker.unavailable
+            or not (worker.thread and worker.thread.is_alive())
+        ):
+            bail(409, "伴奏后台任务未运行，请检查模型与服务设置")
+        with self.store.lock:
+            row = self.store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if row is None:
+                bail(404, "歌曲不存在")
+            if row["status"] not in ("ready", "playing"):
+                bail(409, "仅可重试待播或正在播放的歌曲")
+            if self.store.backing_asset(dict(row))[0] != "failed":
+                bail(409, "当前伴奏不需要重试")
+            if not worker.retry(dict(row)):
+                bail(409, "原片不可用，无法重试伴奏")
+        return {"ok": True, "status": "pending"}
+
     def retry_subtitles(self, song_id: int):
         store = self.store
         with store.lock:

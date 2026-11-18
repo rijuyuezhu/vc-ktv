@@ -242,6 +242,13 @@ def create_app(
                 thread.is_alive() for thread in lifecycle.worker.workers
             ),
             "gpu_alignment": gpu_alignment,
+            "backing_enabled": lifecycle.worker.backing.enabled,
+            "backing_ready": bool(
+                lifecycle.worker.backing.enabled
+                and not lifecycle.worker.backing.unavailable
+                and lifecycle.worker.backing.thread
+                and lifecycle.worker.backing.thread.is_alive()
+            ),
             "autoprep_ready": (
                 auto_prepare
                 and (

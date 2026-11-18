@@ -64,6 +64,13 @@ class Store:
                 error TEXT NOT NULL DEFAULT '',
                 updated_at INTEGER NOT NULL DEFAULT 0);
         """)
+        backing_columns = {
+            row[1] for row in self.db.execute("PRAGMA table_info(backing_tracks)")
+        }
+        if "elapsed_seconds" not in backing_columns:
+            self.db.execute(
+                "ALTER TABLE backing_tracks ADD COLUMN elapsed_seconds REAL"
+            )
         # Scheduling offsets are deliberately separate from real performance
         # statistics: late arrivals must not appear to have sung before joining.
         guest_columns = {row[1] for row in self.db.execute("PRAGMA table_info(guests)")}
@@ -315,7 +322,11 @@ class Store:
         return self.backing_asset(song)[0] == "ready"
 
     def backing_asset(self, song):
-        from vc_ktv.processing.backing_audio import KARAOKE_SHA256, source_identity
+        from vc_ktv.processing.backing_audio import (
+            KARAOKE_SHA256,
+            ready_audio_file,
+            source_identity,
+        )
 
         # Queue previews are compact rows without source_file; resolve their
         # real source before applying the same content-identity cache gate.
@@ -347,18 +358,9 @@ class Store:
             if os.getenv("VC_KTV_BACKING_TRACKS", "0") != "1":
                 state = "unavailable"
         if state == "ready":
-            folder = self.root / "backing"
-            file = folder / f"{key}.m4a"
-            try:
-                if (
-                    not folder.is_symlink()
-                    and not file.is_symlink()
-                    and file.is_file()
-                    and file.stat().st_size >= 1024
-                ):
-                    return "ready", key, file
-            except OSError:
-                pass
+            file = ready_audio_file(self.root, key)
+            if file is not None:
+                return "ready", key, file
             state = "pending"
         return state, key, None
 

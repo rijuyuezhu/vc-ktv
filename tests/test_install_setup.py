@@ -128,6 +128,64 @@ def test_asset_download_group_uses_pipeline_root_env(monkeypatch, tmp_path):
     assert all(tmp_path in target.parents for target in targets)
 
 
+def test_karaoke_install_uses_shared_asset_downloader(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setenv("VC_KTV_PIPELINE_ROOT", str(tmp_path))
+    monkeypatch.setattr(sys, "argv", ["setup_pipeline_assets", "karaoke"])
+    monkeypatch.setattr(
+        setup_pipeline_assets,
+        "download",
+        lambda item, root: (
+            seen.append((item["name"], root / item["target"])) or "cached"
+        ),
+    )
+    setup_pipeline_assets.main()
+    assert len(seen) == 1
+    assert seen[0][0] == "karaoke-melband-roformer.ckpt"
+    assert tmp_path in seen[0][1].parents
+
+
+def test_gpu_check_validates_karaoke_only_when_enabled(tmp_path, monkeypatch):
+    from vc_ktv.processing.backing_audio import KARAOKE_FILENAME
+
+    config = tmp_path / "config"
+    config.mkdir()
+    (config / "admin-password").touch()
+    (config / "token-secret").touch()
+    monkeypatch.setattr(check_install.shutil, "which", lambda _: "/bin/test")
+    monkeypatch.setattr(
+        check_install,
+        "probe",
+        lambda cmd: (
+            " subtitles "
+            if cmd[-1] == "-filters"
+            else "libx264"
+            if cmd[-1] == "-encoders"
+            else "Noto Sans CJK SC"
+        ),
+    )
+    model = tmp_path / "models/separation/Karaoke" / KARAOKE_FILENAME
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
+    assert ("Direct Karaoke checkpoint (SHA-256)", False) in [
+        (name, ok) for ok, name in check_install.checks("gpu", config, tmp_path)
+    ]
+    model.parent.mkdir(parents=True)
+    model.write_bytes(b"not the pinned model")
+    assert ("Direct Karaoke checkpoint (SHA-256)", False) in [
+        (name, ok) for ok, name in check_install.checks("gpu", config, tmp_path)
+    ]
+    monkeypatch.setattr(
+        check_install, "digest", lambda file: check_install.KARAOKE_SHA256
+    )
+    assert ("Direct Karaoke checkpoint (SHA-256)", True) in [
+        (name, ok) for ok, name in check_install.checks("gpu", config, tmp_path)
+    ]
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "0")
+    assert "Direct Karaoke checkpoint (SHA-256)" not in [
+        name for _, name in check_install.checks("gpu", config, tmp_path)
+    ]
+
+
 def test_runtime_default_root_uses_pipeline_root_env(tmp_path):
     result = subprocess.check_output(
         [

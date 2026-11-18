@@ -70,6 +70,12 @@ def test_result_ready_and_replay_reuses_same_asset(tmp_path):
     assert called == [source.name]
     assert svc.state(get_row(store, 1)) == "ready"
     assert svc.state(get_row(store, 2)) == "ready"
+    with store.lock:
+        record = store.db.execute(
+            "SELECT elapsed_seconds FROM backing_tracks WHERE cache_key=?", (key,)
+        ).fetchone()
+        assert record["elapsed_seconds"] is not None
+        assert record["elapsed_seconds"] >= 0
     assert (store.root / "backing" / f"{key}.m4a").read_bytes() == b"backing" * 512
     assert svc._candidate() is None
     assert not list(store.root.glob("vc-ktv-*-backing-*"))
@@ -104,8 +110,20 @@ def test_failures_are_retryable_and_do_not_touch_original(tmp_path):
     assert source.is_file()
     assert svc.state(get_row(store, 1)) == "failed"
     assert svc._candidate() is None
+    with store.lock:
+        record = store.db.execute(
+            "SELECT elapsed_seconds,error FROM backing_tracks WHERE cache_key=?", (key,)
+        ).fetchone()
+        assert record["elapsed_seconds"] is not None
+        assert record["error"] == "RuntimeError"
     assert svc.retry(get_row(store, 1))
     assert svc.state(get_row(store, 1)) == "pending"
+    assert (
+        store.db.execute(
+            "SELECT elapsed_seconds FROM backing_tracks WHERE cache_key=?", (key,)
+        ).fetchone()[0]
+        is None
+    )
     assert svc._candidate() is not None
 
 
@@ -297,3 +315,42 @@ def test_release_does_not_follow_backing_directory_symlink(tmp_path):
     assert error.value.status_code == 409
     assert (folder / "media" / "video.mp4").is_file()
     assert (external / "secret.m4a").read_bytes() == b"outside"
+
+
+def test_invalid_cached_aac_is_requeued_and_regenerated(tmp_path):
+    def generate(_source, target, _staging, **kwargs):
+        target.write_bytes(b"valid AAC content" * 200)
+
+    svc, store, source = setup(tmp_path, generate)
+    song_id, _, key = svc._candidate()
+    svc._process(song_id, source, key)
+    file = store.root / "backing" / f"{key}.m4a"
+    assert svc.state(get_row(store, 1)) == "ready"
+    file.write_bytes(b"damaged")
+    assert svc.state(get_row(store, 1)) == "pending"
+    candidate = svc._candidate()
+    assert candidate and candidate[2] == key
+    svc._process(*candidate)
+    assert svc.state(get_row(store, 1)) == "ready"
+    assert file.stat().st_size > 1024
+
+
+def test_symlinked_cached_aac_is_regenerated_without_following_link(tmp_path):
+    def generate(_source, target, _staging, **kwargs):
+        target.write_bytes(b"safe output" * 210)
+
+    svc, store, source = setup(tmp_path, generate)
+    song_id, _, key = svc._candidate()
+    svc._process(song_id, source, key)
+    file = store.root / "backing" / f"{key}.m4a"
+    file.unlink()
+    outside = tmp_path / "external.m4a"
+    outside.write_bytes(b"external untouched" * 200)
+    file.symlink_to(outside)
+    assert svc.state(get_row(store, 1)) == "pending"
+    candidate = svc._candidate()
+    assert candidate is not None
+    svc._process(*candidate)
+    assert outside.read_bytes() == b"external untouched" * 200
+    assert not file.is_symlink()
+    assert svc.state(get_row(store, 1)) == "ready"

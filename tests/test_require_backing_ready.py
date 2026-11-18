@@ -16,6 +16,13 @@ def event(tmp_path, monkeypatch):
         auto_prepare=False,
     )
     app.state.events.create("Test", "123456")
+
+    # Scheduler tests bypass the actual GPU worker but retain the admin contract.
+    class Running:
+        def is_alive(self):
+            return True
+
+    app.state.autoprep.backing.thread = Running()
     return app
 
 
