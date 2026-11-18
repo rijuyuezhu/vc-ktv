@@ -60,6 +60,7 @@ def test_admin_detail_shows_persisted_backing_timings_and_size(tmp_path, monkeyp
         detail = admin.get(f"/api/songs/{song_id}/detail").json()
         assert detail["backing"]["status"] == "pending"
         assert detail["backing"]["elapsed_seconds"] is None
+        assert detail["backing"]["retryable"] is False
 
         started = int(time.time()) - 16
         record(app, key, "processing", started_at=started)
@@ -84,6 +85,7 @@ def test_admin_detail_shows_persisted_backing_timings_and_size(tmp_path, monkeyp
         assert detail["backing"]["elapsed_seconds"] == 13.25
         assert detail["backing"]["size_bytes"] is None
         assert detail["backing"]["error"] == "RuntimeError"
+        assert detail["backing"]["retryable"] is True
 
 
 def test_admin_retry_auth_state_and_forced_queue_recovery(tmp_path, monkeypatch):

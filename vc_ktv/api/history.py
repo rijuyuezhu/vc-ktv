@@ -180,6 +180,14 @@ def create_history_router(
                         else None
                     ),
                     "size_bytes": asset.stat().st_size if asset else None,
+                    "retryable": bool(
+                        status == "failed"
+                        and song["status"] in ("ready", "playing")
+                        and app.state.autoprep.backing.enabled
+                        and not app.state.autoprep.backing.unavailable
+                        and app.state.autoprep.backing.thread
+                        and app.state.autoprep.backing.thread.is_alive()
+                    ),
                     "error": current["error"]
                     if current is not None and status == "failed"
                     else "",

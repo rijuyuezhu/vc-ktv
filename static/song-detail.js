@@ -153,7 +153,7 @@ export function setupSongDetail({
             await refresh();
           });
       }
-      if (song.backing?.status === "failed" && ["ready", "playing"].includes(song.status))
+      if (song.backing?.retryable)
         actionButton(actions, "重试伴奏", async () => {
           await api("/api/admin/songs/" + song.id + "/backing/retry", "POST");
           toast("已重新排队生成伴奏");

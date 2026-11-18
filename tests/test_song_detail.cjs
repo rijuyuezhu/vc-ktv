@@ -645,6 +645,7 @@ test("admin song detail shows accompaniment state, duration, size and retry", as
         started_at: null,
         elapsed_seconds: 13.2,
         size_bytes: null,
+        retryable: true,
         error: "RuntimeError"
       }
     });
