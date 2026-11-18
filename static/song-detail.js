@@ -109,6 +109,13 @@ export function setupSongDetail({
               : null
           )
         );
+      if (song.can_move_first)
+        actionButton(actions, "移到我的最前面", async () => {
+          await api("/api/songs/" + song.id + "/move-first", "POST");
+          toast("已调整我的点歌顺序");
+          invalidateSongDetail();
+          await refresh();
+        });
       if (song.mine && ["waiting", "ready", "rendering"].includes(song.status))
         actionButton(actions, "取消点歌", () => cancelGuestSong(song.id), "subtle");
       if (["played", "skipped"].includes(song.status) && song.downloadable)

@@ -30,6 +30,11 @@ def create_playback_router(
         require_admin(vc_admin)
         return playback.pin_next(song_id)
 
+    @router.post("/api/songs/{song_id}/move-first")
+    def move_own_song_first(song_id: int, vc_guest: str | None = Cookie(default=None)):
+        user = require_user(vc_guest)
+        return playback.move_own_song_first(song_id, user["id"])
+
     @router.post("/api/songs/{song_id}/replay")
     def replay_own_turn(song_id: int, vc_guest: str | None = Cookie(default=None)):
         user = require_user(vc_guest)

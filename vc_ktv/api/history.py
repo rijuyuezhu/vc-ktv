@@ -103,10 +103,10 @@ def create_history_router(
             require_user(vc_guest)
         with store.lock:
             row = store.db.execute(
-                """SELECT s.id,s.title,s.bvid,s.page,s.source_type,s.source_id,
+                """SELECT s.id,s.title,s.bvid,s.page,s.requested_at,s.source_type,s.source_id,
                           s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.prep_attempts,s.prep_retry_at,
-                          s.skip_subtitles,s.priority_next,
+                          s.skip_subtitles,s.priority_next,s.personal_order,
                           s.played_at,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
                           s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,
@@ -136,6 +136,18 @@ def create_history_router(
             )
             settings = store.settings()
             song["playable"] = store.can_play(song, settings)
+            song["can_move_first"] = bool(
+                song["mine"]
+                and song["playable"]
+                and any(
+                    s["requester_id"] == song["requester_id"]
+                    and store.can_play(s, settings)
+                    and store.personal_order_key(s) < store.personal_order_key(song)
+                    for s in store.songs()
+                )
+            )
+            song.pop("personal_order", None)
+            song.pop("requested_at", None)
             song["awaiting_backing"] = (
                 song["status"] == "ready"
                 and Store.playable(song, settings)

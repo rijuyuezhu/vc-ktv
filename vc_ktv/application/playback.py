@@ -107,6 +107,43 @@ class PlaybackService:
                 raise
         return {"ok": True, "id": song_id, "priority_next": True}
 
+    def move_own_song_first(self, song_id: int, guest_id: str) -> dict:
+        with self.store.lock:
+            row = self.store.db.execute(
+                "SELECT requester FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if row is None:
+                bail(404, "歌曲不存在")
+            if row["requester"] != guest_id:
+                bail(403, "只能调整自己点的歌曲")
+            pool = self.store.songs()
+            settings = self.store.settings()
+            songs = [
+                s
+                for s in pool
+                if s["requester_id"] == guest_id and self.store.can_play(s, settings)
+            ]
+            song = next((s for s in songs if s["id"] == song_id), None)
+            if song is None:
+                bail(409, "只能移动已经准备好、尚未开唱的歌曲")
+            songs.sort(key=self.store.personal_order_key)
+            if songs[0]["id"] != song_id:
+                # Decreasing per-user rank keeps the original request timestamp
+                # intact and supports any number of consecutive moves.
+                first_rank = min(
+                    s["personal_order"] for s in pool if s["requester_id"] == guest_id
+                )
+                try:
+                    self.store.db.execute(
+                        "UPDATE songs SET personal_order=? WHERE id=?",
+                        (min(0, first_rank) - 1, song_id),
+                    )
+                    self.store.db.commit()
+                except sqlite3.Error:
+                    self.store.db.rollback()
+                    raise
+        return {"ok": True, "id": song_id}
+
     def schedule_replay(
         self, song_id: int, *, current_only: bool = False, guest_id: str | None = None
     ) -> dict:

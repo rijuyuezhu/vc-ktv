@@ -129,6 +129,7 @@ class Store:
             ("prep_stage_at", "INTEGER NOT NULL DEFAULT 0"),
             ("prep_timing", "TEXT NOT NULL DEFAULT '{}'"),
             ("priority_next", "INTEGER NOT NULL DEFAULT 0"),
+            ("personal_order", "INTEGER NOT NULL DEFAULT 0"),
             ("replay_of", "INTEGER"),
             ("lyric_timing_mode", "TEXT NOT NULL DEFAULT 'align'"),
             ("provider_lrc", "TEXT NOT NULL DEFAULT ''"),
@@ -199,7 +200,7 @@ class Store:
                    s.title,s.uploader,s.cover,s.duration,
                    s.requested_at,s.status,(s.media_file IS NOT NULL OR s.replay_of IS NOT NULL) AS has_media,s.render_error,
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
-                   s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.replay_of,
+                   s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.personal_order,s.replay_of,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
                    s.lyric_timing_mode,s.lyric_offset_ms,
                    g.name AS nickname,g.id AS requester_id,s.lyrics != '' AS has_lyrics
@@ -364,6 +365,14 @@ class Store:
             state = "pending"
         return state, key, None
 
+    @staticmethod
+    def personal_order_key(song):
+        return (
+            song.get("personal_order", 0),
+            song["requested_at"],
+            song["id"],
+        )
+
     def fair_queue(self, pool=None, settings=None, *, persist=False):
         """Order ready songs with at most two turns of accumulated catch-up.
 
@@ -378,8 +387,19 @@ class Store:
         # The single admin-selected next song precedes ordinary fair/FCFS ordering.
         priority = [s for s in ready if s["priority_next"]]
         ready = [s for s in ready if not s["priority_next"]]
+        # Keep the original global slots; only replace which song occupies
+        # each singer's slot. Neither FCFS nor fair turns become global jumps.
+        slots_by_user = defaultdict(list)
+        for song in ready:
+            slots_by_user[song["requester_id"]].append(song)
+        songs_by_user = {
+            user: deque(sorted(songs, key=self.personal_order_key))
+            for user, songs in slots_by_user.items()
+        }
         if settings["queue_policy"] == "fcfs":
-            return priority + ready  # songs() already orders by requested_at/id.
+            return priority + [
+                songs_by_user[song["requester_id"]].popleft() for song in ready
+            ]
         users = {x["id"]: x for x in self.rows("SELECT * FROM guests")}
         # Simulate future turns so the displayed order reflects selection policy.
         tally = {k: u["plays"] + u["fair_offset"] for k, u in users.items()}
@@ -410,15 +430,17 @@ class Store:
         previous = last[0] if last else ""
         if current and not current["fair_exempt"]:
             previous = current["requester"]
-        # Each singer's oldest request is the only eligible candidate.
-        # A heap avoids repeatedly scanning/removing the entire song list.
-        songs_by_user = defaultdict(deque)
-        for song in ready:
-            songs_by_user[song["requester_id"]].append(song)
+        # A heap selects one candidate per singer. A personal reorder doesn't
+        # change the timestamp of that singer's next *turn*.
+        # Use original request slots for cross-singer ties.
+        turn_slots = {
+            user: deque((s["requested_at"], s["id"]) for s in songs)
+            for user, songs in slots_by_user.items()
+        }
 
         def candidate(user):
-            song = songs_by_user[user][0]
-            return (tally[user], song["requested_at"], song["id"], user)
+            requested_at, song_id = turn_slots[user][0]
+            return (tally[user], requested_at, song_id, user)
 
         heads = [candidate(user) for user in songs_by_user]
         heapq.heapify(heads)
@@ -434,6 +456,7 @@ class Store:
                 chosen_head = first
             user = chosen_head[3]
             chosen = songs_by_user[user].popleft()
+            turn_slots[user].popleft()
             output.append(chosen)
             tally[user] += 1
             previous = user
@@ -466,7 +489,9 @@ class Store:
             for s in self.songs()
             if s["status"] in ("ready", "waiting", "rendering")
         ]
-        predicted = self.fair_queue(unplayed_pool)
+        predicted = self.fair_queue(
+            unplayed_pool, {**self.settings(), "require_backing_ready": False}
+        )
         cancelled = [s for s in songs if s["status"] == "cancelled"]
         ordered = [
             *(s["id"] for s in finished),
