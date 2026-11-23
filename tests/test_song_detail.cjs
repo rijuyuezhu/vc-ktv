@@ -748,3 +748,27 @@ test("unready, already playing, foreign songs and administrator views cannot mov
     admin.cleanup();
   }
 });
+
+test("admin backing status distinguishes unclaimed, queued and no longer planned", async () => {
+  const h = await harness(true);
+  try {
+    for (const [state, label] of [
+      ["unscheduled", "尚未调度"],
+      ["pending", "等待生成"],
+      ["not_planned", "未生成（已结束）"]
+    ]) {
+      h.state.song = baseSong({ backing: { status: state, error: "" } });
+      await h.refreshSongDetail();
+      const rows = all(h.byId("page-song"), (node) => node.classList.contains("timing-row"));
+      assert.ok(
+        rows.some(
+          (row) =>
+            row.children[0]?.textContent === "伴奏生成" && row.children[1]?.textContent === label
+        ),
+        label
+      );
+    }
+  } finally {
+    h.cleanup();
+  }
+});

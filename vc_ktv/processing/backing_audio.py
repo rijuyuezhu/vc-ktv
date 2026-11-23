@@ -21,6 +21,8 @@ log = logging.getLogger(__name__)
 KARAOKE_SHA256 = "1de20d459332fe8869aeb01327a31df0032262706e1365114e852dc271779813"
 KARAOKE_FILENAME = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
 BACKING_ALGORITHM = "direct-melband-v1"
+# Under sustained AutoPrep load, give one optional attempt a chance each minute.
+BUSY_RETRY_INTERVAL = 60
 
 
 def source_identity(source: Path, model_sha256: str) -> str:
@@ -175,6 +177,7 @@ class BackingTracks:
         self.active_song_id: int | None = None
         self.active_tid: int | None = None
         self.lock = threading.RLock()
+        self.next_busy_attempt = time.monotonic() + BUSY_RETRY_INTERVAL
 
     @property
     def store(self):
@@ -250,13 +253,37 @@ class BackingTracks:
 
     def _candidate(self) -> tuple[int, Path, str] | None:
         with self.store.lock:
-            if self.owner.stop_signal.is_set() or self.owner.active_claims:
+            if self.owner.stop_signal.is_set():
                 return None
-            if self._normal_work_pending():
+            # Normal preparation goes first, but never indefinitely. A running
+            # backing attempt is allowed to complete rather than being reset by
+            # each new AutoPrep claim.
+            busy = self.owner.active_claims or self._normal_work_pending()
+            if busy and time.monotonic() < self.next_busy_attempt:
                 return None
-            for song in self.store.rows(
+            songs = self.store.rows(
                 "SELECT * FROM songs WHERE status IN ('ready','playing') ORDER BY requested_at,id"
-            ):
+            )
+            # Follow the same policy, admin priority and personal reordering as
+            # the TV queue. Ignore the backing-ready gate while predicting it.
+            settings = {**self.store.settings(), "require_backing_ready": False}
+            order = {
+                song["id"]: i
+                for i, song in enumerate(self.store.fair_queue(settings=settings))
+            }
+            songs.sort(
+                key=lambda song: (
+                    0
+                    if song["id"] in order
+                    else 1
+                    if song["status"] == "playing"
+                    else 2,
+                    order.get(song["id"], 0),
+                    song["requested_at"],
+                    song["id"],
+                )
+            )
+            for song in songs:
                 resolved = self.store.replay_assets(song)
                 name = resolved.get("source_file")
                 if not name or Path(name).name != name:
@@ -412,6 +439,7 @@ class BackingTracks:
                     self.store.db.commit()
         finally:
             with self.store.lock:
+                self.next_busy_attempt = time.monotonic() + BUSY_RETRY_INTERVAL
                 self.store.db.execute(
                     "UPDATE backing_tracks SET status='pending' "
                     "WHERE cache_key=? AND status='processing'",
@@ -427,8 +455,10 @@ class BackingTracks:
                     continue
                 song_id, source, key = candidate
                 with self.store.lock:
-                    # A main worker might have claimed work since candidate selection.
-                    if self.owner.active_claims or self._normal_work_pending():
+                    # A new normal task may have appeared since selection.
+                    if (
+                        self.owner.active_claims or self._normal_work_pending()
+                    ) and time.monotonic() < self.next_busy_attempt:
                         self.store.db.execute(
                             "UPDATE backing_tracks SET status='pending' "
                             "WHERE cache_key=? AND status='processing'",

@@ -354,3 +354,102 @@ def test_symlinked_cached_aac_is_regenerated_without_following_link(tmp_path):
     assert outside.read_bytes() == b"external untouched" * 200
     assert not file.is_symlink()
     assert svc.state(get_row(store, 1)) == "ready"
+
+
+def test_busy_prep_eventually_gives_backing_a_complete_attempt(tmp_path):
+    import time
+
+    def generate(_source, target, _staging, **_kwargs):
+        target.write_bytes(b"backing" * 512)
+
+    svc, store, _ = setup(tmp_path, generate)
+    other = store.media / "3-original.mp4"
+    other.write_bytes(b"another original" * 200)
+    with store.lock:
+        store.db.execute(
+            """INSERT INTO songs
+               (id,bvid,page,title,uploader,cover,duration,requester,requested_at,
+                status,prep_state,source_file,media_file)
+               VALUES(3,'BV0000000003',1,'More','UP','',50,'g',3,
+                      'ready','original',?,?)""",
+            (other.name, other.name),
+        )
+        store.db.execute(
+            """INSERT INTO songs
+               (id,bvid,page,title,uploader,cover,duration,requester,requested_at,status)
+               VALUES(4,'BV0000000004',1,'Downloading','UP','',50,'g',4,'waiting')"""
+        )
+        store.db.commit()
+    svc.owner.active_claims = 2
+    assert svc._candidate() is None  # Foreground gets the initial quiet window.
+    svc.next_busy_attempt = time.monotonic() - 1
+    selected = svc._candidate()
+    assert selected is not None
+    svc._process(*selected)
+    assert svc.state(get_row(store, selected[0])) == "ready"
+    assert svc._candidate() is None  # Prevent back-to-back GPU contention.
+    svc.next_busy_attempt = time.monotonic() - 1
+    assert svc._candidate() is not None  # Can make progress under continuing load.
+
+
+def test_backing_follows_tv_priority_and_personal_song_order(tmp_path):
+    svc, store, _ = setup(tmp_path, lambda *_a, **_kw: None)
+    for song_id, ordered_at in ((3, 3), (4, 4)):
+        source = store.media / f"{song_id}-original.mp4"
+        source.write_bytes(b"audio" * 400)
+        with store.lock:
+            store.db.execute(
+                """INSERT INTO songs
+                   (id,bvid,page,title,uploader,cover,duration,requester,requested_at,
+                    status,prep_state,source_file,media_file,personal_order)
+                   VALUES(?,'BV0000000003',1,'Other','UP','',50,'g',?,
+                          'ready','done',?,?,?)""",
+                (song_id, ordered_at, source.name, source.name, ordered_at),
+            )
+            store.db.commit()
+    store.save_settings(None, None, require_backing_ready=True)
+    assert svc._candidate()[0] == 3  # Backing gate cannot empty the predicted queue.
+    with store.lock:
+        store.db.execute("UPDATE backing_tracks SET status='failed'")
+        store.db.execute("UPDATE songs SET personal_order=0 WHERE id=4")
+        store.db.commit()
+    assert svc._candidate()[0] == 4
+
+
+def test_played_songs_are_not_reclaimed_but_new_replays_share_cache(tmp_path):
+    svc, store, source = setup(
+        tmp_path, lambda _, t, __, **kw: t.write_bytes(b"x" * 2048)
+    )
+    assert svc._candidate() is not None
+    with store.lock:
+        store.db.execute("UPDATE songs SET status='played' WHERE id=1")
+        # Simulate an interrupted attempt that recovered into pending.
+        store.db.execute("UPDATE backing_tracks SET status='pending'")
+        store.db.commit()
+    assert svc._candidate() is None
+    with store.lock:
+        store.db.execute("UPDATE songs SET status='ready' WHERE id=2")
+        store.db.commit()
+    candidate = svc._candidate()
+    assert candidate and candidate[0] == 2 and candidate[1] == source
+    svc._process(*candidate)
+    assert svc.state(get_row(store, 1)) == "ready"
+    assert svc.state(get_row(store, 2)) == "ready"
+
+
+def test_auto_prep_claim_does_not_cancel_inflight_backing(tmp_path, monkeypatch):
+    import vc_ktv.processing.worker as worker_module
+    from vc_ktv.processing.worker import AutoPrep
+
+    store = Store(tmp_path / "room")
+    owner = AutoPrep(store, lambda _: 1, max_workers=1)
+    cancelled = []
+    monkeypatch.setattr(
+        owner.backing, "cancel_current", lambda *_: cancelled.append(True)
+    )
+    monkeypatch.setattr(
+        worker_module, "claim_next_locked", lambda *_: {"id": 42, "status": "waiting"}
+    )
+    assert owner.claim() is not None
+    assert owner.active_claims == 1
+    assert cancelled == []

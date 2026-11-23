@@ -181,6 +181,13 @@ def create_history_router(
                 current = (
                     dict(row) if row is not None and row["status"] == status else None
                 )
+                # Playback still treats a missing asset as pending; the admin
+                # detail should not imply that an unclaimed job was enqueued.
+                if status == "pending":
+                    if song["status"] not in ("ready", "playing"):
+                        status = "not_planned"
+                    elif row is None:
+                        status = "unscheduled"
                 song["backing"] = {
                     "status": status,
                     "elapsed_seconds": current["elapsed_seconds"]
