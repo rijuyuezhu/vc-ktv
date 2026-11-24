@@ -371,6 +371,24 @@ def test_native_codec_variant_reuses_timeline_and_backing(tmp_path, monkeypatch)
         ).read_bytes()
         assert not baked.exists()
         assert source.exists()
+        # Matching audio does not establish identical visuals for provider
+        # variants. Returning to the old provider source must still rebake.
+        previous_render = updated["media_file"]
+        assert (
+            admin.put(
+                "/api/admin/settings", json={"original_codec_mode": "av1"}
+            ).json()["outdated_count"]
+            == 1
+        )
+        assert admin.post(f"/api/admin/songs/{song_id}/refresh").json()["count"] == 1
+        refresh.execute_refresh(worker, worker.claim())
+        returned = get_song(store, song_id)
+        assert returned["source_file"] == source.name
+        assert returned["media_file"] != previous_render
+        assert not (store.media / previous_render).exists()
+        assert len(observed) == 1
+        assert store.backing_ready(returned)
+        assert not store.refresh_reasons(returned)
 
 
 def test_change_during_refresh_never_commits_stale_generation(tmp_path, monkeypatch):
@@ -465,3 +483,38 @@ def test_current_replay_deduplication_rechecks_stale_assets(tmp_path):
         assert get_song(store, replay_id)["refresh_state"] == "queued"
         assert not store.fair_queue()
         assert get_song(store, song_id)["status"] == "playing"
+
+
+def test_cached_local_codec_round_trip_never_rebakes(tmp_path, monkeypatch):
+    app, song_id, source, baked, archive = real_prepared(tmp_path)
+    store = app.state.store
+    original_bytes = baked.read_bytes()
+    timeline = (archive / "provider_subtitles" / "timeline.json").read_bytes()
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("local codec variant should not download, align or rebake")
+
+    worker = AutoPrep(store, lambda _: 3, download=forbidden, enhance=forbidden)
+    monkeypatch.setattr(refresh, "_render_from_bundle", forbidden)
+    monkeypatch.setattr(refresh, "render_provider_video", forbidden)
+    variants = {"h264": source.name}
+    with TestClient(app) as admin:
+        login(admin)
+        for codec in ("av1", "h264", "av1", "h264"):
+            result = admin.put(
+                "/api/admin/settings", json={"original_codec_mode": codec}
+            )
+            assert result.json()["outdated_count"] == 1
+            assert (
+                admin.post(f"/api/admin/songs/{song_id}/refresh").json()["count"] == 1
+            )
+            refresh.execute_refresh(worker, worker.claim())
+            row = get_song(store, song_id)
+            assert row["media_file"] == baked.name
+            assert baked.read_bytes() == original_bytes
+            assert row["source_file"] == variants.setdefault(codec, row["source_file"])
+            assert inspect_media(store.media / row["source_file"])["codec"] == codec
+            assert (find_bundle(store, row) / "timeline.json").read_bytes() == timeline
+            assert not store.refresh_reasons(row)
+            assert row["refresh_state"] == ""
+    assert len(list(store.media.glob("*.mp4"))) == 3
