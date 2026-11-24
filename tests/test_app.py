@@ -88,6 +88,33 @@ def test_security_and_metadata(room):
         assert c.get("/api/admin/state").status_code == 401
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/",
+        "/index.html",
+        "/admin",
+        "/admin/",
+        "/tv.html",
+        "/app.js",
+        "/style.css",
+        "/icons/play.svg",
+    ],
+)
+def test_frontend_cache_revalidation(room, path):
+    with TestClient(room) as c:
+        response = c.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        etag = response.headers["etag"]
+        cached = c.get(path, headers={"If-None-Match": etag})
+        assert cached.status_code == 304
+        assert cached.headers["cache-control"] == "no-cache"
+        assert not cached.content
+        assert c.head(path).headers["cache-control"] == "no-cache"
+        assert c.get("/api/health").headers.get("cache-control") != "no-cache"
+
+
 def test_queue_is_ready_gated_and_fair(room):
     with TestClient(room) as admin, TestClient(room) as a, TestClient(room) as b:
         join_and_register(a, "A")

@@ -8,9 +8,9 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import Cookie, FastAPI, Request, Response
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
+from starlette.types import Scope
 
 from vc_ktv.api.admin_accounts import create_admin_accounts_router
 from vc_ktv.api.admin_session import create_admin_session_router
@@ -55,6 +55,13 @@ from vc_ktv.sources.netease_discovery import (
 from vc_ktv.sources.netease_login import NeteaseLogin
 
 STATIC = Path(__file__).resolve().parents[2] / "static"
+
+
+class FrontendFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def create_app(
@@ -359,10 +366,12 @@ def create_app(
 
     app.include_router(create_media_router(media=media, auth=auth))
 
-    @app.get("/admin", include_in_schema=False)
-    @app.get("/admin/", include_in_schema=False)
-    def admin_page():
-        return FileResponse(STATIC / "index.html")
+    frontend = FrontendFiles(directory=str(STATIC), html=True)
 
-    app.mount("/", StaticFiles(directory=str(STATIC), html=True), name="static")
+    @app.api_route("/admin", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/admin/", methods=["GET", "HEAD"], include_in_schema=False)
+    async def admin_page(request: Request):
+        return await frontend.get_response("index.html", request.scope)
+
+    app.mount("/", frontend, name="static")
     return app

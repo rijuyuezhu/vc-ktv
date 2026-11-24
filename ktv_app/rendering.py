@@ -16,7 +16,6 @@ class RenderOptions(BaseModel):
     # Explicit opt-in cap for a bandwidth-constrained video path (audio is copied).
     max_video_kbps: int | None = Field(default=None, ge=300)
     preset: str = Field(default="medium", pattern=r"^(ultrafast|fast|medium|slow)$")
-    output_dir: str = ""
 
     @model_validator(mode="after")
     def even_dimensions(self):
