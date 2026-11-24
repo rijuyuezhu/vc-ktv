@@ -136,7 +136,7 @@ export function setupSongDetail({
       if (outdated && song.status === "ready" && !refreshing)
         actionButton(
           actions,
-          "更新过时产物",
+          song.refresh_state === "failed" ? "重试更新" : "更新歌曲",
           async () => {
             await api("/api/admin/songs/" + song.id + "/refresh", "POST");
             toast("已加入更新队列");
@@ -213,6 +213,7 @@ export function setupSongDetail({
           }
         );
       if (
+        !refreshing &&
         song.status === "ready" &&
         song.has_media &&
         ["downloaded", "original", "aligning"].includes(song.prep_state) &&
@@ -224,7 +225,7 @@ export function setupSongDetail({
           toast("已加入队列");
           await refresh();
         });
-      if (song.status === "ready" && song.prep_state !== "aligning")
+      if (editable && song.status === "ready" && song.prep_state !== "aligning")
         actionButton(actions, "手工制作 KTV", async () => {
           await api("/api/admin/songs/" + song.id + "/render", "POST", { lead: leadSeconds });
           toast("制作中");
@@ -326,6 +327,27 @@ export function setupSongDetail({
     const state = appendText(panel, "div", "", "detail-state");
     appendText(state, "strong", songState(song));
     if (song.priority_next) appendText(state, "span", "下一首优先", "detail-note");
+    if (isAdminPath() && song.refresh_reasons?.length) {
+      const labels = {
+        codec: "编码",
+        codec_unknown: "编码待检查",
+        quality: "清晰度",
+        quality_unknown: "清晰度待检查",
+        style: "字幕样式",
+        bandwidth: "播放码率"
+      };
+      appendText(
+        state,
+        "span",
+        "待更新：" + song.refresh_reasons.map((key) => labels[key] || key).join("、"),
+        "detail-note"
+      );
+      if (song.refresh_error)
+        appendText(state, "span", song.refresh_error, "ui-status ui-status-error").setAttribute(
+          "role",
+          "alert"
+        );
+    }
     if (showPublicPrepError(song)) {
       appendText(state, "span", song.prep_error, "ui-status ui-status-error").setAttribute(
         "role",
@@ -399,23 +421,6 @@ export function setupSongDetail({
       section.append(actions);
     }
     if (isAdminPath()) {
-      if (song.refresh_reasons?.length) {
-        const labels = {
-          codec: "编码",
-          codec_unknown: "编码待检查",
-          quality: "清晰度",
-          quality_unknown: "清晰度待检查",
-          style: "字幕样式",
-          bandwidth: "播放码率"
-        };
-        appendText(
-          panel,
-          "p",
-          "过时产物：" + song.refresh_reasons.map((key) => labels[key] || key).join("、"),
-          "ui-hint"
-        );
-        if (song.refresh_error) appendText(panel, "p", song.refresh_error, "ui-hint");
-      }
       const names = {
         download: "下载",
         extract: "提取音频",

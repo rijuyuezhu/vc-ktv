@@ -66,9 +66,8 @@ function songState(song) {
   if (outdated && song.refresh_state === "failed") return "更新失败";
   if (song.prep_state === "unavailable") return "下载失败";
   if (song.prep_state === "original" && !song.skip_subtitles) return "字幕失败";
-  if (song.awaiting_backing) return outdated ? "待伴奏 · 待更新" : "待伴奏";
-  if (song.status === "ready" && !song.awaiting_subtitles)
-    return outdated ? "待播 · 待更新" : "待播";
+  if (song.awaiting_backing) return "待伴奏";
+  if (song.status === "ready" && !song.awaiting_subtitles) return "待播";
   if (song.prep_state === "downloaded" && !song.lyric_selected && !song.skip_subtitles)
     return "待选歌词";
   if (["aligning", "downloading"].includes(song.prep_state)) return "制作中";
@@ -84,6 +83,13 @@ function addSourceTag(parent, song) {
   appendText(tag, "span", isNetease ? "网易云" : "B站");
   tag.title = isNetease ? "网易云音乐" : "哔哩哔哩";
 }
+function needsUpdateMark(song) {
+  return (
+    song.status === "ready" &&
+    Boolean(song.refresh_reasons?.length) &&
+    !["queued", "working", "failed"].includes(song.refresh_state)
+  );
+}
 function songRowSignature(song, order) {
   return JSON.stringify([
     song.id,
@@ -93,7 +99,8 @@ function songRowSignature(song, order) {
     song.nickname,
     song.uploader,
     song.source_type,
-    songState(song)
+    songState(song),
+    needsUpdateMark(song)
   ]);
 }
 function updateCompactSong(row, song, order) {
@@ -102,9 +109,16 @@ function updateCompactSong(row, song, order) {
   row.dataset.signature = signature;
   row.dataset.songId = String(song.id);
   const status = songState(song);
+  const outdated = needsUpdateMark(song);
   row.setAttribute(
     "aria-label",
-    song.title + "，点歌者 " + (song.nickname || "未知") + "，" + status + "，查看详情"
+    song.title +
+      "，点歌者 " +
+      (song.nickname || "未知") +
+      "，" +
+      status +
+      (outdated ? "，待更新" : "") +
+      "，查看详情"
   );
   row.querySelector(".ordinal").textContent = String(order);
   row.querySelector(".song-copy strong").textContent =
@@ -118,8 +132,9 @@ function updateCompactSong(row, song, order) {
     row.dataset.sourceType = song.source_type || "bilibili";
   }
   const label = row.querySelector(".song-state");
-  label.textContent = status;
-  label.classList.toggle("failed", ["下载失败", "字幕失败", "待更新", "更新失败"].includes(status));
+  label.querySelector(".song-state-text").textContent = status;
+  label.querySelector("img").hidden = !outdated;
+  label.classList.toggle("failed", ["下载失败", "字幕失败", "更新失败"].includes(status));
 }
 function compactSong(song, order, onOpen = null) {
   const row = $("song-row-template").content.firstElementChild.cloneNode(true);

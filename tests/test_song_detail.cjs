@@ -772,3 +772,61 @@ test("admin backing status distinguishes unclaimed, queued and no longer planned
     h.cleanup();
   }
 });
+
+test("refresh uses shared detail controls and does not duplicate preparation actions", async () => {
+  const h = await harness(true);
+  try {
+    h.state.song = baseSong({
+      refresh_reasons: ["style", "codec"],
+      refresh_state: "",
+      playable: true
+    });
+    await h.refreshSongDetail();
+    const page = h.byId("page-song");
+    const update = button(page, "更新歌曲");
+    assert.ok(update.parent.classList.contains("detail-tools"));
+    const note = find(page, (node) => node.textContent === "待更新：字幕样式、编码");
+    assert.ok(note.parent.classList.contains("detail-state"));
+    assert.ok(note.classList.contains("detail-note"));
+    assert.equal(
+      find(page, (node) => node.textContent === "按新风格重制"),
+      null
+    );
+    await update.onclick();
+    assert.ok(h.calls.some((call) => call.url === "/api/admin/songs/17/refresh"));
+    h.state.song = baseSong({
+      refresh_reasons: ["style"],
+      refresh_state: "working",
+      playable: false
+    });
+    await h.refreshSongDetail();
+    for (const name of ["更新歌曲", "手工制作 KTV", "补做电视缓存", "按新风格重制", "下一首播放"])
+      assert.equal(
+        find(page, (node) => node.tagName === "BUTTON" && node.textContent === name),
+        null
+      );
+    h.state.song = baseSong({
+      refresh_reasons: ["style"],
+      refresh_state: "failed",
+      refresh_error: "更新失败：RuntimeError",
+      playable: false
+    });
+    await h.refreshSongDetail();
+    assert.ok(button(page, "重试更新"));
+    const errors = all(page, (node) => node.classList.contains("ui-status-error"));
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].getAttribute("role"), "alert");
+    h.state.admin = false;
+    await h.refreshSongDetail();
+    assert.equal(
+      find(page, (node) => node.textContent === "重试更新"),
+      null
+    );
+    assert.equal(
+      find(page, (node) => node.textContent === "待更新：字幕样式"),
+      null
+    );
+  } finally {
+    h.cleanup();
+  }
+});

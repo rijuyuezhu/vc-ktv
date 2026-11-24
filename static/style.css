@@ -401,7 +401,8 @@ button, input, select { min-height: 44px; }
 .song-requester { color: #bd6a28; font-weight: 600; }
 .song-author { color: var(--muted); }
 .song-meta-separator { color: #c5c8d0; font-size: 12px; flex: 0 0 auto; }
-.song-state { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.song-state { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.song-state img { width: 12px; height: 12px; opacity: .65; }
 .song-state.failed { color: var(--danger); }
 .song-chevron { color: #a0a7b7; font-size: 23px; font-weight: 300; }
 .source-tag img { width: 15px; height: 15px; display: block; flex: 0 0 15px; }

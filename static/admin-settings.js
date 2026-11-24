@@ -52,11 +52,12 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
     applySettings(settings, reset);
     settingsEventId = activeId;
     updateStylePreview();
-    const count = Number(settings.outdated_count || 0);
+    const count = Number(settings.refreshable_count || 0);
     const button = $("refresh-outdated-btn");
-    button.hidden = count === 0;
-    button.disabled = !settings.refreshable_count;
-    button.textContent = "更新全部过时歌曲 (" + count + ")";
+    button.hidden = !settings.outdated_count;
+    button.disabled = count === 0;
+    button.textContent = "更新过时歌曲 (" + count + ")";
+    button.title = "更新期间暂缓播放";
   }
   function updateStylePreview() {
     $("style-preview").className = "style-preview " + $("subtitle-style").value;

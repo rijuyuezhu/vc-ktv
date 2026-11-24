@@ -63,3 +63,11 @@ def test_tv_dom_references_exist():
     script = (root / "tv.js").read_text()
     referenced = set(re.findall(r'getElementById\(\s*"([a-z0-9-]+)"\s*\)', script))
     assert referenced <= document.ids, sorted(referenced - document.ids)
+
+
+def test_ui_does_not_use_middle_dot_separator():
+    """UI vocabulary explicitly excludes middle-dot separators (issue #13)."""
+    root = Path(__file__).resolve().parents[1] / "static"
+    for path in root.rglob("*"):
+        if path.suffix in (".html", ".js", ".css"):
+            assert "\u00b7" not in path.read_text(), path.name
