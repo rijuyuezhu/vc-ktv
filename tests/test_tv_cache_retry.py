@@ -50,6 +50,14 @@ def test_retry_api_requires_admin_and_ready_song(tmp_path):
 def test_low_bitrate_and_existing_compatible_cache_are_noops(tmp_path, monkeypatch):
     app, song_id, source, _, archive = setup(tmp_path)
     source.write_bytes(b"x" * 4_000)
+    # A measured low-rate source is a no-op; a legacy source without a
+    # profile is eligible for an explicit worker-side audit.
+    from vc_ktv.processing import bitrate
+
+    monkeypatch.setattr(
+        bitrate, "measure", lambda _: {"peak_1s_mbps": 0.1, "peak_5s_mbps": 0.1}
+    )
+    bitrate.record_source_profile(source, archive)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("must not launch re-encoding")
