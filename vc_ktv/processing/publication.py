@@ -71,7 +71,12 @@ def publish_original(
 
 
 def publish_subtitles(
-    store, claimed: dict, target: Path, aligned_lrc: Path, metadata: dict | None = None
+    store,
+    claimed: dict,
+    target: Path,
+    aligned_lrc: Path,
+    metadata: dict | None = None,
+    source_profile: dict | None = None,
 ) -> bool:
     """Commit a render against its original claim; cleanup follows commit."""
     song_id = claimed["id"]
@@ -101,6 +106,11 @@ def publish_subtitles(
             )
             if metadata is not None:
                 store.record_artifact(target.name, "render", metadata)
+            if source_profile:
+                name = claimed["source_file"]
+                store.record_artifact(
+                    name, "source", {**store.artifact(name, "source"), **source_profile}
+                )
             store.db.commit()
         except BaseException:
             # The AutoPrep caller removes the failed render; never commit its path.

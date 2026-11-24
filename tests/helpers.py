@@ -39,3 +39,20 @@ def use_browser_playback(app):
             "ON CONFLICT(name) DO UPDATE SET value=excluded.value"
         )
         store.db.commit()
+
+
+def legacy_source_profile(source, archive, peaks):
+    """Build the old sidecar format for compatibility tests."""
+    import json
+
+    stat = source.stat()
+    (archive / "source-bitrate.json").write_text(
+        json.dumps(
+            {
+                "source_file": source.name,
+                "size": stat.st_size,
+                "mtime_ns": stat.st_mtime_ns,
+                **peaks,
+            }
+        )
+    )

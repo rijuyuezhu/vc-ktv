@@ -12,7 +12,7 @@ from vc_ktv.application.errors import bail
 from vc_ktv.core.artifacts import source_record
 from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
-from vc_ktv.processing.bitrate import fits_budget, read_source_profile
+from vc_ktv.processing.bitrate import fits_budget, source_profile
 from vc_ktv.processing.media_preparation import (
     normalize_original_codec,
     stream_video_kbps,
@@ -87,7 +87,7 @@ class AdminPreparationService:
             if not source.is_file():
                 bail(409, "原片不存在")
             bandwidth = store.settings()["max_bandwidth_mbps"]
-            profile = read_source_profile(source, archive)
+            profile = source_profile(self.store, source, archive)
             if profile is not None and fits_budget(
                 source, float(row["duration"]), bandwidth, profile
             ):

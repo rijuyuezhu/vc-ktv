@@ -30,7 +30,7 @@ from vc_ktv.pipeline import (
     write_bundle,
 )
 from vc_ktv.processing.backing_audio import ready_audio_file, source_identity
-from vc_ktv.processing.bitrate import read_source_profile, record_source_profile
+from vc_ktv.processing.bitrate import read_source_profile
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -39,7 +39,11 @@ from vc_ktv.processing.media_preparation import (
     render_upstream_video,
     stream_video_kbps,
 )
-from vc_ktv.processing.media_properties import audio_identity, inspect_media
+from vc_ktv.processing.media_properties import (
+    audio_identity,
+    inspect_media,
+    known_media,
+)
 from vc_ktv.rendering.subtitle_styles import preset_style
 from vc_ktv.sources import DownloadTools, get_source
 
@@ -76,7 +80,7 @@ def _new_source(owner, row, old: Path, old_meta: dict, settings: dict, staging: 
     encoding changed (the visual content is unchanged).
     """
     store = owner.store
-    old_props = inspect_media(old)
+    old_props = old_meta
     origin = old_meta.get("origin") or source_origin(row, old.name)
     baseline = {**old_meta, **old_props, "origin": origin}
     if not source_reasons(baseline, settings):
@@ -268,7 +272,7 @@ def execute_refresh(owner, row: dict) -> None:
     ) as temporary:
         staging = Path(temporary)
         # Check actual media before doing expensive work on older records.
-        old_props = inspect_media(old_source)
+        old_props = known_media(old_source, old_source_meta)
         baseline = {**old_source_meta, **old_props}
         if source_reasons(baseline, settings):
             source, source_meta, local_conversion = _new_source(
@@ -285,7 +289,11 @@ def execute_refresh(owner, row: dict) -> None:
         style = settings["subtitle_style"]
         old_render_meta = {
             **old_render_meta,
-            **(inspect_media(old_media) if old_media != old_source else old_props),
+            **(
+                known_media(old_media, old_render_meta)
+                if old_media != old_source
+                else old_props
+            ),
         }
         style_changed = (
             row["prep_state"] == "done"
@@ -371,17 +379,10 @@ def execute_refresh(owner, row: dict) -> None:
                 (archive / "aligned.lrc").write_text(
                     (bundle / "lyrics.lrc").read_text()
                 )
-            if (
-                not source_changed
-                and old_bundle is not None
-                and read_source_profile(source, bundle_archive(old_bundle)) is not None
-            ):
-                shutil.copyfile(
-                    bundle_archive(old_bundle) / "source-bitrate.json",
-                    archive / "source-bitrate.json",
-                )
-            else:
-                record_source_profile(source, archive)
+            if not source_changed and old_bundle is not None:
+                legacy_profile = read_source_profile(source, bundle_archive(old_bundle))
+                if legacy_profile:
+                    source_meta = {**legacy_profile, **source_meta}
             if settings["tv_html_overlay"]:
                 try:
                     if not (
@@ -395,7 +396,12 @@ def execute_refresh(owner, row: dict) -> None:
                             else None
                         )
                         prepare_tv_source(
-                            source, archive, duration, limit, native_av1=native
+                            source,
+                            archive,
+                            duration,
+                            limit,
+                            native_av1=native,
+                            profile=source_meta,
                         )
                 except Exception:
                     log.warning(
@@ -436,8 +442,7 @@ def execute_refresh(owner, row: dict) -> None:
             ):
                 raw = staging / "raw-cache"
                 raw.mkdir()
-                record_source_profile(media, raw)
-                prepare_tv_source(media, raw, duration, limit)
+                prepare_tv_source(media, raw, duration, limit, profile=render_meta)
                 cached = raw / "tv-source.mp4"
                 if cached.is_file():
                     target = staging / f"{song_id}-playback-{secrets.token_hex(6)}.mp4"

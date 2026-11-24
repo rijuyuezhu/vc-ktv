@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import vc_ktv.processing.worker as worker_module
+from tests.helpers import legacy_source_profile
 from tests.test_tv_html_source import room, setup_song
 
 
@@ -57,7 +58,7 @@ def test_low_bitrate_and_existing_compatible_cache_are_noops(tmp_path, monkeypat
     monkeypatch.setattr(
         bitrate, "measure", lambda _: {"peak_1s_mbps": 0.1, "peak_5s_mbps": 0.1}
     )
-    bitrate.record_source_profile(source, archive)
+    legacy_source_profile(source, archive, bitrate.measure(source))
 
     def forbidden(*args, **kwargs):
         raise AssertionError("must not launch re-encoding")

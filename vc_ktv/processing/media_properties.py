@@ -52,6 +52,24 @@ def inspect_media(path: Path) -> dict:
         return {}
 
 
+def known_media(path: Path, metadata: dict) -> dict:
+    """Published filenames are immutable; reuse complete measurements."""
+    fields = (
+        "codec",
+        "height",
+        "duration",
+        "video_start",
+        "average_mbps",
+        "peak_1s_mbps",
+        "peak_5s_mbps",
+    )
+    return (
+        metadata
+        if all(key in metadata for key in fields)
+        else {**metadata, **inspect_media(path)}
+    )
+
+
 def audio_identity(path: Path) -> str | None:
     """Exact audio packet data AND presentation timestamps, not a title match.
 

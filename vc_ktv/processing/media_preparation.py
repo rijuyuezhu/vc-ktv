@@ -315,10 +315,14 @@ def prepare_tv_source(
     bandwidth_mbps: float,
     *,
     native_av1: tuple[str, int] | None = None,
+    profile: dict | None = None,
 ) -> None:
     """Prepare a private TV cache when original packet demand exceeds budget."""
     if duration <= 0 or fits_budget(
-        source, duration, bandwidth_mbps, read_source_profile(source, archive)
+        source,
+        duration,
+        bandwidth_mbps,
+        profile if profile is not None else read_source_profile(source, archive),
     ):
         return
     if native_av1 and _try_native_av1_tv_cache(
