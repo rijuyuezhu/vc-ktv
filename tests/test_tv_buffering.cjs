@@ -991,3 +991,43 @@ test("a cancelled audio play during seek is transient and preserves accompanimen
   assert.equal(video.muted, true);
   assert.equal(h.el("control-error").textContent, "");
 });
+
+test("a video pause interrupting stall recovery retries without losing accompaniment", async () => {
+  const h = tvHarness();
+  await h.ready();
+  await h.el("start").onclick();
+  await h.el("pause-resume").onclick();
+  h.calls.current = {
+    id: 1,
+    backing: { status: "ready", cache_key: "a", url: "/media/1/backing?token=a" }
+  };
+  await h.evaluate("syncQueue()");
+  await h.el("audio-mode").onclick();
+  const video = h.el("video");
+  const audio = h.el("backing-audio");
+  audio.readyState = 1;
+  audio.listeners.waiting();
+  assert.equal(video.paused, true);
+  let attempts = 0;
+  audio.play = async () => {
+    if (++attempts === 1) {
+      video.listeners.pause();
+      throw Object.assign(new Error("interrupted by pause()"), { name: "AbortError" });
+    }
+    audio.paused = false;
+  };
+  audio.readyState = 4;
+  audio.listeners.canplay();
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+  assert.equal(video.paused, true);
+  await h.advance(100);
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  assert.equal(attempts, 2);
+  assert.equal(video.paused, false);
+  assert.equal(video.muted, true);
+  assert.equal(audio.paused, false);
+  assert.equal(h.el("control-error").textContent, "");
+  await h.advance(5200);
+  assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
+});

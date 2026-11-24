@@ -425,8 +425,10 @@ function recoverBackingStall() {
   const version = audioVersion;
   const resumeVideo = backingStallPausedVideo;
   backingRecovering = true;
-  backingAudio.currentTime = video.currentTime;
-  lastBackingSeekAt = performance.now();
+  if (Math.abs(backingAudio.currentTime - video.currentTime) > 0.1) {
+    backingAudio.currentTime = video.currentTime;
+    lastBackingSeekAt = performance.now();
+  }
   backingAudio
     .play()
     .then(() => {
@@ -434,8 +436,16 @@ function recoverBackingStall() {
       clearBackingStall();
       if (resumeVideo) return video.play();
     })
-    .catch(() => {
-      if (version === audioVersion) originalAudio("伴奏无法恢复，已切回原唱");
+    .catch((error) => {
+      if (version !== audioVersion) return;
+      if (error?.name === "AbortError") {
+        // A queued video pause/seek can interrupt this recovery. Retry within
+        // the existing stall deadline; a canplay event may already have fired.
+        if (backingStallTimer !== null)
+          setTimeout(() => {
+            if (version === audioVersion) recoverBackingStall();
+          }, 100);
+      } else originalAudio("伴奏无法恢复，已切回原唱");
     })
     .finally(() => {
       backingRecovering = false;
