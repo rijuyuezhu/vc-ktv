@@ -60,12 +60,10 @@ function songState(song) {
   if (song.status === "closed_unplayed") return "散场未唱";
   if (song.status === "closed_interrupted") return "散场中断";
   if (song.status === "rendering") return "制作中";
-  if (song.refresh_reasons?.length) {
-    if (song.refresh_state === "working") return "更新中";
-    if (song.refresh_state === "queued") return "更新排队";
-    if (song.refresh_state === "failed") return "更新失败";
-    return "待更新";
-  }
+  const outdated = Boolean(song.refresh_reasons?.length);
+  if (song.refresh_state === "working") return "更新中";
+  if (outdated && song.refresh_state === "queued") return "更新排队";
+  if (outdated && song.refresh_state === "failed") return "更新失败";
   if (song.prep_state === "unavailable") return "下载失败";
   if (song.prep_state === "original" && !song.skip_subtitles) return "字幕失败";
   if (song.awaiting_backing) return "待伴奏";
@@ -85,6 +83,13 @@ function addSourceTag(parent, song) {
   appendText(tag, "span", isNetease ? "网易云" : "B站");
   tag.title = isNetease ? "网易云音乐" : "哔哩哔哩";
 }
+function needsUpdateMark(song) {
+  return (
+    song.status === "ready" &&
+    Boolean(song.refresh_reasons?.length) &&
+    !["queued", "working", "failed"].includes(song.refresh_state)
+  );
+}
 function songRowSignature(song, order) {
   return JSON.stringify([
     song.id,
@@ -94,7 +99,8 @@ function songRowSignature(song, order) {
     song.nickname,
     song.uploader,
     song.source_type,
-    songState(song)
+    songState(song),
+    needsUpdateMark(song)
   ]);
 }
 function updateCompactSong(row, song, order) {
@@ -103,9 +109,16 @@ function updateCompactSong(row, song, order) {
   row.dataset.signature = signature;
   row.dataset.songId = String(song.id);
   const status = songState(song);
+  const outdated = needsUpdateMark(song);
   row.setAttribute(
     "aria-label",
-    song.title + "，点歌者 " + (song.nickname || "未知") + "，" + status + "，查看详情"
+    song.title +
+      "，点歌者 " +
+      (song.nickname || "未知") +
+      "，" +
+      status +
+      (outdated ? "，待更新" : "") +
+      "，查看详情"
   );
   row.querySelector(".ordinal").textContent = String(order);
   row.querySelector(".song-copy strong").textContent =
@@ -119,8 +132,9 @@ function updateCompactSong(row, song, order) {
     row.dataset.sourceType = song.source_type || "bilibili";
   }
   const label = row.querySelector(".song-state");
-  label.textContent = status;
-  label.classList.toggle("failed", ["下载失败", "字幕失败", "待更新", "更新失败"].includes(status));
+  label.querySelector(".song-state-text").textContent = status;
+  label.querySelector("img").hidden = !outdated;
+  label.classList.toggle("failed", ["下载失败", "字幕失败", "更新失败"].includes(status));
 }
 function compactSong(song, order, onOpen = null) {
   const row = $("song-row-template").content.firstElementChild.cloneNode(true);

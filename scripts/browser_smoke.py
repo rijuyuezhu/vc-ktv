@@ -719,6 +719,45 @@ def check_ui(
     assert waiting_row.get_attribute("data-keep-row") == "yes"
     page.unroute("**/api/admin/state", synthetic_progress)
     print("PASS preparing-song fast refresh and stable queue row identity")
+
+    # Staleness is advisory until refresh is requested. Keep the ordinary
+    # ready status and add a compact, accessible mark rather than a new row.
+    def synthetic_stale(route):
+        result = route.fetch()
+        data = result.json()
+        song = next(s for s in data["waiting"] if str(s["id"]) == waiting_id)
+        data["waiting"].remove(song)
+        data["queue"].append(
+            {
+                **song,
+                "status": "ready",
+                "prep_state": "done",
+                "refresh_state": "",
+                "refresh_reasons": ["codec"],
+                "awaiting_backing": False,
+                "awaiting_subtitles": False,
+            }
+        )
+        route.fulfill(response=result, json=data)
+
+    page.route("**/api/admin/state", synthetic_stale)
+    page.evaluate("window.dispatchEvent(new Event('hashchange'))")
+    stale_row = page.locator(
+        f'#admin-queue-ready .song-row[data-song-id="{waiting_id}"]'
+    )
+    stale_row.wait_for(state="visible")
+    assert stale_row.locator(".song-state").inner_text() == "待播"
+    assert stale_row.locator(".song-state img").is_visible()
+    assert "待更新" in stale_row.get_attribute("aria-label")
+    for width in (320, 390):
+        page.set_viewport_size({"width": width, "height": 780})
+        assert page.evaluate("document.documentElement.scrollWidth") <= width
+        assert stale_row.locator(".song-state img").is_visible()
+    page.set_viewport_size({"width": 1280, "height": 720})
+    page.unroute("**/api/admin/state", synthetic_stale)
+    page.evaluate("window.dispatchEvent(new Event('hashchange'))")
+    waiting_row.wait_for(state="visible")
+    print("PASS stale playable song mark and narrow layout")
     assert page.locator("#admin-queue-waiting .song-row").count() == len(
         admin_state["waiting"]
     )

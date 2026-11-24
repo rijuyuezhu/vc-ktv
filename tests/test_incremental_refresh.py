@@ -8,6 +8,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import join_and_register, use_browser_playback
 from tests.test_tv_html_source import room, setup_song
 from vc_ktv.core.artifacts import find_bundle, source_record
 from vc_ktv.processing import refresh
@@ -43,7 +44,7 @@ def seed_source(store, source, *, codec="h264", height=720, ceiling=720):
     store.db.commit()
 
 
-def test_invalidation_batch_revert_and_current_playback(tmp_path):
+def test_explicit_refresh_batch_revert_and_current_playback(tmp_path):
     app = room(tmp_path)
     store = app.state.store
     store.save_settings(None, None, video_quality=720, original_codec_mode="h264")
@@ -58,11 +59,17 @@ def test_invalidation_batch_revert_and_current_playback(tmp_path):
             ).json()["outdated_count"]
             == 1
         )
-        assert not store.fair_queue()
+        assert [s["id"] for s in store.fair_queue()] == [song_id]
         assert store.refresh_reasons(get_song(store, song_id)) == ["codec"]
-        assert owner.post(f"/api/admin/songs/{song_id}/pin-next").status_code == 409
+        assert owner.post(f"/api/admin/songs/{song_id}/pin-next").status_code == 200
         assert guest.post("/api/admin/songs/refresh-outdated").status_code == 401
         assert owner.post("/api/admin/songs/refresh-outdated").json()["count"] == 1
+        assert not store.fair_queue()
+        assert owner.post(f"/api/admin/songs/{song_id}/pin-next").status_code == 409
+        waiting = owner.get("/api/state").json()["waiting"]
+        assert [s["id"] for s in waiting] == [song_id]
+        assert not waiting[0]["awaiting_backing"]
+        assert not waiting[0]["awaiting_subtitles"]
         assert owner.post(f"/api/admin/songs/{song_id}/refresh").json()["count"] == 0
         assert (
             owner.put(
@@ -365,3 +372,74 @@ def test_change_during_refresh_never_commits_stale_generation(tmp_path, monkeypa
         assert updated["media_file"] == baked.name
         assert updated["refresh_state"] == "queued"
         assert not store.fair_queue()
+
+
+@pytest.mark.parametrize("stale", [False, True])
+@pytest.mark.parametrize("guest_request", [False, True])
+def test_new_replay_checks_current_settings(
+    tmp_path, monkeypatch, stale, guest_request
+):
+    app, original_id, source, baked, archive = real_prepared(tmp_path)
+    store = app.state.store
+    store.db.execute("UPDATE songs SET status='played' WHERE id=?", (original_id,))
+    store.db.commit()
+    worker = AutoPrep(store, lambda _: 3)
+    original = get_song(store, original_id)
+    with TestClient(app) as admin, TestClient(app) as guest:
+        login(admin)
+        if stale:
+            admin.put("/api/admin/settings", json={"subtitle_style": "large"})
+        if guest_request:
+            join_and_register(guest)
+            response = guest.post(f"/api/songs/{original_id}/replay")
+        else:
+            response = admin.post(f"/api/admin/songs/{original_id}/replay")
+        assert response.status_code == 200, response.text
+        song_id = response.json()["id"]
+        replay = get_song(store, song_id)
+        assert replay["refresh_state"] == ("queued" if stale else "")
+        assert replay["replay_of"] == original_id
+        assert [s["id"] for s in store.fair_queue()] == ([] if stale else [song_id])
+        if stale:
+
+            def forbidden(*args, **kwargs):
+                raise AssertionError("style-only replay should not download or align")
+
+            monkeypatch.setattr(refresh, "render_provider_video", forbidden)
+            worker.download = forbidden
+            worker.enhance = forbidden
+            refresh.execute_refresh(worker, worker.claim())
+            replay = get_song(store, song_id)
+            assert replay["source_file"] == source.name
+            assert replay["media_file"] != baked.name
+            assert not store.refresh_reasons(replay)
+            assert replay["refresh_state"] == ""
+            assert [s["id"] for s in store.fair_queue()] == [song_id]
+        assert get_song(store, original_id) == original
+        assert baked.is_file()
+
+
+def test_current_replay_deduplication_rechecks_stale_assets(tmp_path):
+    app = room(tmp_path)
+    store = app.state.store
+    store.save_settings(None, None, video_quality=720, original_codec_mode="h264")
+    song_id, source, _, _ = setup_song(app)
+    seed_source(store, source)
+    with store.lock:
+        store.claim_next()
+    with TestClient(app) as admin:
+        login(admin)
+        path = f"/api/admin/songs/{song_id}/replay-next"
+        use_browser_playback(app)
+        first = admin.post(path)
+        assert first.status_code == 200, first.text
+        replay_id = first.json()["id"]
+        assert get_song(store, replay_id)["refresh_state"] == ""
+        admin.put("/api/admin/settings", json={"original_codec_mode": "av1"})
+        # A setting change does not take a previously queued replay out.
+        assert [s["id"] for s in store.fair_queue()] == [replay_id]
+        second = admin.post(path)
+        assert second.json()["id"] == replay_id
+        assert get_song(store, replay_id)["refresh_state"] == "queued"
+        assert not store.fair_queue()
+        assert get_song(store, song_id)["status"] == "playing"

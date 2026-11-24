@@ -166,7 +166,7 @@ test("outdated-song batch button follows server counts and posts refresh", async
     await h.refreshAdminSettings("first");
     assert.equal(button.hidden, false);
     assert.equal(button.disabled, false);
-    assert.match(button.textContent, /3/);
+    assert.equal(button.textContent, "更新过时歌曲 (2)");
     await button.onclick();
     assert.ok(
       h.calls.some(
