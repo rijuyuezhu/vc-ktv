@@ -97,8 +97,9 @@ class PlaybackService:
                 ).fetchone():
                     bail(404, "歌曲不存在")
                 bail(409, "只能置顶尚未播放且已可播放的歌曲")
-            if song.get("refresh_reasons") or not self.store.playable(
-                song, self.store.settings()
+            settings = self.store.settings()
+            if self.store.refresh_blocked(song, settings) or not self.store.playable(
+                song, settings
             ):
                 bail(409, "歌曲尚未准备好，不能安排为下一首")
             try:
@@ -146,6 +147,21 @@ class PlaybackService:
                     raise
         return {"ok": True, "id": song_id}
 
+    def _refresh_new_replay(self, song_id: int) -> None:
+        """Reusing media for a new order must honor the current preparation settings."""
+        row = self.store.db.execute(
+            "SELECT * FROM songs WHERE id=?", (song_id,)
+        ).fetchone()
+        if (
+            row
+            and row["refresh_state"] not in ("queued", "working")
+            and self.store.refresh_reasons(dict(row))
+        ):
+            self.store.db.execute(
+                "UPDATE songs SET refresh_state='queued',refresh_error='' WHERE id=?",
+                (song_id,),
+            )
+
     def schedule_replay(
         self, song_id: int, *, current_only: bool = False, guest_id: str | None = None
     ) -> dict:
@@ -182,6 +198,7 @@ class PlaybackService:
                 if existing:
                     try:
                         self._set_next_priority(existing["id"])
+                        self._refresh_new_replay(existing["id"])
                         self.store.db.commit()
                     except sqlite3.Error:
                         self.store.db.rollback()
@@ -235,6 +252,7 @@ class PlaybackService:
                     ),
                 )
                 new_id = cur.lastrowid
+                self._refresh_new_replay(new_id)
                 if guest_id is None:
                     self._set_next_priority(new_id)
                 self.store.db.commit()

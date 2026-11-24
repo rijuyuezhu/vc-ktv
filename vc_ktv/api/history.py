@@ -54,7 +54,7 @@ def create_history_router(
                 playable["refresh_reasons"] = song["refresh_reasons"]
                 song["awaiting_backing"] = (
                     song["status"] == "ready"
-                    and not song["refresh_reasons"]
+                    and not store.refresh_blocked(playable, settings)
                     and Store.playable(playable, settings)
                     and not store.can_play(playable, settings)
                 )
@@ -155,7 +155,7 @@ def create_history_router(
             song.pop("requested_at", None)
             song["awaiting_backing"] = (
                 song["status"] == "ready"
-                and not song["refresh_reasons"]
+                and not store.refresh_blocked(song, settings)
                 and Store.playable(song, settings)
                 and not song["playable"]
             )

@@ -285,7 +285,7 @@ class BackingTracks:
                 )
             )
             for song in songs:
-                if self.store.refresh_reasons(song, settings):
+                if self.store.refresh_blocked(song, settings):
                     continue
                 resolved = self.store.replay_assets(song)
                 name = resolved.get("source_file")

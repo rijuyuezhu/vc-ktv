@@ -361,14 +361,19 @@ class Store:
             )
         )
 
-    def can_play(self, song, settings):
-        if not self.playable(song, settings):
-            return False
-        if (
+    def refresh_blocked(self, song, settings):
+        """Only requested refreshes suspend playback; staleness alone is advisory."""
+        state = song.get("refresh_state")
+        if state == "working":
+            return True
+        return state in ("queued", "failed") and bool(
             song["refresh_reasons"]
             if "refresh_reasons" in song
             else self.refresh_reasons(song, settings)
-        ):
+        )
+
+    def can_play(self, song, settings):
+        if not self.playable(song, settings) or self.refresh_blocked(song, settings):
             return False
         if not settings.get("require_backing_ready"):
             return True
@@ -547,6 +552,7 @@ class Store:
                 "has_media": 1,
                 "prep_state": "done",
                 "refresh_reasons": [],
+                "refresh_state": "",
             }
             for s in self.songs()
             if s["status"] in ("ready", "waiting", "rendering")
@@ -638,10 +644,10 @@ class Store:
                     {
                         **s,
                         "awaiting_subtitles": s["status"] == "ready"
-                        and not s.get("refresh_reasons")
+                        and not self.refresh_blocked(s, settings)
                         and not self.playable(s, settings),
                         "awaiting_backing": s["status"] == "ready"
-                        and not s.get("refresh_reasons")
+                        and not self.refresh_blocked(s, settings)
                         and self.playable(s, settings)
                         and not self.can_play(s, settings),
                     }

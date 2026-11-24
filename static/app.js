@@ -60,16 +60,15 @@ function songState(song) {
   if (song.status === "closed_unplayed") return "散场未唱";
   if (song.status === "closed_interrupted") return "散场中断";
   if (song.status === "rendering") return "制作中";
-  if (song.refresh_reasons?.length) {
-    if (song.refresh_state === "working") return "更新中";
-    if (song.refresh_state === "queued") return "更新排队";
-    if (song.refresh_state === "failed") return "更新失败";
-    return "待更新";
-  }
+  const outdated = Boolean(song.refresh_reasons?.length);
+  if (song.refresh_state === "working") return "更新中";
+  if (outdated && song.refresh_state === "queued") return "更新排队";
+  if (outdated && song.refresh_state === "failed") return "更新失败";
   if (song.prep_state === "unavailable") return "下载失败";
   if (song.prep_state === "original" && !song.skip_subtitles) return "字幕失败";
-  if (song.awaiting_backing) return "待伴奏";
-  if (song.status === "ready" && !song.awaiting_subtitles) return "待播";
+  if (song.awaiting_backing) return outdated ? "待伴奏 · 待更新" : "待伴奏";
+  if (song.status === "ready" && !song.awaiting_subtitles)
+    return outdated ? "待播 · 待更新" : "待播";
   if (song.prep_state === "downloaded" && !song.lyric_selected && !song.skip_subtitles)
     return "待选歌词";
   if (["aligning", "downloading"].includes(song.prep_state)) return "制作中";
