@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from tests.helpers import legacy_source_profile
 from tests.test_tv_html_source import room, setup_song
 from vc_ktv.processing import bitrate, media_preparation
 
@@ -31,7 +32,7 @@ def test_bursty_original_selects_cache_or_baked_without_probing_request(
     monkeypatch.setattr(
         bitrate, "measure", lambda _p: {"peak_1s_mbps": 6.74, "peak_5s_mbps": 4.07}
     )
-    bitrate.record_source_profile(source, archive)
+    legacy_source_profile(source, archive, bitrate.measure(source))
     monkeypatch.setattr(
         bitrate,
         "measure",
@@ -53,7 +54,7 @@ def test_worker_generates_cache_for_low_average_high_peak(tmp_path, monkeypatch)
     monkeypatch.setattr(
         bitrate, "measure", lambda _p: {"peak_1s_mbps": 5.1, "peak_5s_mbps": 3.7}
     )
-    bitrate.record_source_profile(source, archive)
+    legacy_source_profile(source, archive, bitrate.measure(source))
     calls = []
 
     def fake_encode(cmd, **_kwargs):
@@ -105,9 +106,7 @@ def test_legacy_low_average_source_can_be_audited_by_explicit_retry(
     )
 
     def cache(path, staging, duration, budget, **kwargs):
-        assert not bitrate.fits_budget(
-            path, duration, budget, bitrate.read_source_profile(path, staging)
-        )
+        assert not bitrate.fits_budget(path, duration, budget, kwargs["profile"])
         (staging / "tv-source.mp4").write_bytes(b"c" * 2048)
 
     monkeypatch.setattr(worker, "prepare_tv_source", cache)
@@ -118,9 +117,36 @@ def test_legacy_low_average_source_can_be_audited_by_explicit_retry(
             == "started"
         )
         wait_for_retry(app)
-        assert bitrate.read_source_profile(source, archive)["peak_5s_mbps"] == 4.07
+        assert app.state.store.artifact(source.name, "source")["peak_5s_mbps"] == 4.07
+        assert not (archive / "source-bitrate.json").exists()
         assert baked.read_bytes() == b"BAKED"
         assert (
             admin.post(f"/api/admin/songs/{song_id}/tv-cache/retry").json()["status"]
             == "already_ready"
         )
+
+
+def test_database_profile_is_authoritative_without_rescanning(tmp_path, monkeypatch):
+    app = room(tmp_path)
+    song_id, source, _, archive = setup_song(app, source_size=6_000_000, duration=30)
+    store = app.state.store
+    store.record_artifact(
+        source.name, "source", {"peak_1s_mbps": 6.74, "peak_5s_mbps": 4.07}
+    )
+    store.db.commit()
+    legacy_source_profile(source, archive, {"peak_1s_mbps": 1.0, "peak_5s_mbps": 1.0})
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("no media probe or legacy read")
+
+    monkeypatch.setattr(bitrate, "measure", forbidden)
+    monkeypatch.setattr(bitrate, "read_source_profile", forbidden)
+    song = dict(
+        store.db.execute("SELECT * FROM songs WHERE id=?", (song_id,)).fetchone()
+    )
+    assert app.state.media.overlay_source(song) is None
+    # A record containing only peaks must still receive legacy provenance on
+    # settings changes.
+    store.save_settings(None, None, video_quality=720)
+    assert store.artifact(source.name, "source")["origin"]
+    assert store.artifact(source.name, "source")["peak_5s_mbps"] == 4.07

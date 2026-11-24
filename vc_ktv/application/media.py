@@ -7,7 +7,7 @@ from urllib.parse import quote
 from fastapi.responses import FileResponse
 
 from vc_ktv.core.artifacts import bundle_archive, find_bundle
-from vc_ktv.processing.bitrate import fits_budget, read_source_profile
+from vc_ktv.processing.bitrate import fits_budget, source_profile
 
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
@@ -92,7 +92,7 @@ class MediaService:
             source,
             float(song["duration"] or 0),
             limit,
-            read_source_profile(source, archive),
+            source_profile(self.store, source, archive),
         ):
             cache = archive / "tv-source.mp4"
             if not cache.is_file():

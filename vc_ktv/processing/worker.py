@@ -23,8 +23,9 @@ from vc_ktv.infra.process_cancel import (
     terminate_thread_children,
     thread_external_activity,
 )
+from vc_ktv.processing import bitrate
 from vc_ktv.processing.backing_audio import BackingTracks
-from vc_ktv.processing.bitrate import record_source_profile
+from vc_ktv.processing.bitrate import source_profile
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -261,9 +262,16 @@ class AutoPrep:
                 ) as tmp:
                     staging = Path(tmp)
                     duration = self.probe(source)
-                    record_source_profile(source, staging)
+                    profile = source_profile(
+                        self.store, source, archive
+                    ) or bitrate.measure(source)
                     prepare_tv_source(
-                        source, staging, duration, bandwidth_mbps, native_av1=native_av1
+                        source,
+                        staging,
+                        duration,
+                        bandwidth_mbps,
+                        native_av1=native_av1,
+                        profile=profile,
                     )
                     check_current_budget()
                     candidate = staging / "tv-source.mp4"
@@ -294,9 +302,12 @@ class AutoPrep:
                             or metadata.get("source_file") != source.name
                         ):
                             return
-                        profile = staging / "source-bitrate.json"
-                        if profile.is_file():
-                            profile.replace(archive / profile.name)
+                        if profile:
+                            meta = self.store.artifact(source.name, "source")
+                            self.store.record_artifact(
+                                source.name, "source", {**meta, **profile}
+                            )
+                            self.store.db.commit()
                         if candidate.is_file():
                             if candidate.stat().st_size < 1024:
                                 raise ValueError("生成的电视缓存文件为空或不完整")
@@ -695,7 +706,9 @@ class AutoPrep:
                 )
             # Profile once before publication, so the first TV request sees
             # the same decision as the cache worker, even during cache generation.
-            record_source_profile(source, archive)
+            profile = source_profile(self.store, source, archive) or bitrate.measure(
+                source
+            )
             # Stop rendering time accounting before optional TV cache work.
             progress.finish()
             metadata["outcome"] = "rendered"
@@ -714,7 +727,12 @@ class AutoPrep:
             # same lock, so readers cannot observe one without the other.
             with self.store.lock:
                 if not publish_subtitles(
-                    self.store, row, target, archive / "aligned.lrc", render_meta
+                    self.store,
+                    row,
+                    target,
+                    archive / "aligned.lrc",
+                    render_meta,
+                    profile,
                 ):
                     metadata["outcome"] = "stale"
                 else:
@@ -736,6 +754,7 @@ class AutoPrep:
                         float(row["duration"]),
                         max_bandwidth_mbps,
                         native_av1=_native_av1_variant(row),
+                        profile=profile,
                     )
                     if budget is not None:
                         budget.check()

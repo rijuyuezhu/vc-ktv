@@ -63,12 +63,19 @@ def source_reasons(meta: dict, settings: dict) -> list[str]:
     return reasons
 
 
-def meets_measured_budget(meta: dict, limit: float) -> bool:
-    """Actual compatible media need not be encoded again when a limit drops."""
+def meets_measured_budget(
+    meta: dict,
+    limit: float,
+    *,
+    headroom: float = 1.0,
+    allow_unknown_peaks: bool = False,
+) -> bool:
+    """Shared playback budget; original passthrough reserves extra headroom."""
+    unknown = 0.0 if allow_unknown_peaks else float("inf")
     return (
-        meta.get("average_mbps", float("inf")) <= limit
-        and meta.get("peak_1s_mbps", float("inf")) <= limit * 1.5
-        and meta.get("peak_5s_mbps", float("inf")) <= limit
+        meta.get("average_mbps", float("inf")) <= limit * headroom
+        and meta.get("peak_1s_mbps", unknown) <= limit * 1.5
+        and meta.get("peak_5s_mbps", unknown) <= limit
     )
 
 
@@ -175,12 +182,13 @@ def remember_legacy(store, settings: dict) -> None:
         "SELECT * FROM songs WHERE source_file IS NOT NULL OR media_file IS NOT NULL"
     ):
         src = song.get("source_file")
-        if src and not store.artifact(src, "source"):
+        prior = store.artifact(src, "source") if src else {}
+        if src and not prior.get("origin"):
             origin = source_origin(song, src)
             store.record_artifact(
                 src,
                 "source",
-                source_record(song, settings, {}, origin=origin, lineage=src),
+                source_record(song, settings, prior, origin=origin, lineage=src),
             )
         media = song.get("media_file")
         if not media or media == src or store.artifact(media, "render"):

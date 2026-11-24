@@ -1,18 +1,16 @@
 """Measured packet demand for buffered playback; no probing in HTTP handlers."""
 
 import json
-import logging
 import math
 import os
 import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-# A five-second buffer should absorb shorter bursts, not sustained overload.
-log = logging.getLogger(__name__)
+from vc_ktv.core.artifacts import meets_measured_budget
 
+# A five-second buffer should absorb shorter bursts, not sustained overload.
 WINDOW_SECONDS = 5
-ONE_SECOND_BURST_FACTOR = 1.5
 
 
 def packet_peaks(csv: str) -> dict[str, float] | None:
@@ -68,31 +66,6 @@ def measure(path: Path) -> dict[str, float] | None:
     return None
 
 
-def record_source_profile(source: Path, archive: Path) -> None:
-    """Persist immutable source statistics next to the preparation manifest."""
-    stats = measure(source)
-    if stats is None:
-        return
-    temporary = archive / "source-bitrate.tmp.json"
-    try:
-        identity = source.stat()
-        temporary.write_text(
-            json.dumps(
-                {
-                    "source_file": source.name,
-                    "size": identity.st_size,
-                    "mtime_ns": identity.st_mtime_ns,
-                    **stats,
-                }
-            )
-        )
-        temporary.replace(archive / "source-bitrate.json")
-    except OSError:
-        log.warning("Unable to persist source bitrate profile")
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def read_source_profile(source: Path, archive: Path) -> dict | None:
     try:
         info = json.loads((archive / "source-bitrate.json").read_text())
@@ -110,19 +83,22 @@ def read_source_profile(source: Path, archive: Path) -> dict | None:
     return None
 
 
+def source_profile(store, source: Path, archive: Path) -> dict | None:
+    """Use the published immutable source record, falling back to legacy sidecars."""
+    meta = store.artifact(source.name, "source")
+    if all(key in meta for key in ("peak_1s_mbps", "peak_5s_mbps")):
+        return {key: meta[key] for key in ("peak_1s_mbps", "peak_5s_mbps")}
+    return read_source_profile(source, archive)
+
+
 def fits_budget(
     path: Path, duration: float, budget: float, profile: dict | None
 ) -> bool:
-    """Preserve the existing 20% average headroom plus a short-window policy.
-
-    Legacy/unmeasurable files retain the historical average-only decision.
-    The budget is a playback buffer target, not a transport rate limiter.
-    """
-    if duration <= 0 or path.stat().st_size * 8 > duration * budget * 800_000:
+    if duration <= 0:
         return False
-    if profile is None:
-        return True
-    return (
-        profile["peak_1s_mbps"] <= budget * ONE_SECOND_BURST_FACTOR
-        and profile["peak_5s_mbps"] <= budget
+    return meets_measured_budget(
+        {**(profile or {}), "average_mbps": path.stat().st_size * 8 / (duration * 1e6)},
+        budget,
+        headroom=0.8,
+        allow_unknown_peaks=True,
     )
