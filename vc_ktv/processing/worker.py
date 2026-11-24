@@ -586,6 +586,30 @@ class AutoPrep:
                     if self.active_claims == 0:
                         self.busy.clear()
 
+    def download_source(self, row: dict, directory: Path) -> Path:
+        return get_source(row.get("source_type") or "bilibili").download(
+            row,
+            directory,
+            DownloadTools(
+                video=self.download,
+                music=self.netease_download,
+                cookies=self.netease_cookies,
+                video_quality_keyword=self.download is media_download,
+                prefer_av1=row.get("original_codec_mode") == "av1",
+                prefer_h264=row.get("original_codec_mode") == "h264",
+            ),
+        )
+
+    def normalize_source(self, path: Path, settings: dict) -> Path:
+        check_current_budget()
+        path = normalize_original_codec(
+            path,
+            mode=settings.get("original_codec_mode", "default"),
+            max_video_kbps=stream_video_kbps(settings.get("max_bandwidth_mbps", 3.0)),
+        )
+        check_current_budget()
+        return path
+
     def prepare_source(self, row):
         check_current_budget()
         song_id = row["id"]
@@ -593,26 +617,7 @@ class AutoPrep:
         with tempfile.TemporaryDirectory(
             prefix=f"vc-ktv-{song_id}-", dir=self.store.root
         ) as tmp:
-            source = get_source(row.get("source_type") or "bilibili")
-            path = source.download(
-                row,
-                Path(tmp),
-                DownloadTools(
-                    video=self.download,
-                    music=self.netease_download,
-                    cookies=self.netease_cookies,
-                    video_quality_keyword=self.download is media_download,
-                    prefer_av1=row.get("original_codec_mode") == "av1",
-                    prefer_h264=row.get("original_codec_mode") == "h264",
-                ),
-            )
-            check_current_budget()
-            path = normalize_original_codec(
-                path,
-                mode=row.get("original_codec_mode", "default"),
-                max_video_kbps=stream_video_kbps(row.get("max_bandwidth_mbps", 3.0)),
-            )
-            check_current_budget()
+            path = self.normalize_source(self.download_source(row, Path(tmp)), row)
             actual_duration = self.probe(path)
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:

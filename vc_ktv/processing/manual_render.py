@@ -11,6 +11,7 @@ from vc_ktv.application.errors import bail
 from vc_ktv.core.store import Store
 from vc_ktv.infra.process_cancel import terminate_thread_children
 from vc_ktv.processing.media_properties import inspect_media
+from vc_ktv.processing.publication import retire_render
 from vc_ktv.rendering.karaoke import render_video, write_ass
 
 log = logging.getLogger(__name__)
@@ -83,22 +84,7 @@ class ManualRenderManager:
                         # Roll back the media pointer before deleting the output.
                         target_store.db.rollback()
                         raise
-                    # The completed DB pointer must survive an old-video cleanup error.
-                    if (
-                        row["media_file"]
-                        and row["media_file"] != source.name
-                        and not target_store.media_referenced(row["media_file"])
-                    ):
-                        try:
-                            (target_store.media / row["media_file"]).unlink(
-                                missing_ok=True
-                            )
-                        except OSError as error:
-                            log.warning(
-                                "Song #%s obsolete manual render cleanup failed: %s",
-                                song_id,
-                                error,
-                            )
+                    retire_render(target_store, row["media_file"], source.name)
                 else:
                     destination.unlink(missing_ok=True)
         except Exception as error:
