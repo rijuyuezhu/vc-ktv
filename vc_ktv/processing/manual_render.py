@@ -118,6 +118,8 @@ class ManualRenderManager:
                 ).fetchone()
                 if not row:
                     bail(404, "歌曲不存在")
+                if row["refresh_state"] in ("queued", "working"):
+                    bail(409, "歌曲正在更新")
                 asset = self.store.replay_assets(row)
                 if row["status"] != "ready" or not asset.get("source_file"):
                     bail(409, "请先上传可用视频")

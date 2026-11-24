@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from vc_ktv.application.errors import bail
+from vc_ktv.core.artifacts import source_record
 from vc_ktv.core.store import time_now
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
 from vc_ktv.processing.bitrate import fits_budget, read_source_profile
@@ -16,6 +17,7 @@ from vc_ktv.processing.media_preparation import (
     normalize_original_codec,
     stream_video_kbps,
 )
+from vc_ktv.processing.media_properties import inspect_media
 from vc_ktv.rendering.karaoke import write_ass
 from vc_ktv.rendering.textgrid_import import convert_textgrid
 
@@ -30,6 +32,36 @@ class AdminPreparationService:
         self.media = media
         self.worker = worker
 
+    def enqueue_refresh(self, song_id: int | None = None):
+        with self.store.lock:
+            songs = self.store.rows(
+                "SELECT * FROM songs WHERE status='ready'"
+                if song_id is None
+                else "SELECT * FROM songs WHERE id=?",
+                () if song_id is None else (song_id,),
+            )
+            if song_id is not None and not songs:
+                bail(404, "歌曲不存在")
+            if song_id is not None and songs[0]["status"] != "ready":
+                bail(409, "仅可更新尚未播放的歌曲")
+            settings = self.store.settings()
+            ids = [
+                (song["id"],)
+                for song in songs
+                if song["refresh_state"] not in ("queued", "working")
+                and self.store.refresh_reasons(song, settings)
+            ]
+            try:
+                self.store.db.executemany(
+                    "UPDATE songs SET refresh_state='queued',refresh_error='' WHERE id=?",
+                    ids,
+                )
+                self.store.db.commit()
+            except sqlite3.Error:
+                self.store.db.rollback()
+                raise
+            return {"ok": True, "count": len(ids)}
+
     def retry_tv_cache(self, song_id: int):
         """Supplement only a missing/stale playback cache; never touch subtitles."""
         store = self.store
@@ -39,6 +71,8 @@ class AdminPreparationService:
             ).fetchone()
             if row is None:
                 bail(404, "歌曲不存在")
+            if row["refresh_state"] in ("queued", "working"):
+                bail(409, "歌曲正在更新")
             if row["status"] != "ready" or row["prep_state"] != "done":
                 bail(409, "仅可补做已就绪歌曲的电视缓存")
             if not store.settings()["tv_html_overlay"]:
@@ -120,6 +154,8 @@ class AdminPreparationService:
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
+            if row["refresh_state"] in ("queued", "working"):
+                bail(409, "歌曲正在更新")
             if row["status"] != "ready" or row["prep_state"] not in (
                 "original",
                 "done",
@@ -175,14 +211,15 @@ class AdminPreparationService:
         store = self.store
         with store.lock:
             row = store.db.execute(
-                "SELECT status,prep_state,source_file,skip_subtitles "
+                "SELECT status,prep_state,source_file,skip_subtitles,refresh_state "
                 "FROM songs WHERE id=?",
                 (song_id,),
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
             if (
-                row["skip_subtitles"]
+                row["refresh_state"] in ("queued", "working")
+                or row["skip_subtitles"]
                 or row["status"] != "ready"
                 or row["prep_state"]
                 not in (
@@ -212,11 +249,15 @@ class AdminPreparationService:
         store = self.store
         with store.lock:
             row = store.db.execute(
-                "SELECT status,media_file,source_file FROM songs WHERE id=?", (song_id,)
+                "SELECT status,media_file,source_file,refresh_state FROM songs WHERE id=?",
+                (song_id,),
             ).fetchone()
             if not row:
                 bail(404, "歌曲不存在")
-            if row["status"] not in ("waiting", "ready"):
+            if row["status"] not in ("waiting", "ready") or row["refresh_state"] in (
+                "queued",
+                "working",
+            ):
                 bail(409, "正在播放或已结束，不能覆盖视频")
         target = store.media / f"{song_id}-{secrets.token_hex(8)}{suffix}"
         size = 0
@@ -249,17 +290,31 @@ class AdminPreparationService:
                 actual_duration = self.probe(target)
             except ValueError as error:
                 bail(400, str(error))
+            properties = inspect_media(target)
             with store.lock:
                 row = store.db.execute(
-                    "SELECT status,media_file,source_file FROM songs WHERE id=?",
+                    "SELECT status,media_file,source_file,refresh_state FROM songs WHERE id=?",
                     (song_id,),
                 ).fetchone()
-                if row["status"] not in ("waiting", "ready"):
+                if row["status"] not in ("waiting", "ready") or row[
+                    "refresh_state"
+                ] in ("queued", "working"):
                     bail(409, "歌曲状态已变化")
                 try:
                     store.db.execute(
                         "UPDATE songs SET status='ready',media_file=?,source_file=?,duration=?,render_error='',prep_state='manual',prep_error='' WHERE id=?",
                         (target.name, target.name, round(actual_duration), song_id),
+                    )
+                    store.record_artifact(
+                        target.name,
+                        "source",
+                        source_record(
+                            {},
+                            settings,
+                            properties,
+                            origin="upload",
+                            lineage=target.name,
+                        ),
                     )
                     store.db.commit()
                 except BaseException:

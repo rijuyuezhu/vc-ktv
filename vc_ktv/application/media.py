@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from fastapi.responses import FileResponse
 
+from vc_ktv.core.artifacts import bundle_archive, find_bundle
 from vc_ktv.processing.bitrate import fits_budget, read_source_profile
 
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
@@ -66,56 +67,11 @@ class MediaService:
         }
 
     def overlay_bundle(self, song: dict) -> Path | None:
-        """Find a compatible subtitle archive along the virtual replay lineage."""
-        if song.get("prep_state") != "done" or song.get("skip_subtitles"):
-            return None
-        resolved = self.store.replay_assets(song)
-        if not resolved.get("source_file") or not resolved.get("media_file"):
-            return None
-        source = self.store.media / Path(resolved["source_file"]).name
-        video = self.store.media / Path(resolved["media_file"]).name
-        for ancestor in self.store.replay_chain(song):
-            # A replacement upload/render cannot reuse an older subtitle plan.
-            # Legacy hardlinks remain compatible if physical files still match.
-            for field, actual in (("source_file", source), ("media_file", video)):
-                path = ancestor.get(field)
-                if path:
-                    try:
-                        if not (self.store.media / Path(path).name).samefile(actual):
-                            return None
-                    except OSError:
-                        return None
-            if ancestor["id"] != song["id"] and any(
-                ancestor.get(field) != song.get(field)
-                for field in ("lyrics", "lyric_choice", "lyric_offset_ms")
-            ):
-                return None
-            root = self.store.media / f"{ancestor['id']}-auto-alignment"
-            for attempt in sorted(root.glob("attempt-*/attempt.json"), reverse=True):
-                try:
-                    info = json.loads(attempt.read_text(encoding="utf-8"))
-                    if info.get("outcome") != "rendered" or info.get(
-                        "source_file"
-                    ) != ancestor.get("source_file"):
-                        continue
-                    for name in ("pipeline/subtitles", "provider_subtitles"):
-                        folder = attempt.parent / name
-                        if all(
-                            (folder / f).is_file()
-                            for f in (
-                                "timeline.json",
-                                "display_plan.json",
-                                "style.json",
-                            )
-                        ):
-                            return folder
-                except (OSError, ValueError, TypeError):
-                    continue
-        return None
+        return find_bundle(self.store, song)
 
     @staticmethod
     def overlay_archive(bundle: Path) -> Path:
-        return bundle.parent.parent if bundle.name == "subtitles" else bundle.parent
+        return bundle_archive(bundle)
 
     def overlay_source(self, song: dict) -> Path | None:
         """Choose the source or its bitrate-capped cache for HTML subtitles."""

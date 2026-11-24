@@ -36,7 +36,9 @@ let playedKey = null;
 let hasPreparingSongs = false;
 let refreshTimer = null;
 const isPreparing = (song) =>
-  song.status === "rendering" || ["pending", "downloading", "aligning"].includes(song.prep_state);
+  ["queued", "working"].includes(song.refresh_state) ||
+  song.status === "rendering" ||
+  ["pending", "downloading", "aligning"].includes(song.prep_state);
 const preparationInProgress = (state) => state.waiting.some(isPreparing);
 
 const isAdminPath = () => window.location.pathname.replace(/\/$/, "") === "/admin";
@@ -58,6 +60,12 @@ function songState(song) {
   if (song.status === "closed_unplayed") return "散场未唱";
   if (song.status === "closed_interrupted") return "散场中断";
   if (song.status === "rendering") return "制作中";
+  if (song.refresh_reasons?.length) {
+    if (song.refresh_state === "working") return "更新中";
+    if (song.refresh_state === "queued") return "更新排队";
+    if (song.refresh_state === "failed") return "更新失败";
+    return "待更新";
+  }
   if (song.prep_state === "unavailable") return "下载失败";
   if (song.prep_state === "original" && !song.skip_subtitles) return "字幕失败";
   if (song.awaiting_backing) return "待伴奏";
@@ -112,7 +120,7 @@ function updateCompactSong(row, song, order) {
   }
   const label = row.querySelector(".song-state");
   label.textContent = status;
-  label.classList.toggle("failed", ["下载失败", "字幕失败"].includes(status));
+  label.classList.toggle("failed", ["下载失败", "字幕失败", "待更新", "更新失败"].includes(status));
 }
 function compactSong(song, order, onOpen = null) {
   const row = $("song-row-template").content.firstElementChild.cloneNode(true);

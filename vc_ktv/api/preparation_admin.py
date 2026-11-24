@@ -15,6 +15,16 @@ from vc_ktv.infra.upload_limits import MAX_TEXTGRID_BYTES, read_lyric_upload
 def create_preparation_admin_router(*, preparation, require_admin, manual):
     router = APIRouter()
 
+    @router.post("/api/admin/songs/refresh-outdated")
+    def refresh_outdated(vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        return preparation.enqueue_refresh()
+
+    @router.post("/api/admin/songs/{song_id}/refresh")
+    def refresh_song(song_id: int, vc_admin: str | None = Cookie(default=None)):
+        require_admin(vc_admin)
+        return preparation.enqueue_refresh(song_id)
+
     @router.post("/api/admin/songs/{song_id}/tv-cache/retry")
     def retry_tv_cache(song_id: int, vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)

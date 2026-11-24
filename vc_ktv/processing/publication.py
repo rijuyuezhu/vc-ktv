@@ -17,6 +17,7 @@ def publish_original(
     duration: float,
     started: float,
     check_budget: Callable[[], None],
+    metadata: dict | None = None,
 ) -> bool:
     """Copy a downloaded original and commit its pointer, or discard the copy."""
     target = store.media / f"{song_id}-original-{secrets.token_hex(6)}{source.suffix}"
@@ -53,6 +54,10 @@ def publish_original(
                         song_id,
                     ),
                 )
+                if metadata is not None:
+                    store.record_artifact(
+                        target.name, "source", {**metadata, "lineage": target.name}
+                    )
                 store.db.commit()
             except BaseException:
                 store.db.rollback()
@@ -65,7 +70,9 @@ def publish_original(
             target.unlink(missing_ok=True)
 
 
-def publish_subtitles(store, claimed: dict, target: Path, aligned_lrc: Path) -> bool:
+def publish_subtitles(
+    store, claimed: dict, target: Path, aligned_lrc: Path, metadata: dict | None = None
+) -> bool:
     """Commit a render against its original claim; cleanup follows commit."""
     song_id = claimed["id"]
     with store.lock:
@@ -92,6 +99,8 @@ def publish_subtitles(store, claimed: dict, target: Path, aligned_lrc: Path) -> 
                 "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
                 (target.name, aligned_lrc.read_text(), int(time.time()), song_id),
             )
+            if metadata is not None:
+                store.record_artifact(target.name, "render", metadata)
             store.db.commit()
         except BaseException:
             # The AutoPrep caller removes the failed render; never commit its path.
