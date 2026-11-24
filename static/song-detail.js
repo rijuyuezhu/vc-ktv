@@ -324,6 +324,10 @@ export function setupSongDetail({
         return "失败" + elapsed;
       case "pending":
         return "等待生成";
+      case "unscheduled":
+        return "尚未调度";
+      case "not_planned":
+        return "未生成（已结束）";
       default:
         return "不可用";
     }

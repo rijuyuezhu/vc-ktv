@@ -483,8 +483,6 @@ class AutoPrep:
             # Keep claim and in-memory accounting under the same Store lock.
             self.active_claims += 1
             self.busy.set()
-        # Keep optional backing cancellation out of the Store mutex.
-        self.backing.cancel_current()
         return claimed
 
     def _record_failure(self, row, error, attempt_started):

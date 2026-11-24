@@ -58,7 +58,7 @@ def test_admin_detail_shows_persisted_backing_timings_and_size(tmp_path, monkeyp
     with TestClient(app) as admin:
         login(admin)
         detail = admin.get(f"/api/songs/{song_id}/detail").json()
-        assert detail["backing"]["status"] == "pending"
+        assert detail["backing"]["status"] == "unscheduled"
         assert detail["backing"]["elapsed_seconds"] is None
         assert detail["backing"]["retryable"] is False
 
@@ -197,3 +197,27 @@ def test_enabled_but_stopped_backing_worker_cannot_force_wait(tmp_path, monkeypa
         )
         assert response.status_code == 409
         assert not admin.get("/api/admin/settings").json()["require_backing_ready"]
+
+
+def test_admin_detail_distinguishes_unscheduled_queued_and_finished(
+    tmp_path, monkeypatch
+):
+    app, song_id, key = setup_song(tmp_path, monkeypatch)
+    app.state.autoprep.backing.thread = LiveThread()
+    with TestClient(app) as admin:
+        login(admin)
+
+        def state():
+            return admin.get(f"/api/songs/{song_id}/detail").json()["backing"]["status"]
+
+        assert state() == "unscheduled"
+        record(app, key, "pending")
+        assert state() == "pending"
+        with app.state.store.lock:
+            app.state.store.db.execute(
+                "UPDATE songs SET status='played' WHERE id=?", (song_id,)
+            )
+            app.state.store.db.commit()
+        assert state() == "not_planned"
+        complete_backing(app)
+        assert state() == "ready"  # Previously generated assets still show up.
