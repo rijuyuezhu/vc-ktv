@@ -62,7 +62,7 @@ function songState(song) {
   if (song.status === "rendering") return "制作中";
   const outdated = Boolean(song.refresh_reasons?.length);
   if (song.refresh_state === "working") return "更新中";
-  if (outdated && song.refresh_state === "queued") return "更新排队";
+  if (outdated && song.refresh_state === "queued") return "等待更新";
   if (outdated && song.refresh_state === "failed") return "更新失败";
   if (song.prep_state === "unavailable") return "下载失败";
   if (song.prep_state === "original" && !song.skip_subtitles) return "字幕失败";

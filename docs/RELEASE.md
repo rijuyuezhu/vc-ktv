@@ -61,6 +61,6 @@ systemctl --user start vc-ktv.service
 curl -fsS http://127.0.0.1:8778/api/health
 ```
 
-如果新版增加了模型资源（如 Direct Karaoke），更新代码后可执行 `uv run --no-sync python -m scripts.setup_pipeline_assets all`，已通过校验的模型会复用缓存。模型安装不自动开启伴奏任务；启用时设置 `VC_KTV_BACKING_TRACKS=1` 并参照 [安装指南](INSTALL.md) 验证 GPU 环境。
+需要更新模型资源时，按 [安装指南](INSTALL.md) 安装并检查所需资源，再启动服务。已校验的模型可复用。
 
 回滚时停止服务、切回原提交并重启。需要恢复场次数据时，使用 `python -m scripts.offline_backup restore --help` 查看恢复命令，并先在独立目录检查备份。

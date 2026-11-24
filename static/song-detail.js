@@ -343,7 +343,7 @@ export function setupSongDetail({
         "detail-note"
       );
       if (song.refresh_error)
-        appendText(state, "span", song.refresh_error, "ui-status ui-status-error").setAttribute(
+        appendText(state, "span", "更新失败，请重试", "ui-status ui-status-error").setAttribute(
           "role",
           "alert"
         );
@@ -371,9 +371,9 @@ export function setupSongDetail({
       case "pending":
         return "等待生成";
       case "unscheduled":
-        return "尚未调度";
+        return "待生成";
       case "not_planned":
-        return "未生成（已结束）";
+        return "未生成";
       default:
         return "不可用";
     }
@@ -475,7 +475,7 @@ export function setupSongDetail({
             appendText(
               details,
               "span",
-              "伴奏生成失败：" + backing.error,
+              "伴奏生成失败，请重试",
               "ui-status ui-status-error"
             ).setAttribute("role", "alert");
         }

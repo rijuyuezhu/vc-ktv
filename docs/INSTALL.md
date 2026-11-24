@@ -82,7 +82,7 @@ uv run --no-sync python -m vc_ktv
 
 安装命令中的 `setup_pipeline_assets all` 会一并下载 Direct Karaoke 权重（约 871 MiB），并校验 SHA-256；已有 GPU 环境也可以单独运行 `uv run --no-sync python -m scripts.setup_pipeline_assets karaoke`。推理直接复用 Kim 的 CUDA 运行时。
 
-在服务环境中设置 `VC_KTV_BACKING_TRACKS=1` 后启用伴奏后台生成（默认关闭）；用 `VC_KTV_BACKING_TRACKS=1 uv run --no-sync python -m scripts.check_install --mode gpu` 验证模型及其他 GPU 依赖。伴奏在普通制作空闲时生成，重唱复用缓存。管理员可在歌曲详情查看制作状态、耗时和失败原因，并重试失败任务。播放是否等待伴奏由本场管理员的“伴奏就绪后再播放”选项决定，默认不等待。
+设置 `VC_KTV_BACKING_TRACKS=1` 启用后台伴奏生成（默认关闭），并运行 `VC_KTV_BACKING_TRACKS=1 uv run --no-sync python -m scripts.check_install --mode gpu` 验证环境。
 
 GPU 对齐的高级参数：`VC_KTV_PIPELINE_MODE` 默认为 `quality`，还可使用 `fast`、`global`、`global-kim`；`VC_KTV_KIM_SINGLE_FLIGHT=1` 可让 Kim 音频分离任务串行执行。
 
