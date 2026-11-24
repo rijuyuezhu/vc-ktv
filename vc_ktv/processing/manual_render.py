@@ -10,6 +10,7 @@ from pathlib import Path
 from vc_ktv.application.errors import bail
 from vc_ktv.core.store import Store
 from vc_ktv.infra.process_cancel import terminate_thread_children
+from vc_ktv.processing.media_properties import inspect_media
 from vc_ktv.rendering.karaoke import render_video, write_ass
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class ManualRenderManager:
                 if not current or current["status"] != "rendering":
                     return
             render_video(source, lyrics, destination, duration, lead)
+            properties = inspect_media(destination)
             with target_store.lock:
                 row = target_store.db.execute(
                     "SELECT media_file,status FROM songs WHERE id=?", (song_id,)
@@ -65,13 +67,28 @@ class ManualRenderManager:
                             "UPDATE songs SET status='ready',media_file=?,render_error='' WHERE id=?",
                             (destination.name, song_id),
                         )
+                        target_store.record_artifact(
+                            destination.name,
+                            "render",
+                            {
+                                **properties,
+                                "manual": True,
+                                "bandwidth": target_store.settings()[
+                                    "max_bandwidth_mbps"
+                                ],
+                            },
+                        )
                         target_store.db.commit()
                     except BaseException:
                         # Roll back the media pointer before deleting the output.
                         target_store.db.rollback()
                         raise
                     # The completed DB pointer must survive an old-video cleanup error.
-                    if row["media_file"] and row["media_file"] != source.name:
+                    if (
+                        row["media_file"]
+                        and row["media_file"] != source.name
+                        and not target_store.media_referenced(row["media_file"])
+                    ):
                         try:
                             (target_store.media / row["media_file"]).unlink(
                                 missing_ok=True
@@ -118,6 +135,8 @@ class ManualRenderManager:
                 ).fetchone()
                 if not row:
                     bail(404, "歌曲不存在")
+                if row["refresh_state"] in ("queued", "working"):
+                    bail(409, "歌曲正在更新")
                 asset = self.store.replay_assets(row)
                 if row["status"] != "ready" or not asset.get("source_file"):
                     bail(409, "请先上传可用视频")

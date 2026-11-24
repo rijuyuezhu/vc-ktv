@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from vc_ktv.core.artifacts import source_record
 from vc_ktv.infra.disk_budget import (
     DiskBudgetExceeded,
     budget_scope,
@@ -32,7 +33,9 @@ from vc_ktv.processing.media_preparation import (
     render_upstream_video,
     stream_video_kbps,
 )
+from vc_ktv.processing.media_properties import inspect_media
 from vc_ktv.processing.publication import publish_original, publish_subtitles
+from vc_ktv.processing.refresh import execute_refresh
 from vc_ktv.processing.subtitle_progress import SubtitleProgress
 from vc_ktv.processing.task_state import claim_next_locked, record_failure
 from vc_ktv.rendering.subtitle_styles import DEFAULT_PRESET
@@ -138,6 +141,9 @@ class AutoPrep:
                 )
                 self.store.db.execute(
                     "UPDATE songs SET prep_state='downloaded',prep_stage='queued' WHERE prep_state='aligning' AND status='ready'"
+                )
+                self.store.db.execute(
+                    "UPDATE songs SET refresh_state='queued' WHERE status='ready' AND refresh_state='working'"
                 )
                 self.store.db.commit()
             except sqlite3.Error:
@@ -418,6 +424,10 @@ class AutoPrep:
                             "WHERE status='rendering'",
                             ("本场 200 GiB 磁盘预算已用尽",),
                         )
+                        self.store.db.execute(
+                            "UPDATE songs SET refresh_state='failed',refresh_error=? WHERE status='ready' AND refresh_state='working'",
+                            ("本场 200 GiB 磁盘预算已用尽",),
+                        )
                         self.store.db.commit()
                     except sqlite3.Error:
                         self.store.db.rollback()
@@ -516,22 +526,28 @@ class AutoPrep:
                     check_current_budget()
                     with self.store.lock:
                         current = self.store.db.execute(
-                            "SELECT status,prep_state FROM songs WHERE id=?",
+                            "SELECT status,prep_state,refresh_state FROM songs WHERE id=?",
                             (row["id"],),
                         ).fetchone()
                         valid = bool(
                             current
                             and current["status"] == row["status"]
-                            and current["prep_state"]
-                            == (
-                                "downloading"
-                                if row["status"] == "waiting"
-                                else "aligning"
+                            and (
+                                current["refresh_state"] == "working"
+                                if row.get("refresh_task")
+                                else current["prep_state"]
+                                == (
+                                    "downloading"
+                                    if row["status"] == "waiting"
+                                    else "aligning"
+                                )
                             )
                         )
                     if valid:
                         check_current_budget()
-                        if row["status"] == "waiting":
+                        if row.get("refresh_task"):
+                            execute_refresh(self, row)
+                        elif row["status"] == "waiting":
                             self.prepare_source(row)
                         else:
                             self.prepare_subtitles(row)
@@ -597,6 +613,12 @@ class AutoPrep:
                 actual_duration,
                 started,
                 check_current_budget,
+                source_record(
+                    row,
+                    row,
+                    inspect_media(path),
+                    origin=row.get("source_type") or "bilibili",
+                ),
             ):
                 return
         log.info("Song #%s original available, subtitle enhancement follows", song_id)
@@ -678,6 +700,13 @@ class AutoPrep:
             progress.finish()
             metadata["outcome"] = "rendered"
             metadata["report"] = report
+            metadata["media_file"] = target.name
+            metadata["render_bandwidth_mbps"] = max_bandwidth_mbps
+            render_meta = {
+                **inspect_media(target),
+                "subtitle_style": preset,
+                "bandwidth": max_bandwidth_mbps,
+            }
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
@@ -685,7 +714,7 @@ class AutoPrep:
             # same lock, so readers cannot observe one without the other.
             with self.store.lock:
                 if not publish_subtitles(
-                    self.store, row, target, archive / "aligned.lrc"
+                    self.store, row, target, archive / "aligned.lrc", render_meta
                 ):
                     metadata["outcome"] = "stale"
                 else:

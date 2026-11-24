@@ -97,7 +97,9 @@ class PlaybackService:
                 ).fetchone():
                     bail(404, "歌曲不存在")
                 bail(409, "只能置顶尚未播放且已可播放的歌曲")
-            if not self.store.playable(song, self.store.settings()):
+            if song.get("refresh_reasons") or not self.store.playable(
+                song, self.store.settings()
+            ):
                 bail(409, "歌曲尚未准备好，不能安排为下一首")
             try:
                 self._set_next_priority(song_id)

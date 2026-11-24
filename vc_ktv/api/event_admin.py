@@ -56,11 +56,21 @@ def create_event_admin_router(
 ) -> APIRouter:
     router = APIRouter()
 
+    def settings_view():
+        songs = [song for song in store.songs() if song.get("refresh_reasons")]
+        return {
+            **store.settings(),
+            "outdated_count": len(songs),
+            "refreshable_count": sum(
+                song["refresh_state"] not in ("queued", "working") for song in songs
+            ),
+        }
+
     @router.get("/api/admin/settings")
     def get_playback_settings(vc_admin: str | None = Cookie(default=None)):
         require_admin(vc_admin)
         with store.lock:
-            return store.settings()
+            return settings_view()
 
     @router.put("/api/admin/settings")
     def update_playback_settings(
@@ -75,7 +85,7 @@ def create_event_admin_router(
         ):
             bail(409, "伴奏后台未运行或模型不可用，无法要求伴奏就绪")
         with store.lock:
-            return store.save_settings(
+            store.save_settings(
                 body.queue_policy,
                 body.allow_unsubtitled,
                 body.subtitle_style,
@@ -86,6 +96,7 @@ def create_event_admin_router(
                 body.original_codec_mode,
                 body.require_backing_ready,
             )
+            return settings_view()
 
     @router.put("/api/admin/events/{event_id}/visibility")
     def set_archive_visibility(

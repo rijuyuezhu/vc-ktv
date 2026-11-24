@@ -52,6 +52,11 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
     applySettings(settings, reset);
     settingsEventId = activeId;
     updateStylePreview();
+    const count = Number(settings.outdated_count || 0);
+    const button = $("refresh-outdated-btn");
+    button.hidden = count === 0;
+    button.disabled = !settings.refreshable_count;
+    button.textContent = "更新全部过时歌曲 (" + count + ")";
   }
   function updateStylePreview() {
     $("style-preview").className = "style-preview " + $("subtitle-style").value;
@@ -74,9 +79,17 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
         original_codec_mode: $("original-codec-mode").value
       });
       markSaved(snapshot);
+      invalidateQueueState();
       toast("已保存");
       await refresh();
     }, $("settings-save-btn"));
+  $("refresh-outdated-btn").onclick = () =>
+    guarded(async () => {
+      const result = await api("/api/admin/songs/refresh-outdated", "POST");
+      toast("已安排更新 " + result.count + " 首歌曲");
+      invalidateQueueState();
+      await refresh();
+    }, $("refresh-outdated-btn"));
   $("queue-settings-save").onclick = () =>
     guarded(async () => {
       const snapshot = savedValues([

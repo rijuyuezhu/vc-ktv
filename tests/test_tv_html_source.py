@@ -208,7 +208,17 @@ def test_large_original_requires_matching_bitrate_cache(tmp_path):
             ]
             is None
         )
-        assert guest.get(active["html_overlay"]["source_url"]).status_code == 409
+        # Already issued source URLs remain stable for in-flight range requests.
+        assert (
+            guest.get(active["html_overlay"]["source_url"]).content
+            == b"COMPRESSED" * 200
+        )
+        partial = guest.get(
+            active["html_overlay"]["source_url"], headers={"Range": "bytes=0-9"}
+        )
+        assert partial.status_code == 206
+        assert partial.content == b"COMPRESSED"
+
         assert guest.get(first["media_url"]).content == baked.read_bytes()
 
 
@@ -476,7 +486,11 @@ def test_virtual_replay_retains_source_bitrate_cache_and_isolates_upload(tmp_pat
             ]
             is None
         )
-        assert guest.get(active["html_overlay"]["source_url"]).status_code == 409
+        # Already issued source URLs remain stable for in-flight range requests.
+        assert (
+            guest.get(active["html_overlay"]["source_url"]).content
+            == b"COMPRESSED" * 200
+        )
         assert (
             guest.post(
                 "/api/tv/finish", params={"token": token}, json={"song_id": replay_id}

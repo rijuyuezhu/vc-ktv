@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import json
 import math
 import sqlite3
 import threading
@@ -11,6 +12,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Literal
 
+from vc_ktv.core.artifacts import MEDIA_SETTINGS, freshness, remember_legacy
 from vc_ktv.core.titles import title_key
 from vc_ktv.infra.disk_budget import EventDiskBudget
 from vc_ktv.rendering.subtitle_styles import StylePreset
@@ -56,6 +58,9 @@ class Store:
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
                 revision INTEGER NOT NULL DEFAULT 1);
+            CREATE TABLE IF NOT EXISTS media_artifacts(
+                filename TEXT NOT NULL, kind TEXT NOT NULL, metadata TEXT NOT NULL,
+                PRIMARY KEY(filename,kind));
             CREATE TABLE IF NOT EXISTS backing_tracks(
                 cache_key TEXT PRIMARY KEY,
                 source_file TEXT NOT NULL,
@@ -137,6 +142,8 @@ class Store:
             ("lyric_offset_ms", "INTEGER NOT NULL DEFAULT 0"),
             ("source_type", "TEXT NOT NULL DEFAULT 'bilibili'"),
             ("source_id", "TEXT NOT NULL DEFAULT ''"),
+            ("refresh_state", "TEXT NOT NULL DEFAULT ''"),
+            ("refresh_error", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
@@ -149,6 +156,36 @@ class Store:
         # different thread's uncommitted writes through this read helper.
         with self.lock:
             return [dict(x) for x in self.db.execute(sql, args).fetchall()]
+
+    def artifact(self, filename, kind):
+        if not filename:
+            return {}
+        with self.lock:
+            row = self.db.execute(
+                "SELECT metadata FROM media_artifacts WHERE filename=? AND kind=?",
+                (filename, kind),
+            ).fetchone()
+            return json.loads(row[0]) if row else {}
+
+    def record_artifact(self, filename, kind, metadata):
+        self.db.execute(
+            "INSERT INTO media_artifacts(filename,kind,metadata) VALUES(?,?,?) ON CONFLICT(filename,kind) DO UPDATE SET metadata=excluded.metadata",
+            (filename, kind, json.dumps(metadata, ensure_ascii=False)),
+        )
+
+    def refresh_reasons(self, song, settings=None):
+        return freshness(
+            self, dict(song), settings if settings is not None else self.settings()
+        )
+
+    def media_referenced(self, filename: str) -> bool:
+        """A shared immutable artifact stays available until all references leave."""
+        return bool(
+            self.db.execute(
+                "SELECT 1 FROM songs WHERE media_file=? OR source_file=? LIMIT 1",
+                (filename, filename),
+            ).fetchone()
+        )
 
     def replay_chain(self, song):
         """Return this turn and its ancestors within the current Store/event."""
@@ -202,13 +239,20 @@ class Store:
                    s.prep_state,s.prep_error,s.prep_attempts,s.prep_retry_at,
                    s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.personal_order,s.replay_of,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
-                   s.lyric_timing_mode,s.lyric_offset_ms,
+                   s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,s.media_file,
+                   s.refresh_state,s.refresh_error,
                    g.name AS nickname,g.id AS requester_id,s.lyrics != '' AS has_lyrics
             FROM songs s JOIN guests g ON g.id=s.requester
             WHERE s.status IN ('waiting','rendering','ready','playing')
             ORDER BY s.requested_at,s.id
         """)
-        return [{**song, "lyric_query": title_key(song["title"])} for song in rows]
+        settings = self.settings()
+        for song in rows:
+            song["refresh_reasons"] = self.refresh_reasons(song, settings)
+            song["lyric_query"] = title_key(song["title"])
+            song.pop("source_file", None)
+            song.pop("media_file", None)
+        return rows
 
     @staticmethod
     def _playback_bandwidth(value: str) -> float:
@@ -288,6 +332,12 @@ class Store:
                 updates[key] = str(value)
         with self.lock:
             try:
+                before = self.settings()
+                if any(
+                    key in updates and str(before[key]) != updates[key]
+                    for key in MEDIA_SETTINGS
+                ):
+                    remember_legacy(self, before)
                 self.db.executemany(
                     "INSERT INTO room_state(name,value) VALUES(?,?) "
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
@@ -313,6 +363,12 @@ class Store:
 
     def can_play(self, song, settings):
         if not self.playable(song, settings):
+            return False
+        if (
+            song["refresh_reasons"]
+            if "refresh_reasons" in song
+            else self.refresh_reasons(song, settings)
+        ):
             return False
         if not settings.get("require_backing_ready"):
             return True
@@ -485,7 +541,13 @@ class Store:
         # Predict the full unplayed order, including tracks still preparing.
         # Pretend all pending tracks are playable, without persisting fair credit.
         unplayed_pool = [
-            {**s, "status": "ready", "has_media": 1, "prep_state": "done"}
+            {
+                **s,
+                "status": "ready",
+                "has_media": 1,
+                "prep_state": "done",
+                "refresh_reasons": [],
+            }
             for s in self.songs()
             if s["status"] in ("ready", "waiting", "rendering")
         ]
@@ -517,7 +579,7 @@ class Store:
                     song = queue[0]
                     # Preserve an admin-pinned turn's fair-count exemption.
                     self.db.execute(
-                        "UPDATE songs SET status='playing',priority_next=0,fair_exempt=? WHERE id=?",
+                        "UPDATE songs SET status='playing',priority_next=0,fair_exempt=?,refresh_state='',refresh_error='' WHERE id=?",
                         (int(bool(song["priority_next"])), song["id"]),
                     )
                     self.db.commit()
@@ -576,8 +638,10 @@ class Store:
                     {
                         **s,
                         "awaiting_subtitles": s["status"] == "ready"
+                        and not s.get("refresh_reasons")
                         and not self.playable(s, settings),
                         "awaiting_backing": s["status"] == "ready"
+                        and not s.get("refresh_reasons")
                         and self.playable(s, settings)
                         and not self.can_play(s, settings),
                     }

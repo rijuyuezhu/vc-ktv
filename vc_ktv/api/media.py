@@ -36,9 +36,11 @@ def create_media_router(*, media, auth):
 
     @router.get("/media/{song_id}/source")
     def serve_source(song_id: int, token: str = ""):
-        if (
-            not events.active_id
-            or read_signed(token, "media") != f"{events.active_id}:{song_id}"
+        identity = f"{events.active_id}:{song_id}"
+        signed = read_signed(token, "tv-source")
+        bound = signed is not None and signed.startswith(identity + ":")
+        if not events.active_id or (
+            not bound and read_signed(token, "media") != identity
         ):
             bail(403, "媒体链接无效或已过期")
         with store.lock:
@@ -50,9 +52,24 @@ def create_media_router(*, media, auth):
             song = store.replay_assets(row)
             if not song.get("source_file"):
                 bail(404, "原视频不存在")
-            path = media.overlay_source(song)
-            if path is None:
-                bail(409, "原片模式不可用，请使用烧录版")
+            if bound:
+                assert signed is not None
+                try:
+                    relative = Path(bytes.fromhex(signed[len(identity) + 1 :]).decode())
+                    path = store.media / relative
+                    if (
+                        relative.is_absolute()
+                        or ".." in relative.parts
+                        or not path.resolve().is_relative_to(store.media.resolve())
+                    ):
+                        bail(403, "媒体链接无效")
+                except (ValueError, OSError):
+                    bail(403, "媒体链接无效")
+            else:
+                # Older links use the historical current-selection behavior.
+                path = media.overlay_source(song)
+                if path is None:
+                    bail(409, "原片模式不可用，请使用烧录版")
             if not path.is_file():
                 bail(404, "原视频文件缺失")
             return media.pinned_response(

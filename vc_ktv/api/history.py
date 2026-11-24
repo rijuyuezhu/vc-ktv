@@ -40,7 +40,7 @@ def create_history_router(
             records = store.rows(
                 """SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.status,
                           s.source_type,s.source_id,s.prep_state,
-                          s.skip_subtitles,s.media_file,s.replay_of,
+                          s.skip_subtitles,s.media_file,s.replay_of,s.refresh_state,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester"""
             )
@@ -50,8 +50,11 @@ def create_history_router(
             for song in records:
                 asset = store.replay_assets(song)
                 playable = {**song, "has_media": bool(asset.get("media_file"))}
+                song["refresh_reasons"] = store.refresh_reasons(asset, settings)
+                playable["refresh_reasons"] = song["refresh_reasons"]
                 song["awaiting_backing"] = (
                     song["status"] == "ready"
+                    and not song["refresh_reasons"]
                     and Store.playable(playable, settings)
                     and not store.can_play(playable, settings)
                 )
@@ -106,6 +109,7 @@ def create_history_router(
                 """SELECT s.id,s.title,s.bvid,s.page,s.requested_at,s.source_type,s.source_id,
                           s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.prep_attempts,s.prep_retry_at,
+                          s.refresh_state,s.refresh_error,
                           s.skip_subtitles,s.priority_next,s.personal_order,
                           s.played_at,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
@@ -135,6 +139,7 @@ def create_history_router(
                 and song["status"] in ("ready", "playing", "played", "skipped")
             )
             settings = store.settings()
+            song["refresh_reasons"] = store.refresh_reasons(song, settings)
             song["playable"] = store.can_play(song, settings)
             song["can_move_first"] = bool(
                 song["mine"]
@@ -150,6 +155,7 @@ def create_history_router(
             song.pop("requested_at", None)
             song["awaiting_backing"] = (
                 song["status"] == "ready"
+                and not song["refresh_reasons"]
                 and Store.playable(song, settings)
                 and not song["playable"]
             )

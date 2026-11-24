@@ -61,6 +61,7 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool):
             """SELECT * FROM songs WHERE status='ready'
                AND prep_state='downloaded' AND lyric_choice != ''
                AND skip_subtitles=0 AND lyric_timing_mode='provider'
+               AND refresh_state NOT IN ('queued','working')
                ORDER BY requested_at,id LIMIT 1"""
         ).fetchone()
         if not row:
@@ -79,11 +80,29 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool):
                 (int(time.time()),),
             ).fetchone()
         if not row and lane == "general":
+            # Explicit refresh claims share the regular worker/cancellation lifecycle.
+            for candidate in store.rows(
+                "SELECT * FROM songs WHERE status='ready' AND refresh_state='queued' AND prep_state NOT IN ('aligning','downloading') ORDER BY priority_next DESC,requested_at,id"
+            ):
+                settings = store.settings()
+                if not store.refresh_reasons(candidate, settings):
+                    store.db.execute(
+                        "UPDATE songs SET refresh_state='',refresh_error='' WHERE id=?",
+                        (candidate["id"],),
+                    )
+                    store.db.commit()
+                    continue
+                store.db.execute(
+                    "UPDATE songs SET refresh_state='working',refresh_error='' WHERE id=?",
+                    (candidate["id"],),
+                )
+                store.db.commit()
+                return {**candidate, "refresh_task": True, "refresh_settings": settings}
             # General workers may also run GPU alignment on downloaded sources.
             row = store.db.execute(
                 """SELECT * FROM songs WHERE status='ready'
                    AND prep_state='downloaded' AND lyric_choice != ''
-                   AND skip_subtitles=0
+                   AND skip_subtitles=0 AND refresh_state NOT IN ('queued','working')
                    ORDER BY requested_at,id LIMIT 1"""
             ).fetchone()
         if row and row["status"] == "waiting":
@@ -136,6 +155,13 @@ def record_failure(store, row: dict, error: Exception, attempt_started: float):
     """Write retry or fallback state for a failed claim under store.lock."""
     with store.lock:
         try:
+            if row.get("refresh_task"):
+                store.db.execute(
+                    "UPDATE songs SET refresh_state='failed',refresh_error=? WHERE id=? AND status='ready' AND refresh_state='working'",
+                    ("更新失败：" + type(error).__name__, row["id"]),
+                )
+                store.db.commit()
+                return
             current = store.db.execute(
                 "SELECT status,prep_state,prep_error FROM songs WHERE id=?",
                 (row["id"],),

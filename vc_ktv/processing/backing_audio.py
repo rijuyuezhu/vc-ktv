@@ -246,6 +246,7 @@ class BackingTracks:
                 (prep_state='unavailable' AND prep_attempts < 3 AND prep_retry_at<=?)))
                OR (status='ready' AND prep_state='downloaded'
                    AND lyric_choice != '' AND skip_subtitles=0)
+               OR (status='ready' AND refresh_state='queued')
                LIMIT 1""",
             (int(time.time()),),
         ).fetchone()
@@ -284,6 +285,8 @@ class BackingTracks:
                 )
             )
             for song in songs:
+                if self.store.refresh_reasons(song, settings):
+                    continue
                 resolved = self.store.replay_assets(song)
                 name = resolved.get("source_file")
                 if not name or Path(name).name != name:

@@ -96,7 +96,9 @@ export function setupSongDetail({
   function detailActions(song, isAdmin) {
     const actions = document.createElement("div");
     actions.className = "detail-tools";
-    const editable = ["waiting", "ready"].includes(song.status);
+    const outdated = Boolean(song.refresh_reasons?.length);
+    const refreshing = ["queued", "working"].includes(song.refresh_state);
+    const editable = ["waiting", "ready"].includes(song.status) && !refreshing;
     if (!isAdmin) {
       if (song.mine && editable && song.prep_state !== "aligning")
         actionButton(actions, song.lyric_selected ? "更换歌词" : "选择歌词", () =>
@@ -131,6 +133,17 @@ export function setupSongDetail({
           "primary"
         );
     } else {
+      if (outdated && song.status === "ready" && !refreshing)
+        actionButton(
+          actions,
+          "更新过时产物",
+          async () => {
+            await api("/api/admin/songs/" + song.id + "/refresh", "POST");
+            toast("已加入更新队列");
+            await refresh();
+          },
+          "primary"
+        );
       if (editable && song.prep_state !== "aligning")
         actionButton(actions, "编辑歌词", () => editLyrics(song.id, song.title));
       if (
@@ -166,7 +179,13 @@ export function setupSongDetail({
           toast("已重新排队生成伴奏");
           await refresh();
         });
-      if (song.status === "ready" && song.prep_state === "done" && song.has_media)
+      if (
+        !outdated &&
+        !refreshing &&
+        song.status === "ready" &&
+        song.prep_state === "done" &&
+        song.has_media
+      )
         actionButton(actions, "补做电视缓存", async () => {
           const result = await api("/api/admin/songs/" + song.id + "/tv-cache/retry", "POST");
           toast(
@@ -177,7 +196,12 @@ export function setupSongDetail({
                 : "电视缓存已就绪"
           );
         });
-      if (song.status === "ready" && ["original", "done"].includes(song.prep_state))
+      if (
+        !outdated &&
+        !refreshing &&
+        song.status === "ready" &&
+        ["original", "done"].includes(song.prep_state)
+      )
         actionButton(
           actions,
           song.prep_state === "done" ? "按新风格重制" : "重试字幕",
@@ -375,6 +399,23 @@ export function setupSongDetail({
       section.append(actions);
     }
     if (isAdminPath()) {
+      if (song.refresh_reasons?.length) {
+        const labels = {
+          codec: "编码",
+          codec_unknown: "编码待检查",
+          quality: "清晰度",
+          quality_unknown: "清晰度待检查",
+          style: "字幕样式",
+          bandwidth: "播放码率"
+        };
+        appendText(
+          panel,
+          "p",
+          "过时产物：" + song.refresh_reasons.map((key) => labels[key] || key).join("、"),
+          "ui-hint"
+        );
+        if (song.refresh_error) appendText(panel, "p", song.refresh_error, "ui-hint");
+      }
       const names = {
         download: "下载",
         extract: "提取音频",

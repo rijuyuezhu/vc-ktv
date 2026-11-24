@@ -59,7 +59,10 @@ class LyricSelectionService:
             ).fetchone()
             if not current or current["status"] not in ("waiting", "ready"):
                 bail(409, "歌曲已经开始播放或结束，不能切换歌词")
-            if current["prep_state"] == "aligning":
+            if current["prep_state"] == "aligning" or current["refresh_state"] in (
+                "queued",
+                "working",
+            ):
                 bail(409, "字幕正在制作中，暂不能更换歌词")
             ready_replay = (
                 current["status"] == "ready" and current["replay_of"] is not None
@@ -112,6 +115,8 @@ class LyricSelectionService:
             ).fetchone()
             if not current or current["status"] not in ("waiting", "ready"):
                 bail(409, "只能对尚未播放的歌曲选择原片")
+            if current["refresh_state"] in ("queued", "working"):
+                bail(409, "歌曲正在更新")
             ready = current["status"] == "ready"
             source_file = (
                 self.store.replay_assets(current).get("source_file") if ready else None

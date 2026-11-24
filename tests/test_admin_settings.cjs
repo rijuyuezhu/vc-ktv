@@ -155,3 +155,28 @@ test("failed save preserves draft, and event switch resets it", async () => {
     h.cleanup();
   }
 });
+
+test("outdated-song batch button follows server counts and posts refresh", async () => {
+  const h = await fixture();
+  try {
+    await h.refreshAdminSettings("first");
+    const button = h.get("refresh-outdated-btn");
+    assert.equal(button.hidden, true);
+    h.setServer({ outdated_count: 3, refreshable_count: 2, count: 2 });
+    await h.refreshAdminSettings("first");
+    assert.equal(button.hidden, false);
+    assert.equal(button.disabled, false);
+    assert.match(button.textContent, /3/);
+    await button.onclick();
+    assert.ok(
+      h.calls.some(
+        ([method, url]) => method === "POST" && url === "/api/admin/songs/refresh-outdated"
+      )
+    );
+    h.setServer({ outdated_count: 3, refreshable_count: 0 });
+    await h.refreshAdminSettings("first");
+    assert.equal(button.disabled, true);
+  } finally {
+    h.cleanup();
+  }
+});

@@ -247,7 +247,7 @@
                 <option value="h264">全部使用 H.264</option>
                 <option value="av1">全部使用 AV1</option>
               </select>
-              <p class="ui-hint">旧电视建议 H.264 · 仅影响新原片</p>
+              <p class="ui-hint">旧电视建议 H.264</p>
             </div>
             <div>
               <label for="max-bandwidth-mbps">播放码率预算（Mbps）</label>
@@ -260,7 +260,8 @@
             <span class="style-preview-second">下一行歌词也会显示</span>
           </div>
           <button id="settings-save-btn" class="btn primary" type="button">保存设置</button>
-          <p class="ui-hint">仅影响后续新制作的歌曲</p>
+          <button id="refresh-outdated-btn" class="btn neutral" type="button" hidden>更新全部过时歌曲</button>
+          <p class="ui-hint">过时歌曲暂不可播放；更新后自动恢复待播，当前播放不受影响。</p>
         </section>
         <section class="panel full-width" id="event-queue-settings-panel">
           <div class="settings-fields">

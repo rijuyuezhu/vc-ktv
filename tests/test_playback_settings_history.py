@@ -82,6 +82,8 @@ def test_defaults_subtitle_gate_and_manual_media(tmp_path):
             "tv_html_overlay": True,
             "orders_paused": False,
             "original_codec_mode": "av1",
+            "outdated_count": 0,
+            "refreshable_count": 0,
         }
         store = app.state.store
         original = add_song(store, "A", 1, "downloaded")
@@ -208,6 +210,8 @@ def test_settings_are_per_event_and_survive_reopen(tmp_path):
             "tv_html_overlay": True,
             "orders_paused": False,
             "original_codec_mode": "av1",
+            "outdated_count": 0,
+            "refreshable_count": 0,
         }
     reopened = create_app(
         root=root,
