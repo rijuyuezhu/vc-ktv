@@ -3,11 +3,30 @@
 import json
 import logging
 import secrets
+import sqlite3
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+def retire_render(store, old_name: str | None, source_name: str | None) -> bool:
+    """Reclaim an unreferenced render after commit; original variants remain reusable."""
+    try:
+        if (
+            not old_name
+            or old_name == source_name
+            or Path(old_name).name != old_name
+            or store.media_referenced(old_name)
+            or store.artifact(old_name, "source")
+        ):
+            return False
+        (store.media / old_name).unlink(missing_ok=True)
+        return True
+    except (OSError, sqlite3.Error) as error:
+        log.warning("Obsolete render cleanup failed: %s", error)
+        return False
 
 
 def publish_original(
@@ -116,17 +135,5 @@ def publish_subtitles(
             # The AutoPrep caller removes the failed render; never commit its path.
             store.db.rollback()
             raise
-        # Cleanup is best-effort: it must not invalidate the committed render.
-        old_media = latest["media_file"]
-        if (
-            old_media
-            and old_media != claimed["source_file"]
-            and not store.media_referenced(old_media)
-        ):
-            try:
-                (store.media / old_media).unlink(missing_ok=True)
-            except OSError as error:
-                log.warning(
-                    "Song #%s obsolete media cleanup failed: %s", song_id, error
-                )
+        retire_render(store, latest["media_file"], claimed["source_file"])
         return True

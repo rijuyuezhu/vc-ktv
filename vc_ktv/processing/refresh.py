@@ -21,6 +21,7 @@ from vc_ktv.core.artifacts import (
     source_record,
 )
 from vc_ktv.infra.disk_budget import check_current_budget
+from vc_ktv.infra.media_cleanup import prune_alignment_attempt
 from vc_ktv.pipeline import (
     RenderOptions,
     Timeline,
@@ -32,8 +33,6 @@ from vc_ktv.pipeline import (
 from vc_ktv.processing.backing_audio import ready_audio_file, source_identity
 from vc_ktv.processing.bitrate import read_source_profile
 from vc_ktv.processing.media_preparation import (
-    media_download,
-    normalize_original_codec,
     prepare_tv_source,
     render_provider_video,
     render_upstream_video,
@@ -44,8 +43,8 @@ from vc_ktv.processing.media_properties import (
     inspect_media,
     known_media,
 )
+from vc_ktv.processing.publication import retire_render
 from vc_ktv.rendering.subtitle_styles import preset_style
-from vc_ktv.sources import DownloadTools, get_source
 
 log = logging.getLogger(__name__)
 LYRIC_INPUTS = (
@@ -112,19 +111,10 @@ def _new_source(owner, row, old: Path, old_meta: dict, settings: dict, staging: 
         folder = staging / "download"
         folder.mkdir()
         try:
-            downloaded = get_source("bilibili").download(
-                {**row, **settings},
-                folder,
-                DownloadTools(
-                    video=owner.download,
-                    music=owner.netease_download,
-                    cookies=owner.netease_cookies,
-                    video_quality_keyword=owner.download is media_download,
-                    prefer_av1=mode == "av1",
-                    prefer_h264=mode == "h264",
-                ),
+            downloaded = owner.download_source(
+                {**row, **settings, "source_type": "bilibili"}, folder
             )
-            candidate_props = inspect_media(downloaded)
+            candidate_props = inspect_media(downloaded, measure_bitrate=False)
             if not candidate_props.get("codec"):
                 raise ValueError("无法验证新原片")
             # No reason to transcode a second lossy representation when the
@@ -152,11 +142,7 @@ def _new_source(owner, row, old: Path, old_meta: dict, settings: dict, staging: 
         # published source, even if the old file has no other references.
         downloaded = staging / ("convert" + old.suffix)
         shutil.copyfile(old, downloaded)
-    new = normalize_original_codec(
-        downloaded,
-        mode=mode,
-        max_video_kbps=stream_video_kbps(settings["max_bandwidth_mbps"]),
-    )
+    new = owner.normalize_source(downloaded, settings)
     props = inspect_media(new)
     if not props.get("codec"):
         raise ValueError("无法验证更新后的编码")
@@ -529,3 +515,16 @@ def execute_refresh(owner, row: dict) -> None:
                 if backing_link is not None:
                     backing_link.unlink(missing_ok=True)
                 raise
+            # Only remove superseded renders after the new generation commits.
+            # Keep old source variants and any media referenced by a replay.
+            if (
+                old_media != media
+                and retire_render(store, old_media.name, old_source.name)
+                and old_bundle is not None
+            ):
+                obsolete = bundle_archive(old_bundle)
+                if obsolete.parent.name == f"{song_id}-auto-alignment":
+                    try:
+                        prune_alignment_attempt(obsolete)
+                    except OSError as error:
+                        log.warning("Obsolete alignment cleanup failed: %s", error)

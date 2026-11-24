@@ -10,7 +10,7 @@ from pathlib import Path
 from vc_ktv.processing.bitrate import measure
 
 
-def inspect_media(path: Path) -> dict:
+def inspect_media(path: Path, *, measure_bitrate: bool = True) -> dict:
     try:
         result = subprocess.run(
             [
@@ -39,7 +39,7 @@ def inspect_media(path: Path) -> dict:
             "video_start": float(video.get("start_time", 0)),
             "duration": duration,
             "average_mbps": path.stat().st_size * 8 / (duration * 1e6),
-            **(measure(path) or {}),
+            **((measure(path) or {}) if measure_bitrate else {}),
         }
     except (
         OSError,

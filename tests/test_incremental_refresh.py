@@ -200,6 +200,17 @@ def test_style_only_uses_existing_timeline_and_original(tmp_path, monkeypatch):
         (archive / "provider_subtitles" / "timeline.json").read_text()
     )
 
+    # Old renditions may be in-flight during refresh. Keep the pinned inode
+    # and reusable source; reclaim the superseded render and scratch.
+    old_video = baked.read_bytes()
+    old_cache = archive / "tv-source.mp4"
+    old_cache.write_bytes(b"cache" * 512)
+    scratch = archive / "pipeline" / "audio.wav"
+    scratch.parent.mkdir(exist_ok=True)
+    scratch.write_bytes(b"scratch")
+    pinned_render = app.state.media_pins.pin(baked)
+    pinned_cache = app.state.media_pins.pin(old_cache)
+
     def forbid(*args, **kwargs):
         raise AssertionError("style refresh must not download or align")
 
@@ -228,7 +239,17 @@ def test_style_only_uses_existing_timeline_and_original(tmp_path, monkeypatch):
         assert bundle is not None
         assert json.loads((bundle / "timeline.json").read_text()) == timeline
         assert json.loads((bundle / "style.json").read_text())["size"] == 62
-        assert baked.is_file()
+        assert not baked.is_file()
+        assert not old_cache.exists()
+        assert not scratch.exists()
+        assert pinned_render.read_bytes() == old_video
+        assert pinned_cache.read_bytes() == b"cache" * 512
+        assert (
+            refresh.bundle_archive(bundle) / "tv-source.mp4"
+        ).read_bytes() == b"cache" * 512
+        assert source.is_file()
+        pinned_render.unlink()
+        pinned_cache.unlink()
         assert store.fair_queue()[0]["id"] == song_id
 
 
@@ -315,7 +336,7 @@ def test_native_codec_variant_reuses_timeline_and_backing(tmp_path, monkeypatch)
         raise AssertionError("do not realign audio")
 
     # Production download uses codec preference keywords.
-    monkeypatch.setattr(refresh, "media_download", download)
+    monkeypatch.setattr("vc_ktv.processing.worker.media_download", download)
     worker = AutoPrep(store, lambda _: 3, download=download, enhance=forbid)
     monkeypatch.setattr(refresh, "render_provider_video", forbid)
     key = source_identity(source, worker.backing.model_sha256)
@@ -348,7 +369,8 @@ def test_native_codec_variant_reuses_timeline_and_backing(tmp_path, monkeypatch)
         assert (find_bundle(store, updated) / "timeline.json").read_bytes() == (
             archive / "provider_subtitles" / "timeline.json"
         ).read_bytes()
-        assert baked.exists()
+        assert not baked.exists()
+        assert source.exists()
 
 
 def test_change_during_refresh_never_commits_stale_generation(tmp_path, monkeypatch):
