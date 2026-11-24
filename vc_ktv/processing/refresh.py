@@ -85,6 +85,9 @@ def _new_source(owner, row, old: Path, old_meta: dict, settings: dict, staging: 
     if not source_reasons(baseline, settings):
         return old, baseline, True
     lineage = old_meta.get("lineage") or old.name
+    # A soundtrack lineage is not evidence of identical visuals: provider
+    # renditions may differ. Only verified local conversions share this origin.
+    visual_origin = old_meta.get("visual_origin") or old.name
     with store.lock:
         variants = store.rows(
             "SELECT filename,metadata FROM media_artifacts WHERE kind='source'"
@@ -99,7 +102,8 @@ def _new_source(owner, row, old: Path, old_meta: dict, settings: dict, staging: 
         ):
             continue
         if not source_reasons(meta, settings):
-            return candidate, meta, False
+            same_visual = (meta.get("visual_origin") or candidate.name) == visual_origin
+            return candidate, meta, same_visual
 
     downloaded = None
     target_height = settings["video_quality"]
@@ -153,9 +157,13 @@ def _new_source(owner, row, old: Path, old_meta: dict, settings: dict, staging: 
     meta = source_record(
         row, settings, props, origin=origin, lineage=lineage if equivalent else name
     )
+    same_visual = (
+        local and equivalent and props.get("height") == old_props.get("height")
+    )
+    meta["visual_origin"] = visual_origin if same_visual else name
     if source_reasons(meta, settings):
         raise ValueError("原片未满足当前设置")
-    return target, meta, local
+    return target, meta, same_visual
 
 
 def _copy_bundle(old: Path, destination: Path) -> None:
