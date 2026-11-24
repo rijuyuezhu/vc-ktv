@@ -1,6 +1,6 @@
 # VC-KTV
 
-VC-KTV 是一个自托管 KTV 点歌系统，支持 **B站视频**和**网易云音乐**。大家用手机点歌，服务自动准备歌词与视频，再通过网页播放器在电视上播放。
+VC-KTV 是一个自托管 KTV 点歌系统，支持 **B站视频**和**网易云音乐**。大家用手机点歌，服务自动准备歌词与视频，再通过网页播放器在电视上播放，支持可选的原唱与伴奏切换。
 
 ## 快速开始
 
@@ -36,7 +36,7 @@ cat ~/.config/vc-ktv/admin-password
 - [安装与运行](docs/INSTALL.md)：基础服务、CPU 模式与 GPU 模式
 - [系统架构](docs/ARCHITECTURE.md)：主要组件、任务流程与数据目录
 - [开发指南](docs/DEVELOPMENT.md)：源码结构、测试与开发约定
-- [部署与升级](docs/RELEASE.md) · [安全与网络](docs/SECURITY.md)
+- [部署与升级](docs/RELEASE.md) / [安全与网络](docs/SECURITY.md)
 
 字幕引擎基于 [AutoASSrenderer4karaOK](https://github.com/Volta233/AutoASSrenderer4karaOK)，来源与许可见 [第三方说明](third_party/autoassrenderer/README.md)。音视频、歌词及模型遵守各自的许可。
 

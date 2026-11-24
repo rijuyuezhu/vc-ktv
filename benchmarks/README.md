@@ -34,7 +34,7 @@ uv run --no-sync python -m benchmarks.races \
 uv run --no-sync --with playwright==1.64.1 python -m benchmarks.lyric_ui \
   --offsets 0.3,-0.3,-100,1.5 --invalid-offset=-100
 
-# 重唱改词的 #450 回归场景；严格检查可播放状态时加 --require-fixed
+# 重唱改词与媒体复用
 uv run --no-sync python -m benchmarks.replay_lyrics
 ```
 
@@ -45,10 +45,10 @@ Chromium 首次使用时需安装相应浏览器运行文件。移动端测试�
 ## 范围
 
 - 使用虚构用户名、临时密码、本机测试地址和模拟歌曲 ID；公开的第三方歌词来源网址仅用于候选歌词的测试元数据。
-- 概率场景包括虚拟重唱后的选词、偏移和跳过歌词；`replay_lyrics` 专门检查 #450 的源媒体继承、原片回退和重制可行性，`--require-fixed` 会把回归视为失败。
+- 概率场景包括虚拟重唱后的选词、偏移和跳过歌词；`replay_lyrics` 检查源媒体继承、原片回退和重制可行性，`--require-fixed` 会把回归视为失败。
 - 公平调度的补偿规则是累计歌数差距最多 2，**不保证每个人在前两轮一定轮到**。大队列脚本会检查前一轮参与者、队列响应时间和后续调度一致性。
 - 这些基准不替代真实媒体、GPU 或不同电视硬件的端到端测试；不作为公网延迟或生产服务性能的数据来源。
 
-## 原唱 / 伴唱音频 POC
+## 伴奏分离
 
-独立的 lead-vocal 去除实验见 [BACKING_VOCALS.md](BACKING_VOCALS.md)。仅提交实验脚本与测试，模型权重和音频样本不入库。
+主唱分离方法比较见 [BACKING_VOCALS.md](BACKING_VOCALS.md)。仅提交实验脚本与测试，模型权重和音频样本不入库。
