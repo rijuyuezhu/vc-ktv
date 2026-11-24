@@ -757,7 +757,8 @@ function preloadKey(song) {
     song.id,
     song.media_file,
     song.source_file || "",
-    Boolean(song.html_overlay)
+    Boolean(song.html_overlay),
+    song.html_overlay?.source_key || ""
   ]);
 }
 async function checkPreload() {

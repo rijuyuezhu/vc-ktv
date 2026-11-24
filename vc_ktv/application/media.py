@@ -112,16 +112,25 @@ class MediaService:
         return source
 
     def overlay_view(self, song: dict) -> dict | None:
-        if self.overlay_source(song) is None:
+        source = self.overlay_source(song)
+        if source is None:
             return None
+        # Bind an issued URL to the selected rendition, not the mutable
+        # bandwidth setting. Range requests must keep reading the same file.
+        source_key = str(source.relative_to(self.store.media)).encode().hex()
         media_token = quote(
-            self.auth.sign("media", f"{self.events.active_id}:{song['id']}", 8 * 3600)
+            self.auth.sign(
+                "tv-source",
+                f"{self.events.active_id}:{song['id']}:{source_key}",
+                8 * 3600,
+            )
         )
         tv_token = quote(
             self.auth.sign("overlay", f"{self.events.active_id}:{song['id']}", 8 * 3600)
         )
         return {
             "source_url": f"/media/{song['id']}/source?token={media_token}",
+            "source_key": source_key,
             "timeline_url": f"/api/tv/subtitles/{song['id']}?token={tv_token}",
         }
 
