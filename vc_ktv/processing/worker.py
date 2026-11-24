@@ -23,6 +23,7 @@ from vc_ktv.infra.process_cancel import (
     thread_external_activity,
 )
 from vc_ktv.processing.backing_audio import BackingTracks
+from vc_ktv.processing.bitrate import record_source_profile
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -254,6 +255,7 @@ class AutoPrep:
                 ) as tmp:
                     staging = Path(tmp)
                     duration = self.probe(source)
+                    record_source_profile(source, staging)
                     prepare_tv_source(
                         source, staging, duration, bandwidth_mbps, native_av1=native_av1
                     )
@@ -286,6 +288,9 @@ class AutoPrep:
                             or metadata.get("source_file") != source.name
                         ):
                             return
+                        profile = staging / "source-bitrate.json"
+                        if profile.is_file():
+                            profile.replace(archive / profile.name)
                         if candidate.is_file():
                             if candidate.stat().st_size < 1024:
                                 raise ValueError("生成的电视缓存文件为空或不完整")
@@ -666,6 +671,9 @@ class AutoPrep:
                 report = self.enhance(
                     source, lyrics, target, archive, float(row["duration"]), **options
                 )
+            # Profile once before publication, so the first TV request sees
+            # the same decision as the cache worker, even during cache generation.
+            record_source_profile(source, archive)
             # Stop rendering time accounting before optional TV cache work.
             progress.finish()
             metadata["outcome"] = "rendered"

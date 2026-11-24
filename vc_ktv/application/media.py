@@ -6,6 +6,8 @@ from urllib.parse import quote
 
 from fastapi.responses import FileResponse
 
+from vc_ktv.processing.bitrate import fits_budget, read_source_profile
+
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
 
@@ -129,8 +131,13 @@ class MediaService:
         ):
             return None
         limit = self.store.settings()["max_bandwidth_mbps"]
-        if source.stat().st_size * 8 > float(song["duration"] or 0) * limit * 800_000:
-            archive = self.overlay_archive(bundle)
+        archive = self.overlay_archive(bundle)
+        if not fits_budget(
+            source,
+            float(song["duration"] or 0),
+            limit,
+            read_source_profile(source, archive),
+        ):
             cache = archive / "tv-source.mp4"
             if not cache.is_file():
                 return None

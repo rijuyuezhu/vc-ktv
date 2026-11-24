@@ -24,6 +24,7 @@ from vc_ktv.pipeline import (
     render,
     write_bundle,
 )
+from vc_ktv.processing.bitrate import fits_budget, measure, read_source_profile
 from vc_ktv.rendering.karaoke import parse_lrc
 from vc_ktv.rendering.subtitle_styles import DEFAULT_PRESET, StylePreset, preset_style
 from vc_ktv.sources.bilibili_media import QUALITY_HEIGHTS, public_media_download
@@ -172,7 +173,20 @@ def normalize_original_codec(
             str(output),
         ]
         if target == "h264":
-            encoders = [["-c:v", "libx264", "-crf", "23", "-preset", "fast"]]
+            encoders = [
+                [
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "23",
+                    "-preset",
+                    "fast",
+                    "-maxrate",
+                    f"{max_video_kbps}k",
+                    "-bufsize",
+                    f"{max_video_kbps}k",
+                ]
+            ]
         else:
             # NVENC is much faster on Spark; CPU fallback also runs on Mac.
             encoders = [
@@ -280,8 +294,9 @@ def _try_native_av1_tv_cache(
                 or small_height != 720
                 or abs(source_duration - small_duration) > 1
                 or abs(duration - small_duration) > 2
-                or candidate.stat().st_size * 8
-                > small_duration * bandwidth_mbps * 800_000
+                or not fits_budget(
+                    candidate, small_duration, bandwidth_mbps, measure(candidate)
+                )
             ):
                 return False
             # Atomic publication; source and subtitle-burned video remain intact.
@@ -301,10 +316,9 @@ def prepare_tv_source(
     *,
     native_av1: tuple[str, int] | None = None,
 ) -> None:
-    """Only transcode high-average-bitrate original video into a private TV cache."""
-    if (
-        duration <= 0
-        or source.stat().st_size * 8 <= duration * bandwidth_mbps * 800_000
+    """Prepare a private TV cache when original packet demand exceeds budget."""
+    if duration <= 0 or fits_budget(
+        source, duration, bandwidth_mbps, read_source_profile(source, archive)
     ):
         return
     if native_av1 and _try_native_av1_tv_cache(
