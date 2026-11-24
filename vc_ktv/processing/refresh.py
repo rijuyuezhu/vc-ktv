@@ -293,7 +293,11 @@ def execute_refresh(owner, row: dict) -> None:
             and old_render_meta.get("subtitle_style") not in (None, style)
         )
         bandwidth_changed = needs_bandwidth(old_render_meta, settings)
-        auto_subtitles = row["prep_state"] == "done" and not row["skip_subtitles"]
+        auto_subtitles = (
+            row["prep_state"] == "done"
+            and not row["skip_subtitles"]
+            and not old_render_meta.get("manual")
+        )
         media = old_media
         render_meta = old_render_meta
         archive = None
@@ -417,7 +421,11 @@ def execute_refresh(owner, row: dict) -> None:
             # bitrate-only refresh can encode the existing (even manual-baked)
             # output, not regenerate or realign its lyrics.
             if old_media == old_source or (
-                source_changed and old_render_meta.get("raw_playback")
+                source_changed
+                and (
+                    old_render_meta.get("raw_playback")
+                    or row["prep_state"] == "downloaded"
+                )
             ):
                 media = source
                 render_meta = source_meta
@@ -438,6 +446,7 @@ def execute_refresh(owner, row: dict) -> None:
                     render_meta = {
                         **inspect_media(media),
                         "bandwidth": limit,
+                        "manual": bool(old_render_meta.get("manual")),
                         "raw_playback": old_media == old_source
                         or bool(old_render_meta.get("raw_playback")),
                     }

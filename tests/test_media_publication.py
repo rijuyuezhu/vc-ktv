@@ -98,3 +98,41 @@ def test_subtitle_publish_discards_outdated_render(tmp_path, change):
     assert len(attempts) == 1
     assert json.loads(attempts[0].read_text())["outcome"] == "stale"
     assert not store.db.in_transaction
+
+
+def test_subtitle_publish_preserves_shared_old_render(tmp_path):
+    store, source, song_id = ready_song(tmp_path)
+    old = store.media / "shared.mp4"
+    old.write_bytes(b"previous render")
+    with store.lock:
+        store.db.execute(
+            "UPDATE songs SET media_file=? WHERE id=?", (old.name, song_id)
+        )
+        shared_id = store.db.execute(
+            """INSERT INTO songs(bvid,page,title,uploader,cover,duration,requester,requested_at,
+               status,source_file,media_file,prep_state)
+               VALUES('BV0000000001',1,'共享','UP','',4,'a',2,'played',?,?,'done')""",
+            (source.name, old.name),
+        ).lastrowid
+        store.db.commit()
+
+    def render(video, lyrics, target, archive, duration, *, preset):
+        target.write_bytes(b"new render")
+        (archive / "aligned.lrc").write_text("[00:01.00]新歌词")
+        return {}
+
+    worker = AutoPrep(store, lambda _: 4, enhance=render)
+    worker.prepare_subtitles(worker.claim())
+    assert old.read_bytes() == b"previous render"
+    assert (
+        store.rows("SELECT media_file FROM songs WHERE id=?", (shared_id,))[0][
+            "media_file"
+        ]
+        == old.name
+    )
+    assert (
+        store.rows("SELECT media_file FROM songs WHERE id=?", (song_id,))[0][
+            "media_file"
+        ]
+        != old.name
+    )

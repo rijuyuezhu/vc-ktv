@@ -60,6 +60,7 @@ def test_invalidation_batch_revert_and_current_playback(tmp_path):
         )
         assert not store.fair_queue()
         assert store.refresh_reasons(get_song(store, song_id)) == ["codec"]
+        assert owner.post(f"/api/admin/songs/{song_id}/pin-next").status_code == 409
         assert guest.post("/api/admin/songs/refresh-outdated").status_code == 401
         assert owner.post("/api/admin/songs/refresh-outdated").json()["count"] == 1
         assert owner.post(f"/api/admin/songs/{song_id}/refresh").json()["count"] == 0

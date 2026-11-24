@@ -108,7 +108,11 @@ def publish_subtitles(
             raise
         # Cleanup is best-effort: it must not invalidate the committed render.
         old_media = latest["media_file"]
-        if old_media and old_media != claimed["source_file"]:
+        if (
+            old_media
+            and old_media != claimed["source_file"]
+            and not store.media_referenced(old_media)
+        ):
             try:
                 (store.media / old_media).unlink(missing_ok=True)
             except OSError as error:

@@ -178,6 +178,15 @@ class Store:
             self, dict(song), settings if settings is not None else self.settings()
         )
 
+    def media_referenced(self, filename: str) -> bool:
+        """A shared immutable artifact stays available until all references leave."""
+        return bool(
+            self.db.execute(
+                "SELECT 1 FROM songs WHERE media_file=? OR source_file=? LIMIT 1",
+                (filename, filename),
+            ).fetchone()
+        )
+
     def replay_chain(self, song):
         """Return this turn and its ancestors within the current Store/event."""
         with self.lock:
