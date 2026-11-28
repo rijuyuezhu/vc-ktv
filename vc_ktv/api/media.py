@@ -124,8 +124,10 @@ def create_media_router(*, media, auth):
             if not row:
                 bail(404, "媒体不存在")
             asset = store.replay_assets(row)
-            if not asset.get("media_file"):
-                bail(404, "媒体不存在")
+            if not asset.get("media_file") or (
+                asset.get("html_only") and asset["prep_state"] == "done"
+            ):
+                bail(404, "烧录版不存在")
             name = Path(asset["media_file"]).name
             file = store.media / name
             if not file.is_file():

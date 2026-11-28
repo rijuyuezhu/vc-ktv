@@ -40,7 +40,7 @@ def create_history_router(
             records = store.rows(
                 """SELECT s.id,s.bvid,s.page,s.title,s.uploader,s.status,
                           s.source_type,s.source_id,s.prep_state,
-                          s.skip_subtitles,s.media_file,s.replay_of,s.refresh_state,
+                          s.skip_subtitles,s.media_file,s.replay_of,s.refresh_state,s.html_only,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester"""
             )
@@ -55,7 +55,7 @@ def create_history_router(
                 song["awaiting_backing"] = (
                     song["status"] == "ready"
                     and not store.refresh_blocked(playable, settings)
-                    and Store.playable(playable, settings)
+                    and store.media_playable(playable, settings)
                     and not store.can_play(playable, settings)
                 )
                 song["downloadable"] = (
@@ -77,7 +77,7 @@ def create_history_router(
         with store.lock:
             rows = store.rows(
                 """SELECT s.id,s.bvid,s.source_type,s.source_id,s.title,s.duration,
-                          s.uploader,s.played_at,s.page,s.prep_state,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
+                          s.uploader,s.played_at,s.page,s.prep_state,s.html_only,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           g.name AS nickname
                    FROM songs s JOIN guests g ON g.id=s.requester
                    WHERE s.status='played'
@@ -110,7 +110,7 @@ def create_history_router(
                           s.uploader,s.cover,s.duration,s.status,s.prep_state,s.prep_error,s.prep_stage,
                           s.prep_stage_at,s.prep_timing,s.prep_attempts,s.prep_retry_at,
                           s.refresh_state,s.refresh_error,
-                          s.skip_subtitles,s.priority_next,s.personal_order,
+                          s.skip_subtitles,s.priority_next,s.personal_order,s.html_only,
                           s.played_at,s.media_file,s.replay_of,s.media_file IS NOT NULL AS has_media,
                           s.lyric_choice!='' AS lyric_selected,
                           s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,

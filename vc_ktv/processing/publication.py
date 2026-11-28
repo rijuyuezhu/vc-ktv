@@ -96,6 +96,8 @@ def publish_subtitles(
     aligned_lrc: Path,
     metadata: dict | None = None,
     source_profile: dict | None = None,
+    *,
+    html_only: bool = False,
 ) -> bool:
     """Commit a render against its original claim; cleanup follows commit."""
     song_id = claimed["id"]
@@ -115,21 +117,30 @@ def publish_subtitles(
             and latest["provider_lrc"] == claimed.get("provider_lrc", "")
             and latest["lyric_offset_ms"] == claimed.get("lyric_offset_ms", 0)
         ):
-            target.unlink(missing_ok=True)
+            if not html_only:
+                target.unlink(missing_ok=True)
             return False
         try:
             store.db.execute(
                 "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
-                "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
-                (target.name, aligned_lrc.read_text(), int(time.time()), song_id),
+                "prep_stage='done',prep_stage_at=?,prep_error='',html_only=? WHERE id=?",
+                (
+                    target.name,
+                    aligned_lrc.read_text(),
+                    int(time.time()),
+                    int(html_only),
+                    song_id,
+                ),
             )
-            if metadata is not None:
+            if metadata is not None and not html_only:
                 store.record_artifact(target.name, "render", metadata)
             if source_profile:
                 name = claimed["source_file"]
                 store.record_artifact(
                     name, "source", {**store.artifact(name, "source"), **source_profile}
                 )
+            if html_only:
+                store.queue_required_burns(song_id)
             store.db.commit()
         except BaseException:
             # The AutoPrep caller removes the failed render; never commit its path.

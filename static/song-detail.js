@@ -120,7 +120,7 @@ export function setupSongDetail({
         });
       if (song.mine && ["waiting", "ready", "rendering"].includes(song.status))
         actionButton(actions, "取消点歌", () => cancelGuestSong(song.id), "subtle");
-      if (["played", "skipped"].includes(song.status) && song.downloadable)
+      if (["played", "skipped"].includes(song.status) && (song.downloadable || song.html_only))
         actionButton(
           actions,
           "↻ 再来一首",
@@ -242,7 +242,7 @@ export function setupSongDetail({
           },
           "primary"
         );
-      if (song.status === "played" && song.downloadable)
+      if (song.status === "played" && (song.downloadable || song.html_only))
         actionButton(
           actions,
           "↻ 下一首重唱",
@@ -331,6 +331,8 @@ export function setupSongDetail({
       const labels = {
         codec: "编码",
         codec_unknown: "编码待检查",
+        burn: "烧录版",
+        timeline: "字幕时间轴",
         quality: "清晰度",
         quality_unknown: "清晰度待检查",
         style: "字幕样式",

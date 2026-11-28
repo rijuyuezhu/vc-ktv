@@ -7,6 +7,7 @@ import time
 
 import httpx
 
+from vc_ktv.core.artifacts import burn_required
 from vc_ktv.infra.disk_budget import DiskBudgetExceeded
 from vc_ktv.sources.bilibili_media import PublicMediaUnavailable
 from vc_ktv.sources.netease_media import MusicUnavailable
@@ -145,6 +146,7 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool, active_ids=()):
             claimed["style_preset"] = settings["subtitle_style"]
             claimed["max_bandwidth_mbps"] = settings["max_bandwidth_mbps"]
             claimed["tv_html_overlay"] = settings["tv_html_overlay"]
+            claimed["burn_subtitles"] = burn_required(settings)
             claimed["original_codec_mode"] = settings["original_codec_mode"]
         store.db.commit()
         return claimed

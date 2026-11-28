@@ -14,6 +14,7 @@ from pathlib import Path
 from vc_ktv.core.artifacts import (
     MEDIA_SETTINGS,
     bundle_archive,
+    burn_required,
     find_bundle,
     needs_bandwidth,
     source_origin,
@@ -31,7 +32,7 @@ from vc_ktv.pipeline import (
     write_bundle,
 )
 from vc_ktv.processing.backing_audio import ready_audio_file, source_identity
-from vc_ktv.processing.bitrate import read_source_profile
+from vc_ktv.processing.bitrate import fits_budget, read_source_profile
 from vc_ktv.processing.media_preparation import (
     prepare_tv_source,
     render_provider_video,
@@ -289,12 +290,23 @@ def execute_refresh(owner, row: dict) -> None:
                 else old_props
             ),
         }
+        old_html = bool(row.get("html_only")) and row["prep_state"] == "done"
+        html_only = old_html and not burn_required(settings)
+        if old_html and old_bundle is not None:
+            info = json.loads((bundle_archive(old_bundle) / "attempt.json").read_text())
+            old_render_meta = {
+                **old_render_meta,
+                "subtitle_style": info.get("subtitle_style"),
+                "bandwidth": info.get("max_bandwidth_mbps"),
+            }
         style_changed = (
             row["prep_state"] == "done"
             and not row["skip_subtitles"]
             and old_render_meta.get("subtitle_style") not in (None, style)
         )
-        bandwidth_changed = needs_bandwidth(old_render_meta, settings)
+        bandwidth_changed = needs_bandwidth(old_render_meta, settings) or (
+            old_html and (old_render_meta.get("bandwidth") or limit) > limit
+        )
         auto_subtitles = (
             row["prep_state"] == "done"
             and not row["skip_subtitles"]
@@ -305,11 +317,14 @@ def execute_refresh(owner, row: dict) -> None:
         archive = None
         lyrics = row["lyrics"]
         duration = source_props.get("duration") or owner.probe(source)
-        if auto_subtitles and (style_changed or bandwidth_changed or source_changed):
+        if auto_subtitles and (
+            style_changed or bandwidth_changed or source_changed or old_html
+        ):
             # For a video-only local conversion, the existing burned H.264 is
             # still valid. A new provider representation may require rebaking.
-            bake = (
-                style_changed
+            bake = not html_only and (
+                old_html
+                or style_changed
                 or bandwidth_changed
                 or not local_conversion
                 or not audio_same
@@ -328,7 +343,7 @@ def execute_refresh(owner, row: dict) -> None:
                     _copy_bundle(old_bundle, bundle)
                 if bake:
                     _render_from_bundle(source, bundle, media_target, limit)
-            elif bake or old_bundle is None:
+            else:
                 # Genuine soundtrack/timeline changes need a new alignment;
                 # a legacy missing timing artifact is the only other fallback.
                 if row["lyric_timing_mode"] == "provider":
@@ -341,6 +356,7 @@ def execute_refresh(owner, row: dict) -> None:
                         duration,
                         max_bandwidth_mbps=limit,
                         preset=style,
+                        **({"burn_subtitles": False} if html_only else {}),
                     )
                 else:
                     if not owner.gpu_alignment:
@@ -348,6 +364,8 @@ def execute_refresh(owner, row: dict) -> None:
                     options = {"preset": style}
                     if owner.enhance is render_upstream_video:
                         options["max_bandwidth_mbps"] = limit
+                        if html_only:
+                            options["burn_subtitles"] = False
                     owner.enhance(
                         source,
                         row["lyric_choice"],
@@ -356,11 +374,14 @@ def execute_refresh(owner, row: dict) -> None:
                         duration,
                         **options,
                     )
-                bake = True
+                bake = not html_only
                 aligned = archive / "aligned.lrc"
                 if aligned.is_file():
                     lyrics = aligned.read_text()
-            if bake:
+            if html_only:
+                media = source
+                render_meta = source_meta
+            elif bake:
                 if not media_target.is_file():
                     raise ValueError("更新后的成片缺失")
                 media = media_target
@@ -398,10 +419,18 @@ def execute_refresh(owner, row: dict) -> None:
                             profile=source_meta,
                         )
                 except Exception:
+                    if html_only:
+                        raise
                     log.warning(
                         "Optional refresh TV cache unavailable for song #%s", song_id
                     )
                     (archive / "tv-source.mp4").unlink(missing_ok=True)
+            if (
+                html_only
+                and not fits_budget(source, duration, limit, source_meta)
+                and not (archive / "tv-source.mp4").is_file()
+            ):
+                raise ValueError("电视播放缓存制作失败")
             manifest = {
                 "song_id": song_id,
                 "outcome": "rendered",
@@ -510,8 +539,15 @@ def execute_refresh(owner, row: dict) -> None:
                         owner.backing.model_sha256,
                     )
                 store.db.execute(
-                    "UPDATE songs SET source_file=?,media_file=?,duration=?,lyrics=?,refresh_state='',refresh_error='' WHERE id=?",
-                    (source.name, media.name, round(duration), lyrics, song_id),
+                    "UPDATE songs SET source_file=?,media_file=?,duration=?,lyrics=?,html_only=?,refresh_state='',refresh_error='' WHERE id=?",
+                    (
+                        source.name,
+                        media.name,
+                        round(duration),
+                        lyrics,
+                        int(html_only),
+                        song_id,
+                    ),
                 )
                 store.db.commit()
             except BaseException:

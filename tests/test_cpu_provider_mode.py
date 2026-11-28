@@ -115,14 +115,18 @@ def test_cpu_only_auto_download_and_provider_render(tmp_path):
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             saved = app.state.events.current_store.rows(
-                "SELECT status,prep_state,media_file FROM songs WHERE id=?", (song_id,)
+                "SELECT status,prep_state,media_file,source_file,html_only FROM songs WHERE id=?",
+                (song_id,),
             )[0]
             if saved["prep_state"] == "done":
                 break
             time.sleep(0.2)
         assert saved["status"] == "ready" and saved["prep_state"] == "done", saved
         assert (app.state.events.current_store.media / saved["media_file"]).is_file()
-        assert client.get(f"/api/songs/{song_id}/download").status_code == 200
+        assert saved["html_only"] == 1 and saved["media_file"] == saved["source_file"]
+        assert client.get(f"/api/songs/{song_id}/download").status_code == 409
+        assert client.get(f"/api/songs/{song_id}/download/source").status_code == 200
+        assert [s["id"] for s in client.get("/api/state").json()["queue"]] == [song_id]
 
 
 def test_cpu_mode_can_still_choose_original(tmp_path):

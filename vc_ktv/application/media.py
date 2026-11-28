@@ -1,13 +1,11 @@
 """Signed media views, subtitle archives and safe streamed file responses."""
 
-import json
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi.responses import FileResponse
 
-from vc_ktv.core.artifacts import bundle_archive, find_bundle
-from vc_ktv.processing.bitrate import fits_budget, source_profile
+from vc_ktv.core.artifacts import bundle_archive, find_bundle, html_playback_source
 
 MEDIA_MIMES = {".mp4": "video/mp4", ".webm": "video/webm", ".m4v": "video/mp4"}
 
@@ -75,41 +73,7 @@ class MediaService:
 
     def overlay_source(self, song: dict) -> Path | None:
         """Choose the source or its bitrate-capped cache for HTML subtitles."""
-        if not self.store.settings()["tv_html_overlay"]:
-            return None
-        source_name = self.store.replay_assets(song).get("source_file")
-        source = self.store.media / Path(source_name or "").name
-        bundle = self.overlay_bundle(song)
-        if (
-            not source.is_file()
-            or not bundle
-            or not float(song.get("duration") or 0) > 0
-        ):
-            return None
-        limit = self.store.settings()["max_bandwidth_mbps"]
-        archive = self.overlay_archive(bundle)
-        if not fits_budget(
-            source,
-            float(song["duration"] or 0),
-            limit,
-            source_profile(self.store, source, archive),
-        ):
-            cache = archive / "tv-source.mp4"
-            if not cache.is_file():
-                return None
-            try:
-                if cache.stat().st_size < 1024:
-                    return None
-                metadata = json.loads((archive / "attempt.json").read_text())
-                if (
-                    metadata.get("tv_source_ready") is False
-                    or float(metadata.get("max_bandwidth_mbps", 0)) > limit
-                ):
-                    return None
-            except (OSError, ValueError, TypeError):
-                return None
-            return cache
-        return source
+        return html_playback_source(self.store, song, self.store.settings())
 
     def overlay_view(self, song: dict) -> dict | None:
         source = self.overlay_source(song)
@@ -144,7 +108,11 @@ class MediaService:
             (song["id"],),
         )[0]
         info = self.store.replay_assets(info)
-        info["media_url"] = self.signed_media(info)
+        info["media_url"] = (
+            None
+            if info.get("html_only") and info["prep_state"] == "done"
+            else self.signed_media(info)
+        )
         info["html_overlay"] = self.overlay_view(info)
         info["backing"] = self.backing_view(info)
         return info

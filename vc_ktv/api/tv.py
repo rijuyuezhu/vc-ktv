@@ -211,7 +211,12 @@ def create_tv_router(*, tv: TVSessionService, playback, media) -> APIRouter:
                     "id": song["id"],
                     "media_file": assets["media_file"],
                     "source_file": assets["source_file"],
-                    "media_url": media.signed_media(song),
+                    "media_url": None
+                    if assets.get("html_only") and assets["prep_state"] == "done"
+                    else media.signed_media(song),
+                    "html_only": bool(
+                        assets.get("html_only") and assets["prep_state"] == "done"
+                    ),
                     "html_overlay": media.overlay_view(dict(media_row)),
                 }
             }

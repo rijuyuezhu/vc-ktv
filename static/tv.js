@@ -837,6 +837,13 @@ async function next() {
         ? answer.active.media_url
         : null;
     const sourceUrl = useOverlay ? mediaSource(answer.active) : answer.active.media_url;
+    if (!sourceUrl) {
+      resetBacking();
+      resetOverlay();
+      activeId = null;
+      plainStatus("字幕加载失败，正在重试");
+      return;
+    }
     if (
       preloaded &&
       Boolean(preloaded.html_overlay) === useOverlay &&
