@@ -9,16 +9,19 @@ import os
 import secrets
 import signal
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
 import time
-from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, closing
 from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx
 
+from benchmarks.real_metrics import RealMetrics
 from vc_ktv.processing.backing_audio import KARAOKE_FILENAME
 
 
@@ -271,6 +274,32 @@ def browser_playback(admin, base, seconds):
             browser.close()
 
 
+def preparation_snapshot(root):
+    """Read only the isolated test room's stage counts, including backing."""
+    data = root / "data"
+    event_id = (data / "active-session").read_text().strip()
+    event = data / "sessions" / event_id
+    database = next(
+        p for p in event.glob("*.sqlite*") if p.suffix in (".sqlite", ".sqlite3")
+    )
+
+    with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as db:
+        return {
+            "preparation_states": dict(
+                db.execute("SELECT prep_state,count(*) FROM songs GROUP BY prep_state")
+            ),
+            "preparation_stages": dict(
+                db.execute("SELECT prep_stage,count(*) FROM songs GROUP BY prep_stage")
+            ),
+            "backing_states": dict(
+                db.execute("SELECT status,count(*) FROM backing_tracks GROUP BY status")
+            ),
+            "preparation_errors": db.execute(
+                "SELECT count(*) FROM songs WHERE prep_error != '' OR refresh_error != ''"
+            ).fetchone()[0],
+        }
+
+
 def run(args, items, root):
     pipeline = args.pipeline_root.expanduser().resolve()
     required = [
@@ -300,6 +329,8 @@ def run(args, items, root):
         "VC_KTV_AUTOPREPARE": "1",
         "VC_KTV_GPU_ALIGNMENT": "1",
         "VC_KTV_BACKING_TRACKS": "1",
+        "VC_KTV_PIPELINE_MODE": args.pipeline_mode,
+        "VC_KTV_KIM_SINGLE_FLIGHT": str(args.kim_single_flight),
         "VC_KTV_PREP_WORKERS": str(args.general_workers),
         "VC_KTV_FAST_WORKERS": str(args.fast_workers),
         "VC_KTV_BACKING_CHECKPOINT": str(required[-1]),
@@ -349,7 +380,9 @@ def run(args, items, root):
                     admin.put(
                         "/api/admin/settings",
                         json={
-                            "require_backing_ready": True,
+                            "require_backing_ready": not args.pressure_seconds,
+                            "max_bandwidth_mbps": args.bandwidth,
+                            "allow_unsubtitled": False,
                             "video_quality": args.quality,
                             "original_codec_mode": args.codec,
                         },
@@ -359,38 +392,128 @@ def run(args, items, root):
                 clients = []
                 submitted = {}
                 ready_times = {}
-                for i, item in enumerate(items):
+                order_times = {}
+                read_clients = [(admin, "/api/admin/state")]
+                # All requested users are actual registered clients, even if
+                # some only watch the queue. New joiners can be added later.
+                for user in range(args.users + args.additional_readers):
+                    client = stack.enter_context(
+                        httpx.Client(base_url=base, timeout=90, trust_env=False)
+                    )
+                    get_json(client.post("/api/join", json={"code": code}))
+                    get_json(
+                        client.post(
+                            "/api/users/register",
+                            json={
+                                "username": f"Bench-{user}",
+                                "password": password,
+                                "confirm_password": password,
+                            },
+                        )
+                    )
+                    clients.append(client)
+                    if user < args.users:
+                        read_clients.append((client, "/api/state"))
+                metrics = stack.enter_context(
+                    RealMetrics(read_clients, args.poll_interval)
+                )
+                time.sleep(args.poll_interval * 2)
+                metrics.phase = (
+                    f"preparation_{args.users}_users"
+                    if args.pressure_seconds
+                    else "preparation"
+                )
+
+                def order(i, item):
                     user = i % args.users
-                    if user >= len(clients):
-                        client = stack.enter_context(
-                            httpx.Client(base_url=base, timeout=90, trust_env=False)
-                        )
-                        get_json(client.post("/api/join", json={"code": code}))
-                        get_json(
-                            client.post(
-                                "/api/users/register",
-                                json={
-                                    "username": f"Bench-{user}",
-                                    "password": password,
-                                    "confirm_password": password,
-                                },
-                            )
-                        )
-                        clients.append(client)
                     started = time.monotonic()
                     sid = submit(clients[user], item)
-                    submitted[sid] = started
                     print(
                         f"ORDER {sid} user={user} timing={item['timing']}", flush=True
                     )
-                    if args.order_interval:
-                        time.sleep(args.order_interval)
+                    return sid, started, round(time.monotonic() - started, 2)
+
+                with ThreadPoolExecutor(max_workers=args.submit_workers) as pool:
+                    # Bounded submission concurrency: mimic independent users
+                    # without flooding the public media/lyrics providers.
+                    for start in range(0, len(items), args.submit_workers):
+                        futures = [
+                            pool.submit(order, i, items[i])
+                            for i in range(
+                                start, min(start + args.submit_workers, len(items))
+                            )
+                        ]
+                        for future in futures:
+                            sid, started, elapsed = future.result()
+                            submitted[sid] = started
+                            order_times[sid] = elapsed
+                        if args.order_interval:
+                            time.sleep(args.order_interval)
                 ids = set(submitted)
+                if args.pressure_seconds:
+                    pressure_start = time.monotonic()
+                    deadline = pressure_start + args.pressure_seconds
+                    ramped = False
+                    while time.monotonic() < deadline:
+                        if (
+                            args.additional_readers
+                            and not ramped
+                            and time.monotonic()
+                            >= pressure_start + args.pressure_seconds / 2
+                        ):
+                            metrics.phase = f"preparation_{args.users + args.additional_readers}_users"
+                            read_clients.extend(
+                                (client, "/api/state")
+                                for client in clients[args.users :]
+                            )
+                            ramped = True
+                        snapshot = state(admin)
+                        for song in snapshot["queue"]:
+                            sid = song["id"]
+                            if sid in submitted:
+                                ready_times.setdefault(
+                                    sid, round(time.monotonic() - submitted[sid], 2)
+                                )
+                        time.sleep(
+                            min(args.poll_interval, max(0, deadline - time.monotonic()))
+                        )
+                    metrics.stop_signal.set()
+                    metrics.thread.join()
+                    return {
+                        "mode": "bounded_pressure",
+                        "songs": len(ids),
+                        "users": len(clients),
+                        "ordering_users": args.users,
+                        "additional_readers": args.additional_readers,
+                        "pressure_seconds_after_submission": args.pressure_seconds,
+                        "worker_config": {
+                            "general": args.general_workers,
+                            "fast": args.fast_workers,
+                            "backing": 1,
+                            "kim_single_flight": args.kim_single_flight,
+                            "pipeline_mode": args.pipeline_mode,
+                        },
+                        "media_config": {
+                            "quality": args.quality,
+                            "codec": args.codec,
+                            "bandwidth": args.bandwidth,
+                            "require_backing_ready": False,
+                        },
+                        "observed_ready_seconds": ready_times,
+                        "order_and_lyrics_seconds": order_times,
+                        "snapshot": preparation_snapshot(root),
+                        "metrics": metrics.summary(),
+                        "playback": {
+                            "mode": "not_run",
+                            "reason": "bounded pressure observation",
+                        },
+                    }
                 wait_ready(
                     admin, ids, submitted, time.monotonic() + args.timeout, ready_times
                 )
                 refresh_count = 0
                 if args.refresh:
+                    metrics.phase = "refresh"
                     other = "av1" if args.codec == "h264" else "h264"
                     get_json(
                         admin.put(
@@ -407,6 +530,7 @@ def run(args, items, root):
                     wait_ready(
                         admin, ids, submitted, time.monotonic() + args.timeout, {}
                     )
+                metrics.phase = "playback"
                 if args.playback == "browser":
                     playback = browser_playback(admin, base, args.switch_seconds)
                 elif args.playback == "manual":
@@ -420,8 +544,18 @@ def run(args, items, root):
                     playback = {"mode": "manual", "verified_by_script": False}
                 else:
                     playback = api_playback(admin, base, len(ids))
+                metrics.stop_signal.set()
+                metrics.thread.join()
                 return {
                     "songs": len(ids),
+                    "worker_config": {
+                        "general": args.general_workers,
+                        "fast": args.fast_workers,
+                        "backing": 1,
+                        "kim_single_flight": args.kim_single_flight,
+                        "pipeline_mode": args.pipeline_mode,
+                    },
+                    "metrics": metrics.summary(),
                     "users": len(clients),
                     "observed_ready_seconds": ready_times,
                     "refreshed_songs": refresh_count,
@@ -450,13 +584,37 @@ def main():
             os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
         ),
     )
-    parser.add_argument("--users", type=int, default=3)
-    parser.add_argument("--general-workers", type=int, choices=range(1, 5), default=2)
-    parser.add_argument("--fast-workers", type=int, choices=range(3), default=1)
-    parser.add_argument("--quality", type=int, choices=(480, 720, 1080), default=720)
-    parser.add_argument("--codec", choices=("h264", "av1"), default="h264")
+    parser.add_argument("--users", type=int, default=10)
+    parser.add_argument(
+        "--additional-readers",
+        type=int,
+        default=0,
+        help="add queue-only readers halfway through bounded pressure",
+    )
+    parser.add_argument(
+        "--repeat", type=int, default=1, help="repeat the song manifest"
+    )
+    parser.add_argument("--poll-interval", type=float, default=2)
+    parser.add_argument("--bandwidth", type=float, default=3)
+    parser.add_argument(
+        "--pipeline-mode",
+        choices=("quality", "fast", "global", "global-kim"),
+        default="quality",
+    )
+    parser.add_argument("--kim-single-flight", type=int, choices=(0, 1), default=1)
+    parser.add_argument("--general-workers", type=int, choices=range(1, 5), default=4)
+    parser.add_argument("--fast-workers", type=int, choices=range(3), default=2)
+    parser.add_argument("--quality", type=int, choices=(480, 720, 1080), default=1080)
+    parser.add_argument("--codec", choices=("default", "h264", "av1"), default="h264")
     parser.add_argument("--timeout", type=int, default=1200)
     parser.add_argument("--order-interval", type=float, default=1)
+    parser.add_argument("--submit-workers", type=int, default=1, choices=range(1, 5))
+    parser.add_argument(
+        "--pressure-seconds",
+        type=int,
+        default=0,
+        help="observe after submission, then stop without waiting for every song; 0 runs full playback",
+    )
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument(
         "--playback", choices=("api", "browser", "manual"), default="api"
@@ -465,13 +623,26 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("benchmarks/.results"))
     args = parser.parse_args()
     try:
-        items = read_manifest(args.manifest)
+        if (
+            not 1 <= args.repeat <= 1000
+            or not math.isfinite(args.poll_interval)
+            or args.poll_interval < 1
+            or not 1 <= args.bandwidth <= 100
+        ):
+            raise ValueError("invalid repeat, poll interval or bandwidth")
+        items = read_manifest(args.manifest) * args.repeat
         if not 1 <= args.users <= 50 or len(items) > min(1000, args.users * 20):
             raise ValueError(
                 "users must be 1–50 and orders must fit the per-user limit"
             )
         if (
             args.timeout < 1
+            or args.pressure_seconds < 0
+            or args.additional_readers < 0
+            or args.users + args.additional_readers > 50
+            or (args.additional_readers and not args.pressure_seconds)
+            or (args.pressure_seconds and args.refresh)
+            or args.submit_workers > args.users
             or not math.isfinite(args.order_interval)
             or args.order_interval < 0
             or args.switch_seconds < 2
@@ -497,7 +668,17 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     try:
         with tempfile.TemporaryDirectory(prefix="vcktv-real-party-") as folder:
-            result = run(args, items, Path(folder))
+            try:
+                result = run(args, items, Path(folder))
+            except Exception:
+                log = Path(folder) / "server.log"
+                if log.exists():
+                    destination = (
+                        args.output / f"real-party-local-debug-{time.time_ns()}.log"
+                    )
+                    destination.write_bytes(log.read_bytes())
+                    destination.chmod(0o600)
+                raise
     except Exception as error:
         (args.output / f"real-party-failed-{time.time_ns()}.json").write_text(
             json.dumps({"error_type": type(error).__name__}, indent=2) + "\n"
@@ -507,7 +688,10 @@ def main():
     (args.output / f"real-party-{time.time_ns()}.json").write_text(
         json.dumps(result, indent=2) + "\n"
     )
-    print("SUMMARY", json.dumps(result), flush=True)
+    summary = {**result}
+    if "metrics" in summary:
+        summary["metrics"] = {"phases": summary["metrics"]["phases"]}
+    print("SUMMARY", json.dumps(summary), flush=True)
 
 
 if __name__ == "__main__":

@@ -215,3 +215,20 @@ def test_real_benchmark_plan_does_not_start_server(tmp_path):
     )
     assert "PLAN ONLY" in proc.stdout
     assert not output.exists()
+
+
+def test_real_metrics_read_and_distribution():
+    import httpx
+
+    from benchmarks.real_metrics import RealMetrics, distribution
+
+    def respond(request):
+        return httpx.Response(200, json={"queue": []})
+
+    with httpx.Client(
+        transport=httpx.MockTransport(respond), base_url="http://test"
+    ) as client:
+        elapsed, error = RealMetrics.read(client, "/api/state")
+        assert elapsed >= 0
+        assert error is None
+    assert distribution([1, 2, 3, 4]) == {"p50": 2, "p95": 3, "max": 4}

@@ -40,9 +40,20 @@ uv run --no-sync python -m benchmarks.real_party \
   --refresh --playback api
 ```
 
-Real 使用真实来源及 Worker，强制伴奏就绪，记录观察到的歌曲就绪耗时（从提交开始，受轮询和提交批次影响）。`--refresh` 在制作完成后切换编码和字幕样式并触发增量重制。`--playback api` 验证主屏配对、签名媒体 Range、字幕接口和重唱伴奏缓存；它不解码媒体。
+Real 使用真实来源及 Worker，完整播放验证默认强制伴奏就绪，记录观察到的歌曲就绪耗时（从提交开始，受轮询和提交批次影响）。`--refresh` 在制作完成后切换编码和字幕样式并触发增量重制。`--playback api` 验证主屏配对、签名媒体 Range、字幕接口和重唱伴奏缓存；它不解码媒体。
 
 另可将播放模式改为 `--playback browser`，并通过 `uv run --no-sync --with playwright` 启动（需预先安装 Chromium）。实际主屏播放第一首歌曲，切换原唱/伴奏并采样两个媒体时钟、暂停与解码错误状态。媒体时钟差不是物理音画同步测量。`--playback manual` 提供临时主屏配对地址，供本机浏览器或 SSH 隧道手动试听；按 Enter 结束。真实电视、音响和投屏延迟仍需人工体验。
+
+生产配置下的有界真实负载观察（默认 4 General、2 Fast、1 Backing、quality 对齐及 Kim single-flight）：
+
+```sh
+uv run --no-sync python -m benchmarks.real_party \
+  --manifest benchmarks/real_playlist.example.json --execute \
+  --users 10 --additional-readers 30 --repeat 4 --submit-workers 3 \
+  --quality 1080 --codec h264 --bandwidth 3 --pressure-seconds 150
+```
+
+10 人提交真实歌曲，40 名注册用户中额外 30 人在观察窗口中途开始查询。每 2 秒并发请求用户及管理员状态，分别记录各阶段 Web 延迟、请求失败和 GPU 利用率、温度、功率、显存采样（取决于设备计数器支持）。观察窗口从最后一批点歌结束开始，结束时记录制作/伴奏状态并停止隔离服务，不保证全部歌曲完成，也不执行播放验证。该模式不强制伴奏就绪，符合通常播放设置。重复歌单并非不同歌曲来源；比较两段查询延迟时也需考虑制作阶段变化。GPU 计数器为整机观察，不能归因到单一 Worker。
 
 Real 不自动安装模型，不共享生产账号和场次；临时数据在测试结束后清理。运行 GPU 及真实来源测试前应确认机器空闲。
 
