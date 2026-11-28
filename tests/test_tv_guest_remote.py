@@ -65,7 +65,16 @@ def prepare_backing(app, song_id):
 
 
 def report(
-    tv, token, *, ack_seq=0, active_id=None, paused=False, audio_mode="original"
+    tv,
+    token,
+    *,
+    ack_seq=0,
+    active_id=None,
+    paused=False,
+    audio_mode="original",
+    overlay=False,
+    offset=0,
+    duration=None,
 ):
     response = tv.post(
         "/api/tv/report",
@@ -76,6 +85,9 @@ def report(
             "paused": paused,
             "audio_mode": audio_mode,
             "position": 15,
+            "duration": duration,
+            "overlay": overlay,
+            "offset": offset,
             "started": True,
         },
     )
@@ -125,6 +137,10 @@ def test_only_current_requester_can_see_and_send_transport(tmp_path):
             "song_id": song,
             "online": True,
             "pending": False,
+            "position": 15,
+            "duration": None,
+            "overlay": False,
+            "offset": None,
             "paused": False,
             "audio_mode": "original",
             "backing_ready": False,
@@ -466,3 +482,63 @@ def test_guest_command_wakes_shared_admin_and_guest_sse_channel(tmp_path):
             result = command(singer, "pause", song)
         assert result.status_code == 200
         assert [call.args[0] for call in notify.call_args_list] == ["tv", "admin"]
+
+
+def test_guest_progress_and_offset_are_scoped_to_reported_song(tmp_path):
+    app = room(tmp_path)
+    with (
+        TestClient(app) as admin,
+        TestClient(app) as singer,
+        TestClient(app) as other,
+        TestClient(app) as tv,
+    ):
+        song, token = setup_clients(app, admin, singer, other, tv)
+        assert command(singer, "offset", song, 1).status_code == 409
+        report(tv, token, active_id=song, overlay=True, offset=-10, duration=25)
+        state = singer.get("/api/guest/tv-remote").json()
+        assert (
+            state["position"],
+            state["duration"],
+            state["offset"],
+            state["overlay"],
+        ) == (15, 25, -10, True)
+        assert other.get("/api/guest/tv-remote").json() == {"available": False}
+        assert command(other, "offset", song, 10).status_code == 403
+        assert command(singer, "offset", song + 1, 10).status_code == 409
+        assert command(singer, "offset", song, 601).status_code == 400
+        assert command(singer, "offset", song, -601).status_code == 400
+        response = command(singer, "offset", song, 1)
+        assert response.status_code == 200
+        assert tv.get("/api/tv/state", params={"token": token}).json()[
+            "remote_command"
+        ] == {
+            "seq": response.json()["seq"],
+            "song_id": song,
+            "action": "offset",
+            "value": 1,
+        }
+        takeover = admin.post(
+            "/api/admin/tv/remote", json={"action": "offset", "value": -5}
+        )
+        assert takeover.status_code == 200
+        assert command(singer, "offset", song, 10).status_code == 409
+        report(
+            tv,
+            token,
+            ack_seq=takeover.json()["seq"],
+            active_id=song,
+            overlay=True,
+            offset=-5,
+            duration=25,
+        )
+        assert singer.get("/api/guest/tv-remote").json()["offset"] == -5
+        # Stale telemetry from the previous song must not expose its timing or allow edits.
+        report(tv, token, active_id=song + 1, overlay=True, offset=50, duration=200)
+        state = singer.get("/api/guest/tv-remote").json()
+        assert not state["online"] and not state["overlay"]
+        assert (
+            state["position"] is None
+            and state["duration"] is None
+            and state["offset"] is None
+        )
+        assert command(singer, "offset", song, 10).status_code == 409

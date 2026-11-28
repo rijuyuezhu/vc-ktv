@@ -1,14 +1,10 @@
 import { $, api, error, toast } from "./ui-common.js";
+import { clock, offsetLabel, adjustOffset, createOffsetButtons } from "./remote-timing.js";
 // Administrator volume, song transport and TV remote presentation.
 // Playback lifecycle is owned by admin-playback.js.
 export function setupRemoteControls({ refresh, finishActive, getState, player }) {
   let sending = false;
   let optimisticPaused = null;
-  function clock(seconds) {
-    return Number.isFinite(seconds)
-      ? Math.floor(seconds / 60) + ":" + String(Math.floor(seconds % 60)).padStart(2, "0")
-      : "0:00";
-  }
   function updateRemoteControls() {
     const {
       playbackMode,
@@ -64,10 +60,9 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     if (document.activeElement !== volume)
       volume.value = String(isTV ? (status.volume ?? 100) : Math.round(player.volume * 100));
     $("tv-remote-extra").classList.toggle("hidden", !isTV);
-    for (const button of document.querySelectorAll("[data-admin-offset]"))
-      button.disabled = !canTV || !tvPlaying || !status.overlay;
+    for (const button of offsetButtons) button.disabled = !canTV || !tvPlaying || !status.overlay;
     const offs = Number(status.offset || 0);
-    $("remote-offset-value").textContent = (offs >= 0 ? "+" : "") + (offs / 10).toFixed(1) + "s";
+    $("remote-offset-value").textContent = offsetLabel(offs);
     const opacity = $("remote-opacity");
     opacity.disabled = !canTV;
     if (document.activeElement !== opacity) opacity.value = String(status.opacity ?? 15);
@@ -193,16 +188,12 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
       if (getState().playbackMode === "tv")
         await sendRemote("volume", Number($("remote-volume").value));
     });
-  for (const button of document.querySelectorAll("[data-admin-offset]")) {
-    button.onclick = () =>
-      remoteAction(button, async () => {
-        const current = Number(getState().tvRemoteState?.report?.offset || 0);
-        await sendRemote(
-          "offset",
-          Math.max(-600, Math.min(600, current + Number(button.dataset.adminOffset)))
-        );
-      });
-  }
+  const offsetButtons = createOffsetButtons($("admin-remote-offsets"), (button, step) =>
+    remoteAction(button, async () => {
+      const current = getState().tvRemoteState?.report?.offset;
+      await sendRemote("offset", adjustOffset(current, step));
+    })
+  );
   $("remote-opacity").onchange = () =>
     remoteAction($("remote-opacity"), () =>
       sendRemote("opacity", Number($("remote-opacity").value))

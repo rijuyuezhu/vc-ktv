@@ -384,3 +384,59 @@ test("reported TV failure uses shared toast exactly once without changing the ro
     h.cleanup();
   }
 });
+
+test("guest timing follows TV reports with shared formatting and guarded offset buttons", async () => {
+  const h = await setup();
+  try {
+    const live = { ...h.remote, position: 65.9, duration: 182.5, overlay: true, offset: -10 };
+    h.component.render(h.own, live);
+    const panel = h.container.children[0];
+    const progress = panel.children[2];
+    const timing = panel.children[3];
+    const offset = timing.children[0].children[1];
+    const buttons = timing.children[1].children;
+    assert.equal(progress.textContent, "1:05 / 3:02");
+    assert.equal(offset.textContent, "-1.0s");
+    assert.deepEqual(
+      buttons.map((b) => b.textContent),
+      ["−5s", "−1s", "−0.1s", "+0.1s", "+1s", "+5s"]
+    );
+    await buttons[3].onclick();
+    assert.deepEqual(h.calls.at(-1), [
+      "/api/guest/tv-remote",
+      "POST",
+      { action: "offset", song_id: 12, value: -9 }
+    ]);
+    h.component.render(h.own, { ...live, offset: 599, position: 70, paused: true });
+    assert.equal(progress.textContent, "1:10 / 3:02");
+    assert.equal(offset.textContent, "+59.9s");
+    await buttons[5].onclick();
+    assert.equal(h.calls.at(-1)[2].value, 600);
+    h.component.render(h.own, { ...live, pending: true });
+    assert.ok(buttons.every((b) => b.disabled));
+    assert.ok(panel.classList.contains("remote-pending"));
+    await buttons[0].onclick();
+    assert.equal(h.calls.length, 2);
+    h.component.render(h.own, { ...live, overlay: false });
+    assert.ok(timing.classList.contains("hidden"));
+    await buttons[0].onclick();
+    assert.equal(h.calls.length, 2);
+    h.component.render(h.own, { ...live, online: false, overlay: false });
+    assert.equal(progress.textContent, "— / —");
+    assert.equal(offset.textContent, "—");
+    assert.ok(timing.classList.contains("hidden"));
+    assert.ok(buttons.every((b) => b.disabled));
+    assert.ok(!panel.classList.contains("remote-pending"));
+    h.component.render(h.own, live);
+    h.component.render(h.own, { ...live, online: false, overlay: false });
+    assert.ok(!timing.classList.contains("hidden"));
+    assert.ok(buttons.every((b) => b.disabled));
+    h.component.render({ ...h.own, id: 13 }, { ...live, song_id: 13, position: 0, offset: 0 });
+    assert.equal(progress.textContent, "0:00 / 3:02");
+    assert.equal(offset.textContent, "+0.0s");
+    await buttons[0].onclick();
+    assert.equal(h.calls.at(-1)[2].song_id, 13);
+  } finally {
+    h.cleanup();
+  }
+});

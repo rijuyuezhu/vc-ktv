@@ -137,6 +137,12 @@ class TVSessionService:
                 "pending": bool(
                     remote["seq"] > remote["ack"] and remote["issued"] > time_now() - 20
                 ),
+                "position": report.get("position", 0) if online else None,
+                "duration": report.get("duration") if online else None,
+                "overlay": online and bool(report.get("overlay")),
+                "offset": report.get("offset", 0)
+                if online and report.get("overlay")
+                else None,
                 "paused": bool(report.get("paused", False)),
                 "audio_mode": report.get("audio_mode", "original"),
                 "backing_ready": state == "ready",
@@ -177,7 +183,14 @@ class TVSessionService:
                 principal is None or not self.can_manage(principal, primary)
             ):
                 bail(403, "无权遥控全局管理员的主屏")
-            guest_actions = ("pause", "resume", "restart", "skip", "audio_mode")
+            guest_actions = (
+                "pause",
+                "resume",
+                "restart",
+                "skip",
+                "audio_mode",
+                "offset",
+            )
             if guest_id is not None and action not in guest_actions:
                 bail(403, "点歌人只能控制自己的当前歌曲")
             current = self.store.current()
@@ -221,6 +234,12 @@ class TVSessionService:
                 bail(409, "主屏离线")
             if guest_id is not None and remote["report"].get("active_id") != song_id:
                 bail(409, "主屏尚未开始播放这首歌")
+            if (
+                guest_id is not None
+                and action == "offset"
+                and not remote["report"].get("overlay")
+            ):
+                bail(409, "当前没有实时字幕")
             if (
                 remote["seq"] > remote["ack"]
                 and remote["issued"] > time_now() - 20
