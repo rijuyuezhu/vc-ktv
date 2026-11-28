@@ -1,0 +1,514 @@
+"""Opt-in real-media multi-user KTV benchmark on an isolated loopback server."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import secrets
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import ExitStack
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import httpx
+
+from vc_ktv.processing.backing_audio import KARAOKE_FILENAME
+
+
+def read_manifest(path: Path):
+    items = json.loads(path.read_text())
+    if not isinstance(items, list) or not items:
+        raise ValueError("manifest must be a nonempty JSON array")
+    for item in items:
+        if not isinstance(item, dict) or item.get("source") not in (
+            "bilibili",
+            "netease",
+        ):
+            raise ValueError("each song needs source=bilibili or netease")
+        if not isinstance(item.get("ref"), str) or not item["ref"].strip():
+            raise ValueError("each song needs a nonempty ref string")
+        if item.get("timing") not in ("align", "provider", "skip"):
+            raise ValueError("timing must be align, provider or skip")
+        if item.get("lyrics_file"):
+            if item["timing"] != "align":
+                raise ValueError("uploaded LRC requires timing=align")
+            item["lyrics_file"] = str((path.parent / item["lyrics_file"]).resolve())
+            if not Path(item["lyrics_file"]).is_file():
+                raise ValueError("lyrics_file does not exist")
+    if not any(item["timing"] == "align" for item in items):
+        raise ValueError("real benchmark requires at least one GPU alignment song")
+    return items
+
+
+def get_json(response):
+    if not response.is_success:
+        raise RuntimeError(
+            f"HTTP {response.status_code} for {response.request.method} {response.request.url.path}"
+        )
+    return response.json()
+
+
+def port_number():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def wait_until(predicate, deadline, description):
+    while time.monotonic() < deadline:
+        result = predicate()
+        if result:
+            return result
+        time.sleep(1)
+    raise TimeoutError(description)
+
+
+def submit(client, item):
+    if item["source"] == "bilibili":
+        result = client.post(
+            "/api/songs", json={"bvid": item["ref"], "page": item.get("page", 1)}
+        )
+    else:
+        result = client.post("/api/netease/songs", json={"ref": item["ref"]})
+    sid = get_json(result)["id"]
+    timing = item["timing"]
+    if timing == "skip":
+        get_json(client.post(f"/api/songs/{sid}/lyrics/skip"))
+    elif item.get("lyrics_file"):
+        with Path(item["lyrics_file"]).open("rb") as stream:
+            get_json(
+                client.post(
+                    f"/api/songs/{sid}/lyrics/upload",
+                    files={"file": ("lyrics.lrc", stream)},
+                )
+            )
+    else:
+        candidates = get_json(
+            client.get(
+                f"/api/songs/{sid}/lyrics/candidates",
+                params={"query": item.get("query", "")},
+            )
+        )["candidates"]
+        candidates = [
+            c
+            for c in candidates
+            if len(c.get("text", "")) >= 10
+            and (timing != "provider" or c.get("timing_ticket"))
+        ]
+        if not candidates:
+            raise RuntimeError(
+                f"no suitable lyrics for song {sid}; supply query or lyrics_file"
+            )
+        candidate = candidates[0]
+        payload = {key: candidate[key] for key in ("text", "ticket", "source")}
+        payload["timing_mode"] = timing
+        if timing == "provider":
+            payload.update(
+                {
+                    key: candidate[key]
+                    for key in ("timed_lrc", "source_lrc_raw", "timing_ticket")
+                }
+            )
+        get_json(client.post(f"/api/songs/{sid}/lyrics/select", json=payload))
+    return sid
+
+
+def state(admin):
+    return get_json(admin.get("/api/admin/state"))
+
+
+def wait_ready(admin, ids, submitted, deadline, ready_times):
+    def check():
+        snapshot = state(admin)
+        pending = {s["id"]: s for s in snapshot["waiting"]}
+        ready = {s["id"] for s in snapshot["queue"]}
+        for sid in ids:
+            if sid in ready and sid not in ready_times:
+                ready_times[sid] = round(time.monotonic() - submitted[sid], 2)
+            song = pending.get(sid)
+            if song and (
+                song.get("prep_state") == "failed"
+                or (
+                    song.get("prep_state") == "unavailable"
+                    and song.get("prep_attempts", 0) >= 3
+                )
+                or song.get("refresh_state") == "failed"
+                or (
+                    song.get("prep_state") == "original"
+                    and not song.get("skip_subtitles")
+                    and song.get("prep_error")
+                )
+            ):
+                raise RuntimeError(
+                    f"preparation failed for song {sid}: {song.get('prep_state')}"
+                )
+        return ids <= ready
+
+    wait_until(
+        check, deadline, "songs did not become subtitle/backing ready before timeout"
+    )
+
+
+def check_range(client, url):
+    # Request a small range, never download the whole media in the API test.
+    with client.stream("GET", url, headers={"Range": "bytes=0-4095"}) as response:
+        assert response.status_code == 206, response.status_code
+        assert response.headers.get("content-range", "").startswith("bytes 0-")
+        assert next(response.iter_bytes(), b"")
+    return True
+
+
+def api_playback(admin, base, count):
+    """Check actual signed media ranges and TV state, not browser decoding."""
+    pair_url = get_json(admin.get("/api/admin/tv-link"))["url"]
+    from urllib.parse import parse_qs
+
+    pair = parse_qs(urlsplit(pair_url).query)["pair"][0]
+    with httpx.Client(base_url=base, timeout=30, trust_env=False) as tv:
+        token = get_json(tv.post("/api/tv/activate", json={"pair": pair}))["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        played = []
+        first_key = None
+        for _ in range(count):
+            active = get_json(tv.post("/api/tv/next", headers=headers))["active"]
+            assert active and active["backing"]["status"] == "ready"
+            check_range(tv, active["media_url"])
+            check_range(tv, active["backing"]["url"])
+            if active.get("html_overlay"):
+                check_range(tv, active["html_overlay"]["source_url"])
+                get_json(tv.get(active["html_overlay"]["timeline_url"]))
+            played.append(active["id"])
+            if first_key is None:
+                first_key = active["backing"]["cache_key"]
+            get_json(
+                tv.post(
+                    "/api/tv/finish",
+                    headers=headers,
+                    json={"song_id": active["id"], "reason": "completed"},
+                )
+            )
+        replay = get_json(admin.post(f"/api/admin/songs/{played[0]}/replay"))["id"]
+        active = get_json(tv.post("/api/tv/next", headers=headers))["active"]
+        assert active and active["id"] == replay
+        assert active["backing"]["status"] == "ready"
+        assert active["backing"]["cache_key"] == first_key
+        check_range(tv, active["media_url"])
+        check_range(tv, active["backing"]["url"])
+        get_json(
+            tv.post(
+                "/api/tv/finish",
+                headers=headers,
+                json={"song_id": replay, "reason": "completed"},
+            )
+        )
+        return {
+            "mode": "api",
+            "range_checked_songs": played,
+            "replay_cache_reused": True,
+        }
+
+
+def browser_playback(admin, base, seconds):
+    """Exercise the shipped TV UI with a real Chromium media decoder."""
+    from playwright.sync_api import sync_playwright
+
+    pair_url = get_json(admin.get("/api/admin/tv-link"))["url"]
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            args=["--autoplay-policy=no-user-gesture-required"]
+        )
+        try:
+            page = browser.new_page()
+            page.goto(base + pair_url, wait_until="domcontentloaded")
+            page.locator("#start").click(timeout=30000)
+            page.wait_for_function(
+                "document.querySelector('#video').currentTime > 0.5 && !document.querySelector('#video').paused",
+                timeout=60000,
+            )
+            page.locator("#panel-toggle").click()
+            page.locator("#audio-mode").click(timeout=30000)
+            page.wait_for_function(
+                "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'true'",
+                timeout=15000,
+            )
+            samples = []
+            for _ in range(seconds):
+                page.wait_for_timeout(1000)
+                sample = page.evaluate("""() => {
+                    const v=document.querySelector('#video'), a=document.querySelector('#backing-audio');
+                    return {video:v.currentTime, audio:a.currentTime, muted:v.muted,
+                            videoPaused:v.paused, audioPaused:a.paused,
+                            videoError:v.error?.code ?? null, audioError:a.error?.code ?? null};
+                }""")
+                assert (
+                    sample["muted"]
+                    and not sample["videoPaused"]
+                    and not sample["audioPaused"]
+                )
+                assert sample["videoError"] is None and sample["audioError"] is None
+                samples.append(sample)
+            assert samples[-1]["video"] > samples[0]["video"]
+            page.locator("#audio-mode").click()
+            page.wait_for_function(
+                "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'false' && !document.querySelector('#video').muted",
+                timeout=15000,
+            )
+            return {
+                "mode": "browser",
+                "samples": samples,
+                "max_media_clock_delta_seconds": max(
+                    abs(s["audio"] - s["video"]) for s in samples
+                ),
+            }
+        finally:
+            browser.close()
+
+
+def run(args, items, root):
+    pipeline = args.pipeline_root.expanduser().resolve()
+    required = [
+        pipeline / "runtime/kim/bin/python",
+        pipeline / "runtime/tifa/bin/python",
+        pipeline / "runtime/qwen/bin/python",
+        pipeline / "models/separation/Karaoke" / KARAOKE_FILENAME,
+    ]
+    if any(not path.is_file() for path in required):
+        raise RuntimeError(
+            "GPU runtime or accompaniment checkpoint missing; install separately"
+        )
+    port = port_number()
+    base = f"http://127.0.0.1:{port}"
+    password = secrets.token_urlsafe(24)
+    config = root / "config"
+    config.mkdir()
+    (config / "admin-password").write_text(password)
+    (config / "token-secret").write_text(secrets.token_hex(32))
+    env = {
+        **os.environ,
+        "VC_KTV_CONFIG": str(config),
+        "VC_KTV_DATA": str(root / "data"),
+        "VC_KTV_PIPELINE_ROOT": str(pipeline),
+        "VC_KTV_HOST": "127.0.0.1",
+        "VC_KTV_PORT": str(port),
+        "VC_KTV_AUTOPREPARE": "1",
+        "VC_KTV_GPU_ALIGNMENT": "1",
+        "VC_KTV_BACKING_TRACKS": "1",
+        "VC_KTV_PREP_WORKERS": str(args.general_workers),
+        "VC_KTV_FAST_WORKERS": str(args.fast_workers),
+        "VC_KTV_BACKING_CHECKPOINT": str(required[-1]),
+    }
+    with (root / "server.log").open("w") as log:
+        process = subprocess.Popen(
+            [sys.executable, "-m", "vc_ktv"],
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        try:
+            with ExitStack() as stack:
+                admin = stack.enter_context(
+                    httpx.Client(base_url=base, timeout=60, trust_env=False)
+                )
+
+                def health():
+                    if process.poll() is not None:
+                        raise RuntimeError("isolated server exited")
+                    try:
+                        return get_json(admin.get("/api/health"))
+                    except httpx.HTTPError:
+                        return None
+
+                wait_until(health, time.monotonic() + 60, "server startup timeout")
+                get_json(admin.post("/api/admin/login", json={"password": password}))
+                code = "654321"
+                get_json(
+                    admin.post(
+                        "/api/admin/events",
+                        json={"name": "Real benchmark", "code": code},
+                    )
+                )
+                wait_until(
+                    lambda: (
+                        (h := health())
+                        and h["backing_ready"]
+                        and h["autoprep_ready"]
+                        and h["gpu_alignment"]
+                    ),
+                    time.monotonic() + 120,
+                    "GPU/backing worker startup timeout",
+                )
+                get_json(
+                    admin.put(
+                        "/api/admin/settings",
+                        json={
+                            "require_backing_ready": True,
+                            "video_quality": args.quality,
+                            "original_codec_mode": args.codec,
+                        },
+                    )
+                )
+                get_json(admin.put("/api/admin/playback-mode", json={"mode": "tv"}))
+                clients = []
+                submitted = {}
+                ready_times = {}
+                for i, item in enumerate(items):
+                    user = i % args.users
+                    if user >= len(clients):
+                        client = stack.enter_context(
+                            httpx.Client(base_url=base, timeout=90, trust_env=False)
+                        )
+                        get_json(client.post("/api/join", json={"code": code}))
+                        get_json(
+                            client.post(
+                                "/api/users/register",
+                                json={
+                                    "username": f"Bench-{user}",
+                                    "password": password,
+                                    "confirm_password": password,
+                                },
+                            )
+                        )
+                        clients.append(client)
+                    started = time.monotonic()
+                    sid = submit(clients[user], item)
+                    submitted[sid] = started
+                    print(
+                        f"ORDER {sid} user={user} timing={item['timing']}", flush=True
+                    )
+                    if args.order_interval:
+                        time.sleep(args.order_interval)
+                ids = set(submitted)
+                wait_ready(
+                    admin, ids, submitted, time.monotonic() + args.timeout, ready_times
+                )
+                refresh_count = 0
+                if args.refresh:
+                    other = "av1" if args.codec == "h264" else "h264"
+                    get_json(
+                        admin.put(
+                            "/api/admin/settings",
+                            json={
+                                "original_codec_mode": other,
+                                "subtitle_style": "large",
+                            },
+                        )
+                    )
+                    refresh_count = get_json(
+                        admin.post("/api/admin/songs/refresh-outdated")
+                    )["count"]
+                    wait_ready(
+                        admin, ids, submitted, time.monotonic() + args.timeout, {}
+                    )
+                if args.playback == "browser":
+                    playback = browser_playback(admin, base, args.switch_seconds)
+                elif args.playback == "manual":
+                    url = get_json(admin.get("/api/admin/tv-link"))["url"]
+                    print(
+                        "Open the temporary TV page locally (or use an SSH tunnel):",
+                        base + url,
+                        flush=True,
+                    )
+                    input("Press Enter when manual playback verification is finished. ")
+                    playback = {"mode": "manual", "verified_by_script": False}
+                else:
+                    playback = api_playback(admin, base, len(ids))
+                return {
+                    "songs": len(ids),
+                    "users": len(clients),
+                    "observed_ready_seconds": ready_times,
+                    "refreshed_songs": refresh_count,
+                    "playback": playback,
+                }
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument(
+        "--execute", action="store_true", help="Explicitly enable network/GPU work"
+    )
+    parser.add_argument(
+        "--pipeline-root",
+        type=Path,
+        default=Path(
+            os.getenv("VC_KTV_PIPELINE_ROOT", "~/.local/share/vc-ktv/pipeline")
+        ),
+    )
+    parser.add_argument("--users", type=int, default=3)
+    parser.add_argument("--general-workers", type=int, choices=range(1, 5), default=2)
+    parser.add_argument("--fast-workers", type=int, choices=range(3), default=1)
+    parser.add_argument("--quality", type=int, choices=(480, 720, 1080), default=720)
+    parser.add_argument("--codec", choices=("h264", "av1"), default="h264")
+    parser.add_argument("--timeout", type=int, default=1200)
+    parser.add_argument("--order-interval", type=float, default=1)
+    parser.add_argument("--refresh", action="store_true")
+    parser.add_argument(
+        "--playback", choices=("api", "browser", "manual"), default="api"
+    )
+    parser.add_argument("--switch-seconds", type=int, default=5)
+    parser.add_argument("--output", type=Path, default=Path("benchmarks/.results"))
+    args = parser.parse_args()
+    try:
+        items = read_manifest(args.manifest)
+        if not 1 <= args.users <= 50 or len(items) > min(1000, args.users * 20):
+            raise ValueError(
+                "users must be 1–50 and orders must fit the per-user limit"
+            )
+        if (
+            args.timeout < 1
+            or not math.isfinite(args.order_interval)
+            or args.order_interval < 0
+            or args.switch_seconds < 2
+        ):
+            raise ValueError("invalid timing arguments")
+    except (ValueError, OSError) as error:
+        parser.error(str(error))
+    if not args.execute:
+        print(
+            f"PLAN ONLY: {len(items)} songs; GPU alignment + accompaniment; playback={args.playback}. Use --execute to run."
+        )
+        return
+    if args.playback == "browser":
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            parser.error("browser mode requires Playwright")
+        with sync_playwright() as playwright:
+            if not Path(playwright.chromium.executable_path).is_file():
+                parser.error(
+                    "install Playwright Chromium before starting real preparation"
+                )
+    args.output.mkdir(parents=True, exist_ok=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="vcktv-real-party-") as folder:
+            result = run(args, items, Path(folder))
+    except Exception as error:
+        (args.output / f"real-party-failed-{time.time_ns()}.json").write_text(
+            json.dumps({"error_type": type(error).__name__}, indent=2) + "\n"
+        )
+        raise
+    args.output.mkdir(parents=True, exist_ok=True)
+    (args.output / f"real-party-{time.time_ns()}.json").write_text(
+        json.dumps(result, indent=2) + "\n"
+    )
+    print("SUMMARY", json.dumps(result), flush=True)
+
+
+if __name__ == "__main__":
+    main()

@@ -89,3 +89,129 @@ def test_browser_benchmark_help_does_not_need_optional_playwright():
     )
     assert "--offsets" in proc.stdout
     assert "--output" in proc.stdout
+
+
+def test_preparation_benchmark_small_web_load(tmp_path):
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "benchmarks.preparation",
+            "--seed",
+            "23",
+            "--users",
+            "4",
+            "--steps",
+            "35",
+            "--max-orders",
+            "15",
+            "--web-readers",
+            "2",
+            "--output",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=35,
+        check=True,
+    )
+    summary = json.loads((tmp_path / "seed-23-preparation.json").read_text())
+    assert "SUMMARY" in proc.stdout
+    assert summary["web_reads"] == 34
+    assert summary["actions"]["preparation_claim_checks"] > 0
+    assert summary["actions"]["backing_complete"] > 0
+    assert summary["actions"]["projected_reference_checks"] > 0
+
+
+def test_preparation_refresh_and_backing_gate_without_gpu(tmp_path, monkeypatch):
+    from benchmarks.preparation import PreparationConfig, PreparationSimulation
+
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
+    with PreparationSimulation(
+        PreparationConfig(users=2, steps=0, web_readers=0), tmp_path
+    ) as sim:
+        assert sim.users_add()
+        user = sim.users[0]
+        reference = "BV0000000001"
+        sim.durations[reference] = 120
+        response = user.client.post("/api/songs", json={"bvid": reference})
+        assert response.status_code == 200
+        sid = response.json()["id"]
+        sim.all_songs[sid] = {
+            "id": sid,
+            "user": user,
+            "kind": "bilibili",
+            "duration": 120,
+        }
+        candidate = sim.candidate(sim.all_songs[sid])[0]
+        assert (
+            user.client.post(
+                f"/api/songs/{sid}/lyrics/select",
+                json={
+                    **{k: candidate[k] for k in ("text", "ticket", "source")},
+                    "timing_mode": "align",
+                },
+            ).status_code
+            == 200
+        )
+        assert sim.worker_complete("general")
+        assert sim.row(sid)["prep_state"] == "downloaded"
+        assert sim.backing()
+        assert sim.worker_complete("general")
+        assert sim.row(sid)["prep_state"] == "done"
+        assert sim.backing_gate()
+        assert sim.store.can_play(
+            next(s for s in sim.store.songs() if s["id"] == sid), sim.store.settings()
+        )
+        before = sim.row(sid)
+        codec = (
+            "av1" if sim.store.settings()["original_codec_mode"] == "h264" else "h264"
+        )
+        assert (
+            sim.admin.put(
+                "/api/admin/settings",
+                json={"original_codec_mode": codec, "subtitle_style": "large"},
+            ).status_code
+            == 200
+        )
+        assert sim.request_refresh()
+        assert sim.row(sid)["refresh_state"] == "queued"
+        assert sim.worker_complete("general")
+        after = sim.row(sid)
+        assert after["source_file"] != before["source_file"]
+        assert after["refresh_state"] == ""
+        assert sim.store.backing_ready(after)
+        assert sim.counters["refresh_backing_reused"] == 1
+        sim.invariant()
+
+
+def test_real_benchmark_plan_does_not_start_server(tmp_path):
+    manifest = tmp_path / "songs.json"
+    manifest.write_text(
+        json.dumps(
+            [
+                {"source": "bilibili", "ref": "BV0000000001", "timing": "align"},
+                {"source": "netease", "ref": "12345", "timing": "provider"},
+            ]
+        )
+    )
+    output = tmp_path / "results"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "benchmarks.real_party",
+            "--manifest",
+            str(manifest),
+            "--pipeline-root",
+            str(tmp_path / "missing-models"),
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    assert "PLAN ONLY" in proc.stdout
+    assert not output.exists()

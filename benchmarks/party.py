@@ -73,53 +73,27 @@ def validate_config(config: Config) -> None:
         or config.duration_max < config.duration_min
     ):
         raise ValueError("invalid check interval or song duration range")
-    probabilities = vars(config)
-    action_weights = [
+    conditional = {
+        "p_bad_timing",
+        "p_line_review",
+        "p_burst",
+        "p_netease",
+        "p_skip_playing",
+    }
+    weights = [
         value
-        for key, value in probabilities.items()
-        if key.startswith("p_")
-        and key
-        in {
-            "p_join",
-            "p_order",
-            "p_lyrics",
-            "p_skip_lyrics",
-            "p_edit_lyrics",
-            "p_cancel",
-            "p_worker_complete",
-            "p_playback",
-            "p_pin",
-            "p_replay",
-            "p_switch_policy",
-            "p_toggle_orders",
-        }
+        for key, value in vars(config).items()
+        if key.startswith("p_") and key not in conditional
     ]
-    if any(
-        not math.isfinite(weight) or weight < 0 for weight in action_weights
-    ) or not any(action_weights):
+    if any(not math.isfinite(weight) or weight < 0 for weight in weights) or not any(
+        weights
+    ):
         raise ValueError(
             "action weights must be nonnegative, with at least one positive"
         )
-    for key, value in probabilities.items():
-        if (
-            key.startswith("p_")
-            and key
-            not in {
-                "p_join",
-                "p_order",
-                "p_lyrics",
-                "p_skip_lyrics",
-                "p_edit_lyrics",
-                "p_cancel",
-                "p_worker_complete",
-                "p_playback",
-                "p_pin",
-                "p_replay",
-                "p_switch_policy",
-                "p_toggle_orders",
-            }
-            and (not math.isfinite(value) or not 0 <= value <= 1)
-        ):
+    for key in conditional:
+        value = getattr(config, key)
+        if not math.isfinite(value) or not 0 <= value <= 1:
             raise ValueError(f"{key} must be between 0 and 1")
 
 
@@ -411,6 +385,7 @@ class Simulation:
                 r
                 and r["status"] in ("waiting", "ready")
                 and r["prep_state"] not in ("aligning",)
+                and r["refresh_state"] not in ("queued", "working")
             ),
             bias={
                 "careful": 3,
@@ -565,6 +540,7 @@ class Simulation:
                 r
                 and r["status"] in ("waiting", "ready")
                 and r["prep_state"] != "aligning"
+                and r["refresh_state"] not in ("queued", "working")
             ),
             bias={
                 "skip-heavy": 3,
@@ -833,7 +809,11 @@ class Simulation:
             ).fetchone()
             previous = history[0] if history else ""
             expected = reference_queue(
-                self.store.songs(), settings, users, current, previous
+                [s for s in self.store.songs() if self.store.can_play(s, settings)],
+                settings,
+                users,
+                current,
+                previous,
             )
             ids = [x["id"] for x in preview]
             assert ids == [x["id"] for x in expected], (
@@ -902,29 +882,38 @@ class Simulation:
                 state_ids[:20],
             )
 
+    def actions(self):
+        return {
+            "join": self.users_add,
+            "order": self.order,
+            "lyrics": self.choose_lyrics,
+            "skip_lyrics": self.skip_lyrics,
+            "edit_lyrics": lambda: self.choose_lyrics(edit=True),
+            "cancel": self.cancel,
+            "worker_complete": self.worker_complete,
+            "playback": self.playback,
+            "pin": self.pin,
+            "replay": self.replay,
+            "switch_policy": self.switch_policy,
+            "toggle_orders": self.toggle_orders,
+        }
+
+    def run_action(self, action):
+        action()
+
+    def extra_summary(self):
+        return {}
+
     def run(self):
         try:
             for _ in range(min(4, self.cfg.users)):
                 self.users_add()
-            actions = {
-                "join": self.users_add,
-                "order": self.order,
-                "lyrics": self.choose_lyrics,
-                "skip_lyrics": self.skip_lyrics,
-                "edit_lyrics": lambda: self.choose_lyrics(edit=True),
-                "cancel": self.cancel,
-                "worker_complete": self.worker_complete,
-                "playback": self.playback,
-                "pin": self.pin,
-                "replay": self.replay,
-                "switch_policy": self.switch_policy,
-                "toggle_orders": self.toggle_orders,
-            }
+            actions = self.actions()
             names = list(actions)
             probs = [getattr(self.cfg, "p_" + name) for name in names]
             for step in range(self.cfg.steps):
                 action = self.rng.choices(names, weights=probs)[0]
-                actions[action]()
+                self.run_action(actions[action])
                 if step % self.cfg.check_every == 0:
                     self.invariant()
                 if step % 200 == 0:
@@ -956,6 +945,7 @@ class Simulation:
                 "active_users_at_worst_wait": self.max_wait_active_users,
                 "played_or_skipped_turns": len(self.played_sequence),
                 "wall_seconds": round(time.monotonic() - self.start, 2),
+                **self.extra_summary(),
             }
             (self.folder / "summary.json").write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2) + "\n"
@@ -996,34 +986,36 @@ class Simulation:
         self.close()
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Isolated probabilistic multi-user queue and lyric benchmark"
-    )
-    for key, val in vars(Config()).items():
+def run_cli(defaults, simulation, *, prefix="", description):
+    parser = argparse.ArgumentParser(description=description)
+    for key, val in vars(defaults).items():
         parser.add_argument("--" + key.replace("_", "-"), type=type(val), default=val)
     parser.add_argument("--output", default="benchmarks/.results")
     arguments = vars(parser.parse_args())
     output = Path(arguments.pop("output"))
     output.mkdir(parents=True, exist_ok=True)
-    config = Config(**{name: arguments[name] for name in vars(Config())})
+    config = type(defaults)(**{name: arguments[name] for name in vars(defaults)})
     try:
         validate_config(config)
     except ValueError as exc:
         parser.error(str(exc))
     with tempfile.TemporaryDirectory(prefix="vcktv-prob-party-") as tmp:
-        sim = Simulation(config, Path(tmp))
+        sim = simulation(config, Path(tmp))
         try:
             result = sim.run()
-            (output / f"seed-{config.seed}.json").write_text(
+            (output / f"seed-{config.seed}{prefix}.json").write_text(
                 json.dumps(result, ensure_ascii=False, indent=2) + "\n"
             )
         except Exception:
             if (Path(tmp) / "failure.json").exists():
-                (output / f"failed-seed-{config.seed}.json").write_text(
+                (output / f"failed-seed-{config.seed}{prefix}.json").write_text(
                     (Path(tmp) / "failure.json").read_text()
                 )
             raise
+
+
+def main():
+    run_cli(Config(), Simulation, description=__doc__)
 
 
 if __name__ == "__main__":
