@@ -44,12 +44,14 @@ Real 使用真实来源及 Worker，完整播放验证默认强制伴奏就绪�
 
 另可将播放模式改为 `--playback browser`，并通过 `uv run --no-sync --with playwright` 启动（需预先安装 Chromium）。实际主屏播放第一首歌曲，切换原唱/伴奏并采样两个媒体时钟、暂停与解码错误状态。媒体时钟差不是物理音画同步测量。`--playback manual` 提供临时主屏配对地址，供本机浏览器或 SSH 隧道手动试听；按 Enter 结束。真实电视、音响和投屏延迟仍需人工体验。
 
+按实际歌词选择习惯生成负载时，使用 `--orders N --provider-ratio 0.8 --skip-ratio 0 --seed 42`。其中来源时间轴和 GPU 对齐按 4:1 分配，跳过歌词的歌曲单独占比；从 JSON 中对应的歌曲池按种子抽样，优先使用池内不同来源，池不足才重复。直接使用清单或 `--repeat` 则保持清单中的固定比例。完整制作的 `--timeout` 默认随歌曲数和对齐任务数增加；`--pressure-seconds` 是独立的压力观察窗口。Fast 模式也可通过 `--p-provider-timing` 改变选择时间轴的概率（默认 0.8），与 `--p-netease` 音乐来源概率分开。
+
 生产配置下的有界真实负载观察（默认 4 General、2 Fast、1 Backing、quality 对齐及 Kim single-flight）：
 
 ```sh
 uv run --no-sync python -m benchmarks.real_party \
   --manifest benchmarks/real_playlist.example.json --execute \
-  --users 10 --additional-readers 30 --repeat 4 --submit-workers 3 \
+  --users 10 --additional-readers 30 --orders 10 --provider-ratio 0.8 --submit-workers 3 \
   --quality 1080 --codec h264 --bandwidth 3 --pressure-seconds 150
 ```
 

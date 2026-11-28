@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import random
 import secrets
 import signal
 import socket
@@ -14,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, closing
 from pathlib import Path
@@ -45,9 +47,37 @@ def read_manifest(path: Path):
             item["lyrics_file"] = str((path.parent / item["lyrics_file"]).resolve())
             if not Path(item["lyrics_file"]).is_file():
                 raise ValueError("lyrics_file does not exist")
-    if not any(item["timing"] == "align" for item in items):
-        raise ValueError("real benchmark requires at least one GPU alignment song")
     return items
+
+
+def plan_orders(manifest, count, provider_ratio=0.8, skip_ratio=0.0, seed=42):
+    """Build a seeded, stratified workload using eligible songs from the manifest."""
+    if count < 1 or not 0 <= provider_ratio <= 1 or not 0 <= skip_ratio <= 1:
+        raise ValueError("invalid song count or timing ratio")
+    # Ratios are conditional on having lyrics, with separate no-lyrics share.
+    skips = int(count * skip_ratio + 0.5)
+    providers = int((count - skips) * provider_ratio + 0.5)
+    counts = {"provider": providers, "align": count - skips - providers, "skip": skips}
+    rng = random.Random(seed)
+    orders = []
+    for timing, n in counts.items():
+        pool = [item for item in manifest if item["timing"] == timing]
+        if n and not pool:
+            raise ValueError(f"manifest needs at least one {timing} song")
+        while n:
+            cycle = rng.sample(pool, len(pool))
+            selected = cycle[:n]
+            orders.extend(selected)
+            n -= len(selected)
+    rng.shuffle(orders)
+    return orders
+
+
+def full_timeout(orders):
+    # Conservative test budget, not a production latency objective. Alignment
+    # and backing may compete, and the backing lane is serial.
+    counts = Counter(item["timing"] for item in orders)
+    return max(1200, 300 + 420 * counts["align"] + 150 * len(orders))
 
 
 def get_json(response):
@@ -594,6 +624,21 @@ def main():
     parser.add_argument(
         "--repeat", type=int, default=1, help="repeat the song manifest"
     )
+    parser.add_argument(
+        "--orders",
+        type=int,
+        help="sample this many orders with configurable timing ratios",
+    )
+    parser.add_argument(
+        "--provider-ratio",
+        type=float,
+        default=0.8,
+        help="source timeline share among songs with lyrics",
+    )
+    parser.add_argument(
+        "--skip-ratio", type=float, default=0, help="share of songs without lyrics"
+    )
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--poll-interval", type=float, default=2)
     parser.add_argument("--bandwidth", type=float, default=3)
     parser.add_argument(
@@ -606,7 +651,11 @@ def main():
     parser.add_argument("--fast-workers", type=int, choices=range(3), default=2)
     parser.add_argument("--quality", type=int, choices=(480, 720, 1080), default=1080)
     parser.add_argument("--codec", choices=("default", "h264", "av1"), default="h264")
-    parser.add_argument("--timeout", type=int, default=1200)
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        help="full completion deadline in seconds; default scales with song count",
+    )
     parser.add_argument("--order-interval", type=float, default=1)
     parser.add_argument("--submit-workers", type=int, default=1, choices=range(1, 5))
     parser.add_argument(
@@ -630,7 +679,19 @@ def main():
             or not 1 <= args.bandwidth <= 100
         ):
             raise ValueError("invalid repeat, poll interval or bandwidth")
-        items = read_manifest(args.manifest) * args.repeat
+        manifest = read_manifest(args.manifest)
+        if args.orders is not None:
+            if not 1 <= args.orders <= 1000 or args.repeat != 1:
+                raise ValueError(
+                    "--orders must be 1–1000 and cannot be combined with --repeat"
+                )
+            items = plan_orders(
+                manifest, args.orders, args.provider_ratio, args.skip_ratio, args.seed
+            )
+        else:
+            items = manifest * args.repeat
+        if args.timeout is None:
+            args.timeout = full_timeout(items)
         if not 1 <= args.users <= 50 or len(items) > min(1000, args.users * 20):
             raise ValueError(
                 "users must be 1–50 and orders must fit the per-user limit"
@@ -652,7 +713,7 @@ def main():
         parser.error(str(error))
     if not args.execute:
         print(
-            f"PLAN ONLY: {len(items)} songs; GPU alignment + accompaniment; playback={args.playback}. Use --execute to run."
+            f"PLAN ONLY: {len(items)} songs; timing={dict(Counter(item['timing'] for item in items))}; full timeout={args.timeout}s; playback={args.playback}. Use --execute to run."
         )
         return
     if args.playback == "browser":
@@ -684,6 +745,11 @@ def main():
             json.dumps({"error_type": type(error).__name__}, indent=2) + "\n"
         )
         raise
+    result["timing_counts"] = dict(Counter(item["timing"] for item in items))
+    result["distinct_sources"] = len(
+        {(item["source"], item["ref"], item.get("page", 1)) for item in items}
+    )
+    result["seed"] = args.seed
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / f"real-party-{time.time_ns()}.json").write_text(
         json.dumps(result, indent=2) + "\n"

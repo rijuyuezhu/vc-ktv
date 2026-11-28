@@ -232,3 +232,27 @@ def test_real_metrics_read_and_distribution():
         assert elapsed >= 0
         assert error is None
     assert distribution([1, 2, 3, 4]) == {"p50": 2, "p95": 3, "max": 4}
+
+
+def test_real_workload_timing_ratio_and_timeout():
+    from collections import Counter
+
+    from benchmarks.real_party import full_timeout, plan_orders
+
+    pool = [{"timing": "provider", "ref": str(i)} for i in range(8)]
+    pool += [
+        {"timing": "align", "ref": "A"},
+        {"timing": "align", "ref": "B"},
+        {"timing": "skip", "ref": "S"},
+    ]
+    plan = plan_orders(pool, 10, seed=23)
+    assert Counter(song["timing"] for song in plan) == {"provider": 8, "align": 2}
+    assert len({song["ref"] for song in plan}) == 10
+    assert plan == plan_orders(pool, 10, seed=23)
+    plan_with_skip = plan_orders(pool, 20, provider_ratio=0.75, skip_ratio=0.2)
+    assert Counter(song["timing"] for song in plan_with_skip) == {
+        "provider": 12,
+        "align": 4,
+        "skip": 4,
+    }
+    assert full_timeout(plan_with_skip) > full_timeout(plan) > 420

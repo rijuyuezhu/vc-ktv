@@ -50,6 +50,7 @@ class Config:
     p_line_review: float = 0.24
     p_burst: float = 0.12
     p_netease: float = 0.38
+    p_provider_timing: float = 0.8
     p_skip_playing: float = 0.28
     duration_min: int = 12
     duration_max: int = 480
@@ -78,6 +79,7 @@ def validate_config(config: Config) -> None:
         "p_line_review",
         "p_burst",
         "p_netease",
+        "p_provider_timing",
         "p_skip_playing",
     }
     weights = [
@@ -423,7 +425,7 @@ class Simulation:
             assert "timed_lrc" not in bad, bad
             self.log("untimed_candidate_rejected_as_provider", id=id)
             return True
-        provider = action < 0.77
+        provider = action < self.cfg.p_provider_timing
         offset = int(
             self.rng.choice(
                 [-12000, -5000, -2500, -1000, -300, 0, 300, 1000, 2500, 5000, 12000]
