@@ -534,6 +534,26 @@ class Store:
             and bool(song.get("has_media") or song.get("media_file"))
         )
 
+    def projected_queue(self, settings=None):
+        """Predict all unplayed turns, ignoring preparation and playback gates."""
+        if settings is None:
+            settings = self.settings()
+        pool = self.rows(
+            """SELECT s.id,s.requester AS requester_id,s.requested_at,
+                      s.priority_next,s.personal_order
+               FROM songs s JOIN guests g ON g.id=s.requester
+               WHERE s.status IN ('waiting','rendering','ready')
+               ORDER BY s.requested_at,s.id"""
+        )
+        for song in pool:
+            song.update(
+                status="ready",
+                has_media=1,
+                prep_state="done",
+                refresh_state="",
+            )
+        return self.fair_queue(pool, {**settings, "require_backing_ready": False})
+
     def close_song_order(self):
         """Freeze actual turns, then the fair preview, then cancellations."""
         songs = self.rows(
@@ -544,23 +564,7 @@ class Store:
             key=lambda s: (s["played_at"] or 0, s["id"]),
         )
         active = [s for s in songs if s["status"] == "playing"]
-        # Predict the full unplayed order, including tracks still preparing.
-        # Pretend all pending tracks are playable, without persisting fair credit.
-        unplayed_pool = [
-            {
-                **s,
-                "status": "ready",
-                "has_media": 1,
-                "prep_state": "done",
-                "refresh_reasons": [],
-                "refresh_state": "",
-            }
-            for s in self.songs()
-            if s["status"] in ("ready", "waiting", "rendering")
-        ]
-        predicted = self.fair_queue(
-            unplayed_pool, {**self.settings(), "require_backing_ready": False}
-        )
+        predicted = self.projected_queue()
         cancelled = [s for s in songs if s["status"] == "cancelled"]
         ordered = [
             *(s["id"] for s in finished),

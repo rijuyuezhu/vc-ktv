@@ -9,18 +9,20 @@ from vc_ktv.core.store import Store
 from vc_ktv.processing.worker import AutoPrep
 
 
-def insert_waiting(store, song_id, *, state="pending", retry_at=0):
+def insert_waiting(
+    store, song_id, *, state="pending", retry_at=0, requester="g", timing="align"
+):
     with store.lock:
         store.db.execute(
             """INSERT INTO songs(id,bvid,page,title,uploader,cover,duration,
-                requester,requested_at,status,prep_state,prep_retry_at)
-                VALUES (?,'BV0000000001',1,'Song','UP','',20,'g',?,'waiting',?,?)""",
-            (song_id, song_id, state, retry_at),
+                requester,requested_at,status,prep_state,prep_retry_at,lyric_timing_mode)
+                VALUES (?,'BV0000000001',1,'Song','UP','',20,?,?,'waiting',?,?,?)""",
+            (song_id, requester, song_id, state, retry_at, timing),
         )
         store.db.commit()
 
 
-def test_provider_subtitles_precede_downloads_on_general_lane(tmp_path):
+def test_projected_turn_precedes_task_type_on_general_lane(tmp_path):
     store = Store(tmp_path / "room")
     with store.lock:
         store.db.execute("INSERT INTO guests(id,name) VALUES('g','Guest')")
@@ -29,8 +31,8 @@ def test_provider_subtitles_precede_downloads_on_general_lane(tmp_path):
     seed_ready(store, 2, "provider")
 
     worker = AutoPrep(store, lambda _: 20)
-    assert worker.claim("general")["id"] == 2
     assert worker.claim("general")["id"] == 1
+    assert worker.claim("general")["id"] == 2
     assert (
         store.db.execute("SELECT prep_state FROM songs WHERE id=2").fetchone()[0]
         == "aligning"
@@ -151,3 +153,68 @@ def test_failed_download_retry_schedule_and_terminal_message(tmp_path):
             assert "自动重试已结束" in state["prep_error"]
     assert AutoPrep(store, lambda _: 20).claim() is None
     store.db.close()
+
+
+@pytest.mark.parametrize("lane", ["general", "fast"])
+def test_late_joiner_gets_preparation_before_older_backlog(tmp_path, lane):
+    store = Store(tmp_path / "room")
+    store.db.executemany(
+        "INSERT INTO guests(id,name,plays) VALUES(?,?,?)",
+        [("g", "A", 8), ("b", "B", 7), ("c", "C", 0)],
+    )
+    store.db.commit()
+    for i in range(1, 41):
+        insert_waiting(store, i, requester="g" if i <= 20 else "b", timing="provider")
+    worker = AutoPrep(store, lambda _: 20)
+    first = worker.claim(lane)
+    assert first["id"] == 21
+    insert_waiting(store, 41, requester="c", timing="provider")
+    counters = store.rows("SELECT * FROM guests ORDER BY id")
+    assert [s["id"] for s in store.projected_queue()][:2] == [41, 21]
+    assert worker.claim(lane)["id"] == 41
+    assert (
+        store.db.execute("SELECT prep_state FROM songs WHERE id=21").fetchone()[0]
+        == "downloading"
+    )
+    # A second claim must not duplicate or preempt either in-flight task.
+    assert worker.claim(lane)["id"] == 1
+    assert store.rows("SELECT * FROM guests ORDER BY id") == counters
+
+
+def test_general_alignment_not_starved_by_new_downloads_or_provider_tasks(tmp_path):
+    store = Store(tmp_path / "room")
+    store.db.executemany(
+        "INSERT INTO guests(id,name,plays) VALUES(?,?,?)",
+        [("g", "A", 0), ("b", "B", 6)],
+    )
+    store.db.commit()
+    seed_ready(store, 1, "align")
+    for i in range(2, 22):
+        insert_waiting(store, i, requester="b", timing="provider")
+    seed_ready(store, 22, "provider")
+    store.db.execute("UPDATE songs SET requester='b' WHERE id=22")
+    store.db.commit()
+    worker = AutoPrep(store, lambda _: 20)
+    # Fast workers can still progress independently.
+    assert worker.claim("fast")["id"] == 2
+    assert worker.claim("general")["id"] == 1
+
+
+def test_preparation_respects_fcfs_personal_order_and_admin_pin(tmp_path):
+    store = Store(tmp_path / "room")
+    store.db.executemany(
+        "INSERT INTO guests(id,name,plays) VALUES(?,?,?)",
+        [("g", "A", 8), ("b", "B", 0)],
+    )
+    store.db.commit()
+    insert_waiting(store, 1)
+    insert_waiting(store, 2, requester="b")
+    insert_waiting(store, 3)
+    insert_waiting(store, 4, requester="b")
+    store.save_settings("fcfs", False)
+    store.db.execute("UPDATE songs SET personal_order=-1 WHERE id=3")
+    store.db.execute("UPDATE songs SET priority_next=1 WHERE id=4")
+    store.db.commit()
+    worker = AutoPrep(store, lambda _: 20)
+    assert [s["id"] for s in store.projected_queue()] == [4, 3, 2, 1]
+    assert [worker.claim()["id"] for _ in range(4)] == [4, 3, 2, 1]

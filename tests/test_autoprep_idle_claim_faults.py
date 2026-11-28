@@ -31,7 +31,7 @@ class ClaimFaultDb:
     def execute(self, sql, *args):
         if (
             self.fault == "query"
-            and "SELECT * FROM songs WHERE status='waiting'" in sql
+            and "SELECT * FROM songs WHERE" in sql
             and not self.failures
         ):
             self.failures += 1

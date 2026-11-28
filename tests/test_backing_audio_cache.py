@@ -1,4 +1,4 @@
-"""Backing audio is optional, persistent across replays, and below normal prep."""
+"""Backing audio is optional, persistent across replays, and independent of normal prep."""
 
 import hashlib
 import sys
@@ -393,7 +393,7 @@ def test_backing_follows_tv_priority_and_personal_song_order(tmp_path):
             )
             store.db.commit()
     store.save_settings(None, None, require_backing_ready=True)
-    assert svc._candidate()[0] == 3  # Backing gate cannot empty the predicted queue.
+    assert svc._candidate()[0] == 1  # Include songs still awaiting subtitles.
     with store.lock:
         store.db.execute("UPDATE backing_tracks SET status='failed'")
         store.db.execute("UPDATE songs SET personal_order=0 WHERE id=4")
@@ -438,3 +438,23 @@ def test_auto_prep_claim_does_not_cancel_inflight_backing(tmp_path, monkeypatch)
     assert owner.claim() is not None
     assert owner.active_claims == 1
     assert cancelled == []
+
+
+def test_backing_prioritizes_late_joiner_before_ready_old_songs(tmp_path):
+    svc, store, _ = setup(tmp_path, lambda *_a, **_kw: None)
+    store.db.execute("UPDATE guests SET plays=6 WHERE id='g'")
+    store.db.execute("UPDATE songs SET prep_state='done' WHERE id=1")
+    store.db.execute("INSERT INTO guests(id,name) VALUES('new','New')")
+    source = store.media / "3-original.mp4"
+    source.write_bytes(b"new audio" * 400)
+    store.db.execute(
+        """INSERT INTO songs
+           (id,bvid,page,title,uploader,cover,duration,requester,requested_at,
+            status,prep_state,source_file,media_file)
+           VALUES(3,'BV0000000003',1,'New','UP','',50,'new',3,
+                  'ready','downloaded',?,?)""",
+        (source.name, source.name),
+    )
+    store.db.commit()
+    assert [song["id"] for song in store.fair_queue()] == [1]
+    assert svc._candidate()[0] == 3
