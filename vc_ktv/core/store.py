@@ -5,6 +5,7 @@ from __future__ import annotations
 import heapq
 import json
 import math
+import os
 import sqlite3
 import threading
 import time
@@ -273,7 +274,10 @@ class Store:
         return {
             "queue_policy": values.get("queue_policy", "fair"),
             "allow_unsubtitled": values.get("allow_unsubtitled", "0") == "1",
-            "require_backing_ready": values.get("require_backing_ready", "0") == "1",
+            "require_backing_ready": (
+                os.getenv("VC_KTV_BACKING_TRACKS", "0") == "1"
+                and values.get("require_backing_ready", "0") == "1"
+            ),
             "subtitle_style": values.get("subtitle_style", "classic"),
             "video_quality": int(values.get("video_quality", "720")),
             "max_bandwidth_mbps": self._playback_bandwidth(
@@ -384,6 +388,8 @@ class Store:
         return self.backing_asset(song)[0] == "ready"
 
     def backing_asset(self, song):
+        if os.getenv("VC_KTV_BACKING_TRACKS", "0") != "1":
+            return "unavailable", None, None
         from vc_ktv.processing.backing_audio import (
             KARAOKE_SHA256,
             ready_audio_file,
@@ -414,11 +420,6 @@ class Store:
                 "SELECT status FROM backing_tracks WHERE cache_key=?", (key,)
             ).fetchone()
         state = row["status"] if row else "pending"
-        if state == "pending" and not row:
-            import os
-
-            if os.getenv("VC_KTV_BACKING_TRACKS", "0") != "1":
-                state = "unavailable"
         if state == "ready":
             file = ready_audio_file(self.root, key)
             if file is not None:

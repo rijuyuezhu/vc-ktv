@@ -2,10 +2,16 @@
 
 from urllib.parse import urlsplit
 
+import pytest
 from fastapi.testclient import TestClient
 
 from vc_ktv.application.factory import create_app
 from vc_ktv.processing.backing_audio import KARAOKE_SHA256, source_identity
+
+
+@pytest.fixture(autouse=True)
+def enable_backing(monkeypatch):
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
 
 
 def prepared_room(tmp_path):
@@ -52,7 +58,7 @@ def test_signed_audio_stream_and_no_token(tmp_path):
     app, store, source, key, backing = prepared_room(tmp_path)
     with TestClient(app) as client:
         state = app.state.media.active_view()
-        assert state["backing"] == {"status": "unavailable"}
+        assert state["backing"] == {"status": "pending"}
         assert client.get("/media/1/backing").status_code == 403
         ready(store, source, key, backing)
         state = app.state.media.active_view()
@@ -103,7 +109,7 @@ def test_changed_source_and_missing_asset_cannot_serve_stale_audio(tmp_path):
         assert client.get(old_url).status_code == 404
         backing.write_bytes(b"generated AAC data" * 100)
         source.write_bytes(b"replacement original" * 200)
-        assert app.state.media.active_view()["backing"]["status"] == "unavailable"
+        assert app.state.media.active_view()["backing"]["status"] == "pending"
         assert client.get(old_url).status_code == 404
 
 
@@ -156,3 +162,17 @@ def test_report_accepts_audio_mode_and_legacy_report_defaults():
     assert TVRemoteReport(ack_seq=2, audio_mode="backing").audio_mode == "backing"
     with pytest.raises(ValidationError):
         TVRemoteReport(ack_seq=1, audio_mode="unknown")
+
+
+def test_disabled_backing_hides_cached_audio_and_gate(tmp_path, monkeypatch):
+    app, store, source, key, backing = prepared_room(tmp_path)
+    ready(store, source, key, backing)
+    with TestClient(app) as client:
+        url = app.state.media.active_view()["backing"]["url"]
+        store.save_settings(None, None, require_backing_ready=True)
+        assert store.settings()["require_backing_ready"]
+        monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "0")
+        assert app.state.media.active_view()["backing"] == {"status": "unavailable"}
+        assert client.get(url).status_code == 404
+        assert not store.settings()["require_backing_ready"]
+        assert backing.is_file()

@@ -81,25 +81,6 @@ def test_result_ready_and_replay_reuses_same_asset(tmp_path):
     assert not list(store.root.glob("vc-ktv-*-backing-*"))
 
 
-def test_new_primary_work_takes_priority(tmp_path):
-    svc, store, _ = setup(tmp_path, lambda *_args, **_kwargs: None)
-    svc.owner.active_claims = 1
-    assert svc._candidate() is None
-    svc.owner.active_claims = 0
-    with store.lock:
-        store.db.execute(
-            """INSERT INTO songs
-               (bvid,page,title,uploader,cover,duration,requester,requested_at,status)
-               VALUES('BV0000000002',1,'Other','UP','',20,'g',3,'waiting')"""
-        )
-        store.db.commit()
-    assert svc._candidate() is None
-    with store.lock:
-        store.db.execute("UPDATE songs SET status='cancelled' WHERE status='waiting'")
-        store.db.commit()
-    assert svc._candidate() is not None
-
-
 def test_failures_are_retryable_and_do_not_touch_original(tmp_path):
     def fail(*_args, **_kwargs):
         raise RuntimeError("model failed")
@@ -356,7 +337,7 @@ def test_symlinked_cached_aac_is_regenerated_without_following_link(tmp_path):
     assert svc.state(get_row(store, 1)) == "ready"
 
 
-def test_busy_prep_eventually_gives_backing_a_complete_attempt(tmp_path):
+def test_backing_runs_consecutively_under_continuous_prep_load(tmp_path):
     import time
 
     def generate(_source, target, _staging, **_kwargs):
@@ -381,15 +362,19 @@ def test_busy_prep_eventually_gives_backing_a_complete_attempt(tmp_path):
         )
         store.db.commit()
     svc.owner.active_claims = 2
-    assert svc._candidate() is None  # Foreground gets the initial quiet window.
-    svc.next_busy_attempt = time.monotonic() - 1
-    selected = svc._candidate()
-    assert selected is not None
-    svc._process(*selected)
-    assert svc.state(get_row(store, selected[0])) == "ready"
-    assert svc._candidate() is None  # Prevent back-to-back GPU contention.
-    svc.next_busy_attempt = time.monotonic() - 1
-    assert svc._candidate() is not None  # Can make progress under continuing load.
+    svc.start()
+    try:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if all(svc.state(get_row(store, i)) == "ready" for i in (1, 3)):
+                break
+            time.sleep(0.02)
+        assert all(svc.state(get_row(store, i)) == "ready" for i in (1, 3))
+        assert svc.owner.active_claims == 2
+        assert svc._candidate() is None
+    finally:
+        svc.owner.stop_signal.set()
+        assert svc.stop()
 
 
 def test_backing_follows_tv_priority_and_personal_song_order(tmp_path):

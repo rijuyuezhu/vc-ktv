@@ -1,4 +1,4 @@
-"""Optional, low-priority backing audio generator and event-scoped asset cache."""
+"""Optional, independent backing audio generator and event-scoped asset cache."""
 
 from __future__ import annotations
 
@@ -21,8 +21,6 @@ log = logging.getLogger(__name__)
 KARAOKE_SHA256 = "1de20d459332fe8869aeb01327a31df0032262706e1365114e852dc271779813"
 KARAOKE_FILENAME = "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt"
 BACKING_ALGORITHM = "direct-melband-v1"
-# Under sustained AutoPrep load, give one optional attempt a chance each minute.
-BUSY_RETRY_INTERVAL = 60
 
 
 def source_identity(source: Path, model_sha256: str) -> str:
@@ -138,7 +136,7 @@ def run_direct(
 
 
 class BackingTracks:
-    """Single-flight, event-scoped, optional task below normal AutoPrep claims."""
+    """Single-flight, event-scoped worker independent of AutoPrep claims."""
 
     def __init__(
         self,
@@ -177,7 +175,6 @@ class BackingTracks:
         self.active_song_id: int | None = None
         self.active_tid: int | None = None
         self.lock = threading.RLock()
-        self.next_busy_attempt = time.monotonic() + BUSY_RETRY_INTERVAL
 
     @property
     def store(self):
@@ -239,28 +236,9 @@ class BackingTracks:
             self.thread.join(timeout=2)
         return self.thread is None or not self.thread.is_alive()
 
-    def _normal_work_pending(self) -> bool:
-        row = self.store.db.execute(
-            """SELECT 1 FROM songs WHERE
-               (status='waiting' AND (prep_state='pending' OR
-                (prep_state='unavailable' AND prep_attempts < 3 AND prep_retry_at<=?)))
-               OR (status='ready' AND prep_state='downloaded'
-                   AND lyric_choice != '' AND skip_subtitles=0)
-               OR (status='ready' AND refresh_state='queued')
-               LIMIT 1""",
-            (int(time.time()),),
-        ).fetchone()
-        return bool(row)
-
     def _candidate(self) -> tuple[int, Path, str] | None:
         with self.store.lock:
             if self.owner.stop_signal.is_set():
-                return None
-            # Normal preparation goes first, but never indefinitely. A running
-            # backing attempt is allowed to complete rather than being reset by
-            # each new AutoPrep claim.
-            busy = self.owner.active_claims or self._normal_work_pending()
-            if busy and time.monotonic() < self.next_busy_attempt:
                 return None
             songs = self.store.rows(
                 "SELECT * FROM songs WHERE status IN ('ready','playing') ORDER BY requested_at,id"
@@ -442,7 +420,6 @@ class BackingTracks:
                     self.store.db.commit()
         finally:
             with self.store.lock:
-                self.next_busy_attempt = time.monotonic() + BUSY_RETRY_INTERVAL
                 self.store.db.execute(
                     "UPDATE backing_tracks SET status='pending' "
                     "WHERE cache_key=? AND status='processing'",
@@ -457,22 +434,10 @@ class BackingTracks:
                 if candidate is None:
                     continue
                 song_id, source, key = candidate
-                with self.store.lock:
-                    # A new normal task may have appeared since selection.
-                    if (
-                        self.owner.active_claims or self._normal_work_pending()
-                    ) and time.monotonic() < self.next_busy_attempt:
-                        self.store.db.execute(
-                            "UPDATE backing_tracks SET status='pending' "
-                            "WHERE cache_key=? AND status='processing'",
-                            (key,),
-                        )
-                        self.store.db.commit()
-                        continue
-                    with self.lock:
-                        self.cancelled.clear()
-                        self.active_song_id = song_id
-                        self.active_tid = threading.get_native_id()
+                with self.store.lock, self.lock:
+                    self.cancelled.clear()
+                    self.active_song_id = song_id
+                    self.active_tid = threading.get_native_id()
                 try:
                     if (
                         not self.owner.stop_signal.is_set()

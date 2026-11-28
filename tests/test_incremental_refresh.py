@@ -281,6 +281,7 @@ def test_failed_refresh_preserves_old_generation(tmp_path, monkeypatch):
 
 
 def test_native_codec_variant_reuses_timeline_and_backing(tmp_path, monkeypatch):
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
     from vc_ktv.processing.backing_audio import source_identity
 
     app, song_id, source, baked, archive = real_prepared(tmp_path)
