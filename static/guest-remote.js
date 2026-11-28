@@ -1,5 +1,7 @@
 "use strict";
 
+import { OFFSET_STEPS, clock, offsetLabel, adjustOffset } from "./remote-timing.js";
+
 // One compact controller below the current guest's own song card.
 export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }) {
   const panel = document.createElement("div");
@@ -12,6 +14,37 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }
   message.setAttribute("role", "status");
   message.setAttribute("aria-live", "polite");
   panel.append(message);
+
+  const progress = document.createElement("div");
+  progress.className = "remote-progress";
+  progress.setAttribute("aria-label", "播放进度");
+  panel.append(progress);
+  const timing = document.createElement("div");
+  timing.className = "guest-remote-timing";
+  const label = document.createElement("div");
+  label.className = "remote-label";
+  const title = document.createElement("span");
+  title.textContent = "字幕偏移";
+  const offset = document.createElement("span");
+  label.append(title, offset);
+  timing.append(label);
+  const offsets = document.createElement("div");
+  offsets.className = "remote-offsets";
+  offsets.setAttribute("role", "group");
+  offsets.setAttribute("aria-label", "字幕偏移");
+  const offsetButtons = OFFSET_STEPS.map((step) => {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "btn neutral";
+    el.textContent = (step < 0 ? "−" : "+") + Math.abs(step / 10) + "s";
+    el.onclick = () => {
+      if (remote?.overlay) return send("offset", adjustOffset(remote.offset, step));
+    };
+    offsets.append(el);
+    return el;
+  });
+  timing.append(offsets);
+  panel.append(timing);
 
   let songId = null;
   let remote = null;
@@ -126,6 +159,16 @@ export function setupGuestRemote({ container, api, refresh, confirmSkip, toast }
   function update() {
     if (!remote) return;
     const blocked = sending || remote.pending || !remote.online;
+    progress.textContent = remote.online
+      ? clock(remote.position) + " / " + clock(remote.duration)
+      : "— / —";
+    const hasOverlay = remote.online && remote.overlay;
+    offset.textContent = hasOverlay ? offsetLabel(remote.offset ?? 0) : "—";
+    timing.classList.toggle("hidden", remote.online && !remote.overlay);
+    for (const el of offsetButtons) {
+      el.disabled = blocked || !hasOverlay;
+      el.setAttribute("aria-busy", String(sending || remote.pending));
+    }
     mode.disabled = blocked || (!remote.backing_ready && remote.audio_mode !== "backing");
     for (const el of [pause, restart, skip]) el.disabled = blocked;
     const original = remote.audio_mode === "backing";
