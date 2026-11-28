@@ -76,13 +76,13 @@ uv run --no-sync python -m vc_ktv
 | `VC_KTV_PREP_WORKERS` | `1` | 普通 Worker 数量（1–4，可处理 GPU 对齐） |
 | `VC_KTV_FAST_WORKERS` | `0` | 额外 CPU Fast Worker 数量（0–2，只处理来源时间轴任务；生产推荐 2） |
 | `VC_KTV_PIPELINE_ROOT` | `~/.local/share/vc-ktv/pipeline` | 模型路径 |
-| `VC_KTV_BACKING_TRACKS` | `0` | 可选的低优先级 Direct Karaoke 伴奏预生成 |
+| `VC_KTV_BACKING_TRACKS` | `0` | 独立伴奏 Worker（0：关闭；1：启用） |
 | `VC_KTV_BACKING_CHECKPOINT` | Pipeline 模型目录下的 Karaoke 权重 | 指定经过验证的 Direct Karaoke 模型文件 |
 | `KTV_FFMPEG` / `KTV_FFPROBE` | `ffmpeg` / `ffprobe` | 自定义媒体工具路径 |
 
 安装命令中的 `setup_pipeline_assets all` 会一并下载 Direct Karaoke 权重（约 871 MiB），并校验 SHA-256；已有 GPU 环境也可以单独运行 `uv run --no-sync python -m scripts.setup_pipeline_assets karaoke`。推理直接复用 Kim 的 CUDA 运行时。
 
-设置 `VC_KTV_BACKING_TRACKS=1` 启用后台伴奏生成（默认关闭），并运行 `VC_KTV_BACKING_TRACKS=1 uv run --no-sync python -m scripts.check_install --mode gpu` 验证环境。
+设置 `VC_KTV_BACKING_TRACKS=1` 启用一个与普通和 Fast Worker 并行的伴奏 Worker（默认关闭；关闭时也不提供已有伴奏），并运行 `VC_KTV_BACKING_TRACKS=1 uv run --no-sync python -m scripts.check_install --mode gpu` 验证环境。
 
 GPU 对齐的高级参数：`VC_KTV_PIPELINE_MODE` 默认为 `quality`，还可使用 `fast`、`global`、`global-kim`；`VC_KTV_KIM_SINGLE_FLIGHT=1` 可让 Kim 音频分离任务串行执行。
 

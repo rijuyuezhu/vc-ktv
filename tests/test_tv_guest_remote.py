@@ -149,7 +149,10 @@ def test_only_current_requester_can_see_and_send_transport(tmp_path):
             assert not singer.get("/api/guest/tv-remote").json()["pending"]
 
 
-def test_guest_audio_mode_requires_ready_asset_and_report_tracks_state(tmp_path):
+def test_guest_audio_mode_requires_ready_asset_and_report_tracks_state(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
     app = room(tmp_path)
     with (
         TestClient(app) as admin,

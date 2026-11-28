@@ -107,7 +107,8 @@ def test_repeated_moves_preserve_other_singers_slots_and_actual_counts(tmp_path,
             assert [r[0] for r in frozen] == expected
 
 
-def test_owner_restrictions_and_only_playable_prepared_songs(tmp_path):
+def test_owner_restrictions_and_only_playable_prepared_songs(tmp_path, monkeypatch):
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
     app, guests, admin, stack = party(tmp_path, ["A", "B"])
     with stack:
         store = app.state.store
@@ -304,7 +305,10 @@ def test_existing_sqlite_song_records_migrate_to_default_order(tmp_path):
         store.db.close()
 
 
-def test_active_csv_and_close_keep_personal_order_when_backing_is_required(tmp_path):
+def test_active_csv_and_close_keep_personal_order_when_backing_is_required(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("VC_KTV_BACKING_TRACKS", "1")
     app, guests, admin, stack = party(tmp_path, ["A", "B"])
     with stack:
         store = app.state.store
