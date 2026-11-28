@@ -567,8 +567,9 @@ button, input, select { min-height: 44px; }
   padding: 8px 4px; border-radius: 9px;
 }
 /* An in-flight command remains visually present rather than flashing the whole remote gray. */
-.playback-remote.remote-pending .remote-buttons button:disabled,
-.playback-remote.remote-pending .remote-offsets button:disabled { opacity: 1; }
+.remote-pending .remote-buttons button:disabled,
+.remote-pending .guest-remote-actions button:disabled,
+.remote-pending .remote-offsets button:disabled { opacity: 1; }
 .playback-remote.remote-pending input:disabled { opacity: 1; }
 .remote-command-status { font-size: 12px; color: var(--muted); }
 .remote-command-status:empty { display: none; }

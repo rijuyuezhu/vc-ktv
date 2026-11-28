@@ -414,6 +414,7 @@ test("guest timing follows TV reports with shared formatting and guarded offset 
     assert.equal(h.calls.at(-1)[2].value, 600);
     h.component.render(h.own, { ...live, pending: true });
     assert.ok(buttons.every((b) => b.disabled));
+    assert.ok(panel.classList.contains("remote-pending"));
     await buttons[0].onclick();
     assert.equal(h.calls.length, 2);
     h.component.render(h.own, { ...live, overlay: false });
@@ -423,6 +424,12 @@ test("guest timing follows TV reports with shared formatting and guarded offset 
     h.component.render(h.own, { ...live, online: false, overlay: false });
     assert.equal(progress.textContent, "— / —");
     assert.equal(offset.textContent, "—");
+    assert.ok(timing.classList.contains("hidden"));
+    assert.ok(buttons.every((b) => b.disabled));
+    assert.ok(!panel.classList.contains("remote-pending"));
+    h.component.render(h.own, live);
+    h.component.render(h.own, { ...live, online: false, overlay: false });
+    assert.ok(!timing.classList.contains("hidden"));
     assert.ok(buttons.every((b) => b.disabled));
     h.component.render({ ...h.own, id: 13 }, { ...live, song_id: 13, position: 0, offset: 0 });
     assert.equal(progress.textContent, "0:00 / 3:02");
