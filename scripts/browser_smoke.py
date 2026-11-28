@@ -1067,11 +1067,16 @@ def check_ui(
     )
     print("PASS administrator TV remote command and acknowledgment")
     # The invisible TV hotspot must remain usable, with the opened panel visible.
+    # Model the overlay being set up after the hide command, as at a song change.
     admin_page.locator("#remote-hide-ui").check(timeout=8000)
     page.wait_for_function(
         'document.querySelector("#song-banner").hidden && '
         'getComputedStyle(document.querySelector("#panel-toggle")).opacity==="0"',
         timeout=8000,
+    )
+    page.locator("#html-captions").evaluate("el => {el.hidden = false;}")
+    assert page.locator("#html-captions").evaluate(
+        'el => getComputedStyle(el).display === "none"'
     )
     admin_page.locator("#remote-hide-ui").wait_for(state="visible")
     page.locator("#panel-toggle").click()
@@ -1084,6 +1089,10 @@ def check_ui(
     page.locator("#hide-ui").uncheck()
     page.wait_for_function('!document.querySelector("#song-banner").hidden')
     admin_page.wait_for_function('!document.querySelector("#remote-hide-ui").checked')
+    assert page.locator("#html-captions").evaluate(
+        'el => getComputedStyle(el).display !== "none"'
+    )
+    page.locator("#html-captions").evaluate("el => {el.hidden = true;}")
     page.locator("#panel-toggle").click()
     assert not page.locator("#controls").is_visible()
     print("PASS hidden TV chrome, invisible hotspot and synchronized controls")

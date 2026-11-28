@@ -1073,6 +1073,9 @@ test("hidden TV chrome retains an operable controls hotspot", async () => {
   checkbox.checked = true;
   checkbox.onchange();
   assert.equal(h.el("song-banner").hidden, true);
+  assert.equal(h.el("html-captions").classList.contains("clean-screen"), true);
+  h.el("html-captions").hidden = false;
+  assert.equal(h.el("html-captions").classList.contains("clean-screen"), true);
   assert.equal(h.el("panel-toggle").classList.contains("clean-screen"), true);
   h.evaluate("hidePanel()");
   h.el("panel-toggle").onclick();
@@ -1081,5 +1084,7 @@ test("hidden TV chrome retains an operable controls hotspot", async () => {
   checkbox.checked = false;
   checkbox.onchange();
   assert.equal(h.el("song-banner").hidden, false);
+  assert.equal(h.el("html-captions").classList.contains("clean-screen"), false);
+  assert.equal(h.el("html-captions").hidden, false);
   assert.equal(h.el("panel-toggle").classList.contains("clean-screen"), false);
 });
