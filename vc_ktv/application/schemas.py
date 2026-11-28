@@ -49,6 +49,7 @@ class TVRemoteCommand(BaseModel):
         "offset",
         "opacity",
         "smooth",
+        "hide_ui",
     ]
     song_id: int | None = Field(default=None, ge=1)
     value: float | bool | str | None = None
@@ -64,6 +65,7 @@ class TVRemoteReport(BaseModel):
     offset: int = Field(default=0, ge=-600, le=600)
     opacity: int = Field(default=15, ge=0, le=100)
     smooth: bool = False
+    hide_ui: bool = False
     started: bool = False
     overlay: bool = False
     audio_mode: Literal["original", "backing"] = "original"

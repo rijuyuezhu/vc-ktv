@@ -18,6 +18,7 @@ const banner = document.getElementById("song-banner");
 const bannerTransparency = document.getElementById("banner-transparency");
 const bannerTransparencyValue = document.getElementById("banner-transparency-value");
 const smoothBuffer = document.getElementById("smooth-buffer");
+const hideUI = document.getElementById("hide-ui");
 const nowPlaying = document.getElementById("now-playing");
 const progress = document.getElementById("progress");
 const nextList = document.getElementById("next-list");
@@ -124,6 +125,22 @@ bannerTransparency.oninput = () => {
   setBannerTransparency(bannerTransparency.value);
   try {
     localStorage.setItem("vcktv-banner-transparency", bannerTransparency.value);
+  } catch {}
+};
+function setHiddenUI(hidden) {
+  hideUI.checked = hidden;
+  banner.hidden = hidden;
+  toggle.classList.toggle("clean-screen", hidden);
+}
+try {
+  setHiddenUI(localStorage.getItem("vcktv-hide-ui") === "1");
+} catch {
+  setHiddenUI(false);
+}
+hideUI.onchange = () => {
+  setHiddenUI(hideUI.checked);
+  try {
+    localStorage.setItem("vcktv-hide-ui", hideUI.checked ? "1" : "0");
   } catch {}
 };
 let smoothPlayback = false;
@@ -560,6 +577,7 @@ function remoteReport(error = "") {
     offset: offsetTenths,
     opacity: Number(bannerTransparency.value),
     smooth: smoothPlayback,
+    hide_ui: hideUI.checked,
     started,
     overlay: activeOverlay,
     audio_mode: audioMode,
@@ -617,6 +635,10 @@ async function handleRemote(command) {
         break;
       case "opacity":
         setBannerTransparency(command.value);
+        break;
+      case "hide_ui":
+        hideUI.checked = Boolean(command.value);
+        hideUI.onchange();
         break;
       case "smooth":
         smoothBuffer.checked = Boolean(command.value);

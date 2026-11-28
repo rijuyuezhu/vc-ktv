@@ -69,6 +69,9 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     const smooth = $("remote-smooth");
     smooth.disabled = !canTV;
     smooth.checked = Boolean(status.smooth);
+    const hideUI = $("remote-hide-ui");
+    hideUI.disabled = !canTV;
+    hideUI.checked = Boolean(status.hide_ui);
     const indicator = $("tv-online");
     indicator.textContent = online
       ? "主屏在线"
@@ -200,6 +203,8 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     );
   $("remote-smooth").onchange = () =>
     remoteAction($("remote-smooth"), () => sendRemote("smooth", $("remote-smooth").checked));
+  $("remote-hide-ui").onchange = () =>
+    remoteAction($("remote-hide-ui"), () => sendRemote("hide_ui", $("remote-hide-ui").checked));
   player.addEventListener("timeupdate", () => {
     if (getState().playbackMode === "browser") updateRemoteControls();
   });
