@@ -304,6 +304,125 @@ def browser_playback(admin, base, seconds):
             browser.close()
 
 
+def continuous_playback(admin, base, seconds, sample_seconds, switch_seconds):
+    """Keep the real primary TV running; never synthesize song completions."""
+    from playwright.sync_api import sync_playwright
+
+    pair_url = get_json(admin.get("/api/admin/tv-link"))["url"]
+    samples = []
+    switched = set()
+    errors = []
+    start = time.monotonic()
+    previous = None
+    last_progress = start
+    stalls = 0
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(
+            args=["--autoplay-policy=no-user-gesture-required"]
+        )
+        try:
+            page = browser.new_page()
+            page.goto(base + pair_url, wait_until="domcontentloaded")
+            page.locator("#start").click(timeout=30000)
+            while time.monotonic() - start < seconds:
+                snapshot = state(admin)
+                active = snapshot.get("active") or {}
+                sid = active.get("id")
+                sample = page.evaluate("""() => {
+                    const v=document.querySelector('#video'), a=document.querySelector('#backing-audio');
+                    return {video:v.currentTime, audio:a.currentTime, muted:v.muted,
+                        paused:v.paused, audioPaused:a.paused, ready:v.readyState,
+                        videoError:v.error?.code ?? null, audioError:a.error?.code ?? null};
+                }""")
+                now = time.monotonic()
+                sample.update(
+                    t=round(now - start, 2),
+                    song_id=sid,
+                    queue=len(snapshot["queue"]),
+                    waiting=len(snapshot["waiting"]),
+                )
+                samples.append(sample)
+                if sample["videoError"] or sample["audioError"]:
+                    errors.append(
+                        {"t": sample["t"], "song": sid, "kind": "media_error"}
+                    )
+                if sid is not None and previous and previous["song_id"] == sid:
+                    if sample["video"] > previous["video"] + 0.1:
+                        last_progress = now
+                    elif now - last_progress > 10:
+                        stalls += 1
+                        last_progress = now
+                else:
+                    last_progress = now
+                    if sid is not None:
+                        print(f"PLAY song={sid} elapsed={sample['t']}s", flush=True)
+                previous = sample
+                if (
+                    sid
+                    and sid not in switched
+                    and sample["video"] > 8
+                    and not sample["paused"]
+                    and active.get("backing", {}).get("status") == "ready"
+                ):
+                    switched.add(sid)
+                    try:
+                        if (
+                            page.locator("#panel-toggle").get_attribute("aria-expanded")
+                            != "true"
+                        ):
+                            page.locator("#panel-toggle").click(timeout=5000)
+                        mode = page.locator("#audio-mode")
+                        mode.click(timeout=5000)
+                        page.wait_for_function(
+                            "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'true'",
+                            timeout=15000,
+                        )
+                        page.wait_for_timeout(switch_seconds * 1000)
+                        measured = page.evaluate("""() => {
+                          const v=document.querySelector('#video'), a=document.querySelector('#backing-audio');
+                          return {delta:Math.abs(v.currentTime-a.currentTime), muted:v.muted, paused:v.paused||a.paused};
+                        }""")
+                        if not measured["muted"] or measured["paused"]:
+                            raise RuntimeError("backing did not continue playing")
+                        mode.click(timeout=5000)
+                        page.wait_for_function(
+                            "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'false' && !document.querySelector('#video').muted",
+                            timeout=15000,
+                        )
+                        sample["switch_delta"] = measured["delta"]
+                        print(
+                            f"SWITCH song={sid} delta={measured['delta']:.3f}s",
+                            flush=True,
+                        )
+                    except Exception as error:
+                        errors.append(
+                            {
+                                "t": sample["t"],
+                                "song": sid,
+                                "kind": type(error).__name__,
+                            }
+                        )
+                page.wait_for_timeout(sample_seconds * 1000)
+        finally:
+            browser.close()
+    played = get_json(admin.get("/api/admin/played"))["songs"]
+    deltas = [s["switch_delta"] for s in samples if "switch_delta" in s]
+    return {
+        "mode": "continuous_browser",
+        "observed_seconds": round(time.monotonic() - start, 2),
+        "completed_songs": [s["id"] for s in played],
+        "observed_song_ids": sorted(
+            {s["song_id"] for s in samples if s["song_id"] is not None}
+        ),
+        "switch_attempts": len(switched),
+        "switch_successes": len(deltas),
+        "max_switch_clock_delta_seconds": max(deltas, default=None),
+        "stall_observations": stalls,
+        "errors": errors,
+        "samples": samples,
+    }
+
+
 def preparation_snapshot(root):
     """Read only the isolated test room's stage counts, including backing."""
     data = root / "data"
@@ -536,8 +655,16 @@ def run(args, items, root):
                                 "no playable song with accompaniment",
                             )
                             metrics.phase = "playback"
-                            playback = browser_playback(
-                                admin, base, args.switch_seconds
+                            playback = (
+                                continuous_playback(
+                                    admin,
+                                    base,
+                                    args.continuous_seconds,
+                                    args.playback_sample_seconds,
+                                    args.switch_seconds,
+                                )
+                                if args.continuous_seconds
+                                else browser_playback(admin, base, args.switch_seconds)
                             )
                         except Exception as error:
                             playback = {
@@ -597,7 +724,17 @@ def run(args, items, root):
                     )
                 metrics.phase = "playback"
                 if args.playback == "browser":
-                    playback = browser_playback(admin, base, args.switch_seconds)
+                    playback = (
+                        continuous_playback(
+                            admin,
+                            base,
+                            args.continuous_seconds,
+                            args.playback_sample_seconds,
+                            args.switch_seconds,
+                        )
+                        if args.continuous_seconds
+                        else browser_playback(admin, base, args.switch_seconds)
+                    )
                 elif args.playback == "manual":
                     url = get_json(admin.get("/api/admin/tv-link"))["url"]
                     print(
@@ -710,6 +847,13 @@ def main():
         "--playback", choices=("api", "browser", "manual"), default="api"
     )
     parser.add_argument("--switch-seconds", type=int, default=5)
+    parser.add_argument(
+        "--continuous-seconds",
+        type=int,
+        default=0,
+        help="observe real automatic song transitions for this duration",
+    )
+    parser.add_argument("--playback-sample-seconds", type=int, default=2)
     parser.add_argument("--output", type=Path, default=Path("benchmarks/.results"))
     args = parser.parse_args()
     try:
@@ -750,6 +894,12 @@ def main():
             or not math.isfinite(args.order_interval)
             or args.order_interval < 0
             or args.switch_seconds < 2
+            or args.continuous_seconds < 0
+            or args.playback_sample_seconds < 1
+            or (
+                args.continuous_seconds
+                and not (args.pressure_playback or args.playback == "browser")
+            )
         ):
             raise ValueError("invalid timing arguments")
     except (ValueError, OSError) as error:
@@ -800,6 +950,13 @@ def main():
     summary = {**result}
     if "metrics" in summary:
         summary["metrics"] = {"phases": summary["metrics"]["phases"]}
+    if (
+        "samples" in summary.get("playback", {})
+        and summary["playback"]["mode"] == "continuous_browser"
+    ):
+        summary["playback"] = {
+            k: v for k, v in summary["playback"].items() if k != "samples"
+        }
     print("SUMMARY", json.dumps(summary), flush=True)
 
 
