@@ -70,6 +70,7 @@ uv run --no-sync python -m vc_ktv
 | --- | --- | --- |
 | `VC_KTV_HOST` / `VC_KTV_PORT` | `127.0.0.1` / `8778` | 服务监听地址 |
 | `VC_KTV_CONFIG` | `~/.config/vc-ktv` | 管理员密码和私密配置 |
+| `VC_KTV_MEDIA_ORIGIN` | 空（同源） | 可选的独立签名播放媒体入口，仅反代 `/media/*` |
 | `VC_KTV_DATA` | `~/.local/share/vc-ktv` | 场次数据与媒体 |
 | `VC_KTV_AUTOPREPARE` | `1` | 自动下载与制作 |
 | `VC_KTV_GPU_ALIGNMENT` | `1` | GPU 字幕对齐 |

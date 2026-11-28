@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers import join_and_register, primary_tv_token
@@ -119,7 +120,11 @@ def test_admin_controls_source_mode_and_bandwidth_per_event(tmp_path):
         assert stream_video_kbps(4.5) == 4116
 
 
-def test_signed_original_and_timeline_preserve_baked_download(tmp_path):
+@pytest.mark.parametrize("origin", ["", "https://media.example.test:2223"])
+def test_signed_original_and_timeline_preserve_baked_download(
+    tmp_path, monkeypatch, origin
+):
+    monkeypatch.setenv("VC_KTV_MEDIA_ORIGIN", origin)
     app = room(tmp_path)
     song_id, original, baked, archive = setup_song(app)
     with TestClient(app) as admin, TestClient(app) as guest:
@@ -149,7 +154,14 @@ def test_signed_original_and_timeline_preserve_baked_download(tmp_path):
         current = guest.get("/api/tv/state", params={"token": token}).json()["active"]
         metadata = current["html_overlay"]
         assert metadata is not None
+        assert metadata["source_url"].startswith(origin + "/media/")
+        assert active["media_url"].startswith(origin + "/media/")
+        assert metadata["timeline_url"].startswith("/api/tv/subtitles/")
         assert guest.get(metadata["source_url"]).content == original.read_bytes()
+        partial = guest.get(metadata["source_url"], headers={"Range": "bytes=0-9"})
+        assert (
+            partial.status_code == 206 and partial.content == original.read_bytes()[:10]
+        )
         subtitle = guest.get(metadata["timeline_url"]).json()
         assert subtitle["timeline"]["lines"][0]["text"] == "歌词"
         assert subtitle["plan"]["x"]["slot"] == 0

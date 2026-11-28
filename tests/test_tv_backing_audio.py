@@ -54,7 +54,9 @@ def ready(store, source, key, backing):
         store.db.commit()
 
 
-def test_signed_audio_stream_and_no_token(tmp_path):
+@pytest.mark.parametrize("origin", ["", "https://media.example.test:2223"])
+def test_signed_audio_stream_and_no_token(tmp_path, monkeypatch, origin):
+    monkeypatch.setenv("VC_KTV_MEDIA_ORIGIN", origin)
     app, store, source, key, backing = prepared_room(tmp_path)
     with TestClient(app) as client:
         state = app.state.media.active_view()
@@ -65,6 +67,7 @@ def test_signed_audio_stream_and_no_token(tmp_path):
         assert state["backing"]["status"] == "ready"
         assert state["backing"]["cache_key"] == key
         url = state["backing"]["url"]
+        assert url.startswith(origin + "/media/")
         response = client.get(url)
         assert response.status_code == 200, response.text
         assert response.content == backing.read_bytes()
