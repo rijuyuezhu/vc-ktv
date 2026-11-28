@@ -96,3 +96,42 @@ def test_event_members_can_download_ready_media_but_not_unfinished_or_old_songs(
         assert admin.post("/api/admin/events/close").status_code == 200
         assert guest.get(url).status_code == 404
         assert outsider.get(url).status_code == 404
+
+
+def test_downloads_blocked_for_idle_connected_primary_and_restored(
+    tmp_path, monkeypatch
+):
+    from tests.helpers import primary_tv_token
+    from tests.test_ui_tv_remote import login, ready_song, report, room
+    from vc_ktv.core import store as store_module
+
+    app = room(tmp_path)
+    sid = ready_song(app)
+    with TestClient(app) as admin, TestClient(app) as guest, TestClient(app) as tv:
+        login(admin)
+        join_and_register(guest, "Singer")
+        url = f"/api/songs/{sid}/download"
+        assert guest.get(url).status_code == 200
+        token = primary_tv_token(admin)
+        report(tv, token, started=False, active_id=None, paused=True)
+        for client in (admin, guest):
+            assert client.get(url).status_code == 409
+            assert (
+                client.get(url + "/source", headers={"Range": "bytes=0-3"}).status_code
+                == 409
+            )
+            assert client.post(url + "/request").status_code == 409
+            detail = client.get(f"/api/songs/{sid}/detail").json()
+            assert detail["downloads_blocked"]
+            assert detail["downloadable"]
+        # Playback media is still independently authorized.
+        active = tv.post("/api/tv/next", params={"token": token}).json()["active"]
+        assert tv.get(active["media_url"]).status_code == 200
+        now = store_module.time_now()
+        monkeypatch.setattr(store_module, "time_now", lambda: now + 16)
+        assert guest.get(url).status_code == 200
+        monkeypatch.setattr(store_module, "time_now", lambda: now)
+        assert guest.get(url).status_code == 409
+        assert admin.post("/api/admin/tv/revoke").status_code == 200
+        assert guest.get(url + "/source").status_code == 200
+        assert not guest.get(f"/api/songs/{sid}/detail").json()["downloads_blocked"]

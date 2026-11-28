@@ -103,7 +103,7 @@ class TVSessionService:
             )
             rank = 2 if principal["role"] == "global" else 1
             return {
-                "online": bool(primary and remote["seen"] > time_now() - 15),
+                "online": self.store.tv_online(),
                 "can_manage": self.can_manage(principal, primary),
                 "can_override": bool(pending and rank > remote.get("issuer_rank", 2)),
                 "report": remote["report"],

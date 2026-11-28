@@ -304,6 +304,24 @@ class Store:
             ),
         }
 
+    def tv_online(self) -> bool:
+        """The current primary has a recent heartbeat and valid owner."""
+        records = {
+            row["name"]: json.loads(row["value"])
+            for row in self.db.execute(
+                "SELECT name,value FROM room_state WHERE name IN ('tv_primary','tv_remote')"
+            )
+        }
+        primary, remote = records.get("tv_primary"), records.get("tv_remote")
+        if not primary or not remote or remote["seen"] <= time_now() - 15:
+            return False
+        if primary["role"] == "global":
+            return True
+        row = self.db.execute(
+            "SELECT revision FROM event_admins WHERE id=?", (primary["owner_id"],)
+        ).fetchone()
+        return bool(row and row["revision"] == primary["owner_revision"])
+
     def playback_mode(self):
         row = self.db.execute(
             "SELECT value FROM room_state WHERE name='playback_mode'"

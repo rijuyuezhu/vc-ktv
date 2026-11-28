@@ -17,6 +17,10 @@ from vc_ktv.core.titles import title_key
 def create_download_router(*, store, events, admin_principal, require_user, media):
     router = APIRouter()
 
+    def require_downloads_allowed():
+        if store.tv_online():
+            bail(409, "主屏在线，暂不可下载或生成成片")
+
     @router.get("/api/songs/{song_id}/download")
     def download_song(
         song_id: int,
@@ -28,6 +32,7 @@ def create_download_router(*, store, events, admin_principal, require_user, medi
         if admin_principal(vc_admin) is None:
             require_user(vc_guest)
         with store.lock:
+            require_downloads_allowed()
             row = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
@@ -63,6 +68,7 @@ def create_download_router(*, store, events, admin_principal, require_user, medi
         if admin_principal(vc_admin) is None:
             require_user(vc_guest)
         with store.lock:
+            require_downloads_allowed()
             row = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
@@ -102,6 +108,7 @@ def create_download_router(*, store, events, admin_principal, require_user, medi
         if admin_principal(vc_admin) is None:
             require_user(vc_guest)
         with store.lock:
+            require_downloads_allowed()
             row = store.db.execute(
                 "SELECT * FROM songs WHERE id=?", (song_id,)
             ).fetchone()
