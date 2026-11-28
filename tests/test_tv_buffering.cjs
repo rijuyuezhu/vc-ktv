@@ -1065,3 +1065,21 @@ test("HTML-only song never starts raw playback when its timeline request fails",
   assert.equal(h.evaluate("activeId"), 1);
   assert.equal(h.el("video").src, "/media/1/source");
 });
+
+test("hidden TV chrome retains an operable controls hotspot", async () => {
+  const h = tvHarness();
+  await h.ready();
+  const checkbox = h.el("hide-ui");
+  checkbox.checked = true;
+  checkbox.onchange();
+  assert.equal(h.el("song-banner").hidden, true);
+  assert.equal(h.el("panel-toggle").classList.contains("clean-screen"), true);
+  h.evaluate("hidePanel()");
+  h.el("panel-toggle").onclick();
+  assert.equal(h.el("controls").hidden, false);
+  assert.equal(h.evaluate("remoteReport().hide_ui"), true);
+  checkbox.checked = false;
+  checkbox.onchange();
+  assert.equal(h.el("song-banner").hidden, false);
+  assert.equal(h.el("panel-toggle").classList.contains("clean-screen"), false);
+});

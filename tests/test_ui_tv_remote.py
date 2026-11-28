@@ -248,3 +248,40 @@ def test_default_tv_mode_and_explicit_browser_choice_persist(tmp_path):
         created = admin.post("/api/admin/events", json={"name": "Next Room"})
         assert created.status_code == 200, created.text
         assert admin.get("/api/admin/state").json()["playback_mode"] == "tv"
+
+
+def test_hide_ui_is_admin_only_and_acknowledged(tmp_path):
+    app = room(tmp_path)
+    with TestClient(app) as admin, TestClient(app) as tv, TestClient(app) as guest:
+        login(admin)
+        join_and_register(guest, "Singer")
+        token = primary_tv_token(admin)
+        report(tv, token, started=False)
+        result = admin.post(
+            "/api/admin/tv/remote", json={"action": "hide_ui", "value": True}
+        )
+        assert result.status_code == 200, result.text
+        seq = result.json()["seq"]
+        assert (
+            tv.get("/api/tv/state", params={"token": token}).json()["remote_command"][
+                "action"
+            ]
+            == "hide_ui"
+        )
+        report(tv, token, ack_seq=seq, hide_ui=True, started=False)
+        state = admin.get("/api/admin/tv/remote").json()
+        assert state["report"]["hide_ui"] is True
+        assert not state["pending"]
+        assert (
+            admin.post(
+                "/api/admin/tv/remote", json={"action": "hide_ui", "value": 1}
+            ).status_code
+            == 400
+        )
+        assert (
+            guest.post(
+                "/api/guest/tv-remote",
+                json={"action": "hide_ui", "value": False, "song_id": 1},
+            ).status_code
+            == 403
+        )

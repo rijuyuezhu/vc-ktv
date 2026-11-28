@@ -5,6 +5,7 @@ import { clock, offsetLabel, adjustOffset, createOffsetButtons } from "./remote-
 export function setupRemoteControls({ refresh, finishActive, getState, player }) {
   let sending = false;
   let optimisticPaused = null;
+  let optimisticHiddenUI = null;
   function updateRemoteControls() {
     const {
       playbackMode,
@@ -19,7 +20,10 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     const status = tvRemoteState?.report || {};
     const online = Boolean(isTV && tvRemoteState?.online);
     const pending = Boolean(isTV && (sending || tvRemoteState?.pending));
-    if (!pending) optimisticPaused = null;
+    if (!pending) {
+      optimisticPaused = null;
+      optimisticHiddenUI = null;
+    }
     document.querySelector(".playback-remote").classList.toggle("remote-pending", pending);
     $("remote-command-status").textContent = pending
       ? sending
@@ -69,6 +73,10 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     const smooth = $("remote-smooth");
     smooth.disabled = !canTV;
     smooth.checked = Boolean(status.smooth);
+    const hideUI = $("remote-hide-ui");
+    hideUI.disabled = !canTV;
+    hideUI.checked =
+      pending && optimisticHiddenUI !== null ? optimisticHiddenUI : Boolean(status.hide_ui);
     const indicator = $("tv-online");
     indicator.textContent = online
       ? "主屏在线"
@@ -107,6 +115,7 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     sending = true;
     if (action === "pause") optimisticPaused = true;
     if (action === "resume") optimisticPaused = false;
+    if (action === "hide_ui") optimisticHiddenUI = value;
     if (tvRemoteState) {
       tvRemoteState.pending = true;
       tvRemoteState.can_override = false;
@@ -123,6 +132,7 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
       if (tvRemoteState && getState().tvRemoteState === tvRemoteState)
         tvRemoteState.pending = false;
       optimisticPaused = null;
+      optimisticHiddenUI = null;
       throw e;
     } finally {
       sending = false;
@@ -200,6 +210,8 @@ export function setupRemoteControls({ refresh, finishActive, getState, player })
     );
   $("remote-smooth").onchange = () =>
     remoteAction($("remote-smooth"), () => sendRemote("smooth", $("remote-smooth").checked));
+  $("remote-hide-ui").onchange = () =>
+    remoteAction($("remote-hide-ui"), () => sendRemote("hide_ui", $("remote-hide-ui").checked));
   player.addEventListener("timeupdate", () => {
     if (getState().playbackMode === "browser") updateRemoteControls();
   });

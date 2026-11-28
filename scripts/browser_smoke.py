@@ -1066,6 +1066,27 @@ def check_ui(
         timeout=8000,
     )
     print("PASS administrator TV remote command and acknowledgment")
+    # The invisible TV hotspot must remain usable, with the opened panel visible.
+    admin_page.locator("#remote-hide-ui").check(timeout=8000)
+    page.wait_for_function(
+        'document.querySelector("#song-banner").hidden && '
+        'getComputedStyle(document.querySelector("#panel-toggle")).opacity==="0"',
+        timeout=8000,
+    )
+    admin_page.locator("#remote-hide-ui").wait_for(state="visible")
+    page.locator("#panel-toggle").click()
+    assert page.locator("#controls").is_visible()
+    assert page.locator("#hide-ui").is_checked()
+    assert page.locator("#hide-ui").evaluate(
+        "el => el.parentElement.getBoundingClientRect().x > "
+        'document.querySelector("#smooth-buffer").parentElement.getBoundingClientRect().x'
+    )
+    page.locator("#hide-ui").uncheck()
+    page.wait_for_function('!document.querySelector("#song-banner").hidden')
+    admin_page.wait_for_function('!document.querySelector("#remote-hide-ui").checked')
+    page.locator("#panel-toggle").click()
+    assert not page.locator("#controls").is_visible()
+    print("PASS hidden TV chrome, invisible hotspot and synchronized controls")
     page.locator("#start").click()
     page.wait_for_function(
         "document.querySelector('#video').currentTime > 0.3", timeout=12000

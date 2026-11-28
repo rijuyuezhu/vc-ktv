@@ -220,9 +220,9 @@ class TVSessionService:
                         bail(409, "伴奏音轨尚未就绪")
             else:
                 limit = {"volume": (0, 100), "offset": (-600, 600), "opacity": (0, 100)}
-                if action == "smooth":
+                if action in ("smooth", "hide_ui"):
                     if not isinstance(value, bool):
-                        bail(400, "无效的稳播设置")
+                        bail(400, "无效的主屏设置")
                 elif (
                     not isinstance(value, (int, float))
                     or isinstance(value, bool)

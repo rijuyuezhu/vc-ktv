@@ -583,6 +583,7 @@ button, input, select { min-height: 44px; }
 .remote-offsets { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; }
 .remote-offsets .btn { min-height: 42px; font-size: 12px; border-radius: 7px; }
 .remote-opacity { flex-direction: column; align-items: stretch !important; gap: 7px; font-size: 12px !important; color: var(--muted); }
+.remote-toggles { display: flex; flex-wrap: wrap; gap: 8px 16px; }
 .remote-toggle { display: inline-flex !important; align-items: center; gap: 8px; margin: 0 !important; font-size: 12px !important; font-weight: 500 !important; }
 .remote-toggle input { min-height: auto; }
 #legacy-admin-controls { border-top: 1px solid var(--line); padding-top: 13px; }
