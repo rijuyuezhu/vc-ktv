@@ -490,6 +490,23 @@ def preparation_snapshot(root):
         )
         return {
             "source_codecs": dict(source_codecs),
+            "html_only_done": db.execute(
+                "SELECT count(*) FROM songs WHERE html_only=1 AND prep_state='done'"
+            ).fetchone()[0],
+            "baked_done": db.execute(
+                "SELECT count(*) FROM songs WHERE html_only=0 AND prep_state='done'"
+            ).fetchone()[0],
+            "render_artifacts": db.execute(
+                "SELECT count(*) FROM media_artifacts WHERE kind='render'"
+            ).fetchone()[0],
+            "download_renders": dict(
+                db.execute(
+                    "SELECT status,count(*) FROM download_renders GROUP BY status"
+                )
+            ),
+            "song_statuses": dict(
+                db.execute("SELECT status,count(*) FROM songs GROUP BY status")
+            ),
             "preparation_states": dict(
                 db.execute("SELECT prep_state,count(*) FROM songs GROUP BY prep_state")
             ),
@@ -586,6 +603,7 @@ def run(args, items, root):
                         "/api/admin/settings",
                         json={
                             "require_backing_ready": not args.pressure_seconds,
+                            "burn_subtitles": args.burn_subtitles,
                             "max_bandwidth_mbps": args.bandwidth,
                             "allow_unsubtitled": False,
                             "video_quality": args.quality,
@@ -742,10 +760,12 @@ def run(args, items, root):
                             "codec": args.codec,
                             "bandwidth": args.bandwidth,
                             "require_backing_ready": False,
+                            "burn_subtitles": args.burn_subtitles,
                         },
                         "observed_ready_seconds": ready_times,
                         "order_and_lyrics_seconds": order_times,
                         "snapshot": pressure_snapshot,
+                        "final_snapshot": preparation_snapshot(root),
                         "metrics": metrics.summary(),
                         "playback": playback,
                     }
@@ -891,6 +911,12 @@ def main():
         help="after bounded pressure, play the first ready song with backing in Chromium",
     )
     parser.add_argument("--playback-ready-timeout", type=int, default=240)
+    parser.add_argument(
+        "--burn-subtitles",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="generate baked video as part of normal preparation",
+    )
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument(
         "--playback", choices=("api", "browser", "manual"), default="api"
@@ -992,6 +1018,7 @@ def main():
         {(item["source"], item["ref"], item.get("page", 1)) for item in items}
     )
     result["seed"] = args.seed
+    result["burn_subtitles"] = args.burn_subtitles
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / f"real-party-{time.time_ns()}.json").write_text(
         json.dumps(result, indent=2) + "\n"
