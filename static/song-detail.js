@@ -86,10 +86,12 @@ export function setupSongDetail({
         const btn = appendText(
           row,
           "button",
-          song.download_render_status === "queued" ? "成片等待制作" : "成片制作中",
+          song.download_render_status === "queued" ? "等待制作" : "制作中",
           "btn neutral"
         );
+        btn.type = "button";
         btn.disabled = true;
+        actionIcon(btn, song.download_render_status === "queued" ? "clock" : "loader");
       } else {
         const btn = actionButton(
           row,
