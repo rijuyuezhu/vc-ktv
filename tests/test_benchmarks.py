@@ -256,3 +256,86 @@ def test_real_workload_timing_ratio_and_timeout():
         "skip": 4,
     }
     assert full_timeout(plan_with_skip) > full_timeout(plan) > 420
+
+
+def test_browser_observer_follows_swapped_video_elements(tmp_path):
+    """Exercise actual Chromium end events and the same roles as the TV UI."""
+    import base64
+    from pathlib import Path
+
+    from benchmarks.real_party import PLAYBACK_EVENTS, PLAYBACK_SAMPLE
+
+    playwright_api = pytest.importorskip("playwright.sync_api")
+    with playwright_api.sync_playwright() as playwright:
+        if not Path(playwright.chromium.executable_path).is_file():
+            pytest.skip("optional Chromium is not installed")
+        clip = tmp_path / "tiny.mp4"
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=64x64:r=10:d=1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                str(clip),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+        uri = "data:video/mp4;base64," + base64.b64encode(clip.read_bytes()).decode()
+        browser = playwright.chromium.launch(
+            args=["--autoplay-policy=no-user-gesture-required"]
+        )
+        try:
+            page = browser.new_page()
+            page.set_content(
+                '<video id="video" muted></video>'
+                '<video id="preload" class="preloading" muted></video>'
+                '<audio id="backing-audio"></audio>'
+                "<script>let activeId = 1;</script>"
+            )
+            page.evaluate(PLAYBACK_EVENTS)
+            page.evaluate(
+                "(uri) => { document.querySelector('#video').src = uri; }", uri
+            )
+            page.evaluate("document.querySelector('#video').play()")
+            page.wait_for_function("document.querySelector('#video').currentTime > 0.1")
+            first = page.evaluate(PLAYBACK_SAMPLE)
+            assert first["element"] == "video" and first["client_song_id"] == 1
+            page.wait_for_function("window.__benchmarkEnded.length === 1")
+            page.evaluate(
+                """(uri) => {
+                document.querySelector('#video').classList.add('preloading');
+                document.querySelector('#preload').classList.remove('preloading');
+                activeId = 2;
+                document.querySelector('#preload').src = uri;
+                document.querySelector('#video').removeAttribute('src');
+                document.querySelector('#video').load();
+            }""",
+                uri,
+            )
+            page.evaluate("document.querySelector('#preload').play()")
+            page.wait_for_function(
+                "document.querySelector('#preload').currentTime > 0.1"
+            )
+            second = page.evaluate(PLAYBACK_SAMPLE)
+            assert second["element"] == "preload" and second["client_song_id"] == 2
+            assert second["video"] > 0.1 and not second["paused"]
+            assert page.evaluate("document.querySelector('#video').currentTime") == 0
+            page.wait_for_function("window.__benchmarkEnded.length === 2")
+            ended = page.evaluate("window.__benchmarkEnded")
+            assert [(e["song_id"], e["element"]) for e in ended] == [
+                (1, "video"),
+                (2, "preload"),
+            ]
+            assert all(abs(e["position"] - e["duration"]) < 0.1 for e in ended)
+        finally:
+            browser.close()

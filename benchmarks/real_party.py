@@ -212,7 +212,10 @@ def api_playback(admin, base, count):
         for _ in range(count):
             active = get_json(tv.post("/api/tv/next", headers=headers))["active"]
             assert active and active["backing"]["status"] == "ready"
-            check_range(tv, active["media_url"])
+            if active.get("media_url"):
+                check_range(tv, active["media_url"])
+            else:
+                assert active.get("html_overlay"), "no playable video source"
             check_range(tv, active["backing"]["url"])
             if active.get("html_overlay"):
                 check_range(tv, active["html_overlay"]["source_url"])
@@ -232,7 +235,11 @@ def api_playback(admin, base, count):
         assert active and active["id"] == replay
         assert active["backing"]["status"] == "ready"
         assert active["backing"]["cache_key"] == first_key
-        check_range(tv, active["media_url"])
+        if active.get("media_url"):
+            check_range(tv, active["media_url"])
+        else:
+            check_range(tv, active["html_overlay"]["source_url"])
+            get_json(tv.get(active["html_overlay"]["timeline_url"]))
         check_range(tv, active["backing"]["url"])
         get_json(
             tv.post(
@@ -262,7 +269,7 @@ def browser_playback(admin, base, seconds):
             page.goto(base + pair_url, wait_until="domcontentloaded")
             page.locator("#start").click(timeout=30000)
             page.wait_for_function(
-                "document.querySelector('#video').currentTime > 0.5 && !document.querySelector('#video').paused",
+                "document.querySelector('video:not(.preloading)').currentTime > 0.5 && !document.querySelector('video:not(.preloading)').paused",
                 timeout=60000,
             )
             page.locator("#panel-toggle").click()
@@ -275,7 +282,7 @@ def browser_playback(admin, base, seconds):
             for _ in range(seconds):
                 page.wait_for_timeout(1000)
                 sample = page.evaluate("""() => {
-                    const v=document.querySelector('#video'), a=document.querySelector('#backing-audio');
+                    const v=document.querySelector('video:not(.preloading)'), a=document.querySelector('#backing-audio');
                     return {video:v.currentTime, audio:a.currentTime, muted:v.muted,
                             videoPaused:v.paused, audioPaused:a.paused,
                             videoError:v.error?.code ?? null, audioError:a.error?.code ?? null};
@@ -290,7 +297,7 @@ def browser_playback(admin, base, seconds):
             assert samples[-1]["video"] > samples[0]["video"]
             page.locator("#audio-mode").click()
             page.wait_for_function(
-                "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'false' && !document.querySelector('#video').muted",
+                "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'false' && !document.querySelector('video:not(.preloading)').muted",
                 timeout=15000,
             )
             return {
@@ -302,6 +309,30 @@ def browser_playback(admin, base, seconds):
             }
         finally:
             browser.close()
+
+
+# Capture the active element's natural end before the application's handler
+# resets its source and swaps the standby element into the foreground.
+PLAYBACK_EVENTS = """() => {
+    window.__benchmarkEnded = [];
+    document.addEventListener('ended', event => {
+        const v = event.target;
+        if (!v.matches?.('video:not(.preloading)')) return;
+        window.__benchmarkEnded.push({
+            song_id: typeof activeId === 'undefined' ? null : activeId,
+            element: v.id, position: v.currentTime, duration: v.duration
+        });
+    }, true);
+}"""
+
+PLAYBACK_SAMPLE = """() => {
+    const v = document.querySelector('video:not(.preloading)');
+    const a = document.querySelector('#backing-audio');
+    return {video:v.currentTime, audio:a.currentTime, muted:v.muted,
+        paused:v.paused, audioPaused:a.paused, ready:v.readyState,
+        element:v.id, client_song_id:typeof activeId === 'undefined' ? null : activeId,
+        videoError:v.error?.code ?? null, audioError:a.error?.code ?? null};
+}"""
 
 
 def continuous_playback(admin, base, seconds, sample_seconds, switch_seconds):
@@ -323,30 +354,33 @@ def continuous_playback(admin, base, seconds, sample_seconds, switch_seconds):
         try:
             page = browser.new_page()
             page.goto(base + pair_url, wait_until="domcontentloaded")
+            page.evaluate(PLAYBACK_EVENTS)
             page.locator("#start").click(timeout=30000)
             while time.monotonic() - start < seconds:
                 snapshot = state(admin)
                 active = snapshot.get("active") or {}
                 sid = active.get("id")
-                sample = page.evaluate("""() => {
-                    const v=document.querySelector('#video'), a=document.querySelector('#backing-audio');
-                    return {video:v.currentTime, audio:a.currentTime, muted:v.muted,
-                        paused:v.paused, audioPaused:a.paused, ready:v.readyState,
-                        videoError:v.error?.code ?? null, audioError:a.error?.code ?? null};
-                }""")
+                sample = page.evaluate(PLAYBACK_SAMPLE)
                 now = time.monotonic()
                 sample.update(
                     t=round(now - start, 2),
-                    song_id=sid,
+                    song_id=sample["client_song_id"],
+                    server_song_id=sid,
                     queue=len(snapshot["queue"]),
                     waiting=len(snapshot["waiting"]),
                 )
                 samples.append(sample)
+                client_sid = sample["song_id"]
                 if sample["videoError"] or sample["audioError"]:
                     errors.append(
                         {"t": sample["t"], "song": sid, "kind": "media_error"}
                     )
-                if sid is not None and previous and previous["song_id"] == sid:
+                if (
+                    client_sid is not None
+                    and previous
+                    and previous["song_id"] == client_sid
+                    and previous["element"] == sample["element"]
+                ):
                     if sample["video"] > previous["video"] + 0.1:
                         last_progress = now
                     elif now - last_progress > 10:
@@ -354,13 +388,18 @@ def continuous_playback(admin, base, seconds, sample_seconds, switch_seconds):
                         last_progress = now
                 else:
                     last_progress = now
-                    if sid is not None:
-                        print(f"PLAY song={sid} elapsed={sample['t']}s", flush=True)
+                    if client_sid is not None:
+                        print(
+                            f"PLAY song={client_sid} element={sample['element']} elapsed={sample['t']}s",
+                            flush=True,
+                        )
                 previous = sample
                 if (
                     sid
+                    and sid == client_sid
                     and sid not in switched
                     and sample["video"] > 8
+                    and active["duration"] - sample["video"] > switch_seconds + 20
                     and not sample["paused"]
                     and active.get("backing", {}).get("status") == "ready"
                 ):
@@ -379,14 +418,18 @@ def continuous_playback(admin, base, seconds, sample_seconds, switch_seconds):
                         )
                         page.wait_for_timeout(switch_seconds * 1000)
                         measured = page.evaluate("""() => {
-                          const v=document.querySelector('#video'), a=document.querySelector('#backing-audio');
-                          return {delta:Math.abs(v.currentTime-a.currentTime), muted:v.muted, paused:v.paused||a.paused};
+                          const v=document.querySelector('video:not(.preloading)'), a=document.querySelector('#backing-audio');
+                          return {delta:Math.abs(v.currentTime-a.currentTime), muted:v.muted, paused:v.paused||a.paused, song_id:activeId};
                         }""")
-                        if not measured["muted"] or measured["paused"]:
+                        if (
+                            measured["song_id"] != sid
+                            or not measured["muted"]
+                            or measured["paused"]
+                        ):
                             raise RuntimeError("backing did not continue playing")
                         mode.click(timeout=5000)
                         page.wait_for_function(
-                            "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'false' && !document.querySelector('#video').muted",
+                            "document.querySelector('#audio-mode').getAttribute('aria-pressed') === 'false' && !document.querySelector('video:not(.preloading)').muted",
                             timeout=15000,
                         )
                         sample["switch_delta"] = measured["delta"]
@@ -403,14 +446,20 @@ def continuous_playback(admin, base, seconds, sample_seconds, switch_seconds):
                             }
                         )
                 page.wait_for_timeout(sample_seconds * 1000)
+            ended = page.evaluate("window.__benchmarkEnded")
         finally:
             browser.close()
     played = get_json(admin.get("/api/admin/played"))["songs"]
     deltas = [s["switch_delta"] for s in samples if "switch_delta" in s]
+    completed = [s["id"] for s in played]
+    ended_ids = {e["song_id"] for e in ended if e["song_id"] is not None}
     return {
         "mode": "continuous_browser",
         "observed_seconds": round(time.monotonic() - start, 2),
-        "completed_songs": [s["id"] for s in played],
+        "completed_songs": completed,
+        "browser_ended": ended,
+        "server_completed_without_browser_end": sorted(set(completed) - ended_ids),
+        "browser_ended_without_server_completion": sorted(ended_ids - set(completed)),
         "observed_song_ids": sorted(
             {s["song_id"] for s in samples if s["song_id"] is not None}
         ),
