@@ -314,7 +314,14 @@ def preparation_snapshot(root):
     )
 
     with closing(sqlite3.connect(f"file:{database}?mode=ro", uri=True)) as db:
+        source_codecs = Counter(
+            json.loads(row[0]).get("codec", "unknown")
+            for row in db.execute(
+                "SELECT metadata FROM media_artifacts WHERE kind='source'"
+            )
+        )
         return {
+            "source_codecs": dict(source_codecs),
             "preparation_states": dict(
                 db.execute("SELECT prep_state,count(*) FROM songs GROUP BY prep_state")
             ),
@@ -507,6 +514,37 @@ def run(args, items, root):
                         time.sleep(
                             min(args.poll_interval, max(0, deadline - time.monotonic()))
                         )
+                    pressure_snapshot = preparation_snapshot(root)
+                    playback = {
+                        "mode": "not_run",
+                        "reason": "bounded pressure observation",
+                    }
+                    if args.pressure_playback:
+                        # Keep production-like eligibility during pressure. Only
+                        # require backing when selecting the actual test song.
+                        metrics.phase = "playback_wait"
+                        try:
+                            get_json(
+                                admin.put(
+                                    "/api/admin/settings",
+                                    json={"require_backing_ready": True},
+                                )
+                            )
+                            wait_until(
+                                lambda: state(admin)["queue"],
+                                time.monotonic() + args.playback_ready_timeout,
+                                "no playable song with accompaniment",
+                            )
+                            metrics.phase = "playback"
+                            playback = browser_playback(
+                                admin, base, args.switch_seconds
+                            )
+                        except Exception as error:
+                            playback = {
+                                "mode": "browser",
+                                "status": "failed",
+                                "error_type": type(error).__name__,
+                            }
                     metrics.stop_signal.set()
                     metrics.thread.join()
                     return {
@@ -531,12 +569,9 @@ def run(args, items, root):
                         },
                         "observed_ready_seconds": ready_times,
                         "order_and_lyrics_seconds": order_times,
-                        "snapshot": preparation_snapshot(root),
+                        "snapshot": pressure_snapshot,
                         "metrics": metrics.summary(),
-                        "playback": {
-                            "mode": "not_run",
-                            "reason": "bounded pressure observation",
-                        },
+                        "playback": playback,
                     }
                 wait_ready(
                     admin, ids, submitted, time.monotonic() + args.timeout, ready_times
@@ -664,6 +699,12 @@ def main():
         default=0,
         help="observe after submission, then stop without waiting for every song; 0 runs full playback",
     )
+    parser.add_argument(
+        "--pressure-playback",
+        action="store_true",
+        help="after bounded pressure, play the first ready song with backing in Chromium",
+    )
+    parser.add_argument("--playback-ready-timeout", type=int, default=240)
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument(
         "--playback", choices=("api", "browser", "manual"), default="api"
@@ -703,6 +744,8 @@ def main():
             or args.users + args.additional_readers > 50
             or (args.additional_readers and not args.pressure_seconds)
             or (args.pressure_seconds and args.refresh)
+            or (args.pressure_playback and not args.pressure_seconds)
+            or args.playback_ready_timeout < 1
             or args.submit_workers > args.users
             or not math.isfinite(args.order_interval)
             or args.order_interval < 0
@@ -716,7 +759,7 @@ def main():
             f"PLAN ONLY: {len(items)} songs; timing={dict(Counter(item['timing'] for item in items))}; full timeout={args.timeout}s; playback={args.playback}. Use --execute to run."
         )
         return
-    if args.playback == "browser":
+    if args.playback == "browser" or args.pressure_playback:
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
