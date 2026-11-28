@@ -115,14 +115,61 @@ def test_cpu_only_auto_download_and_provider_render(tmp_path):
         deadline = time.monotonic() + 25
         while time.monotonic() < deadline:
             saved = app.state.events.current_store.rows(
-                "SELECT status,prep_state,media_file FROM songs WHERE id=?", (song_id,)
+                "SELECT status,prep_state,media_file,source_file,html_only FROM songs WHERE id=?",
+                (song_id,),
             )[0]
             if saved["prep_state"] == "done":
                 break
             time.sleep(0.2)
         assert saved["status"] == "ready" and saved["prep_state"] == "done", saved
         assert (app.state.events.current_store.media / saved["media_file"]).is_file()
-        assert client.get(f"/api/songs/{song_id}/download").status_code == 200
+        assert saved["html_only"] == 1 and saved["media_file"] == saved["source_file"]
+        assert client.get(f"/api/songs/{song_id}/download").status_code == 409
+        assert client.get(f"/api/songs/{song_id}/download/source").status_code == 200
+        assert [s["id"] for s in client.get("/api/state").json()["queue"]] == [song_id]
+        url = f"/api/songs/{song_id}/download/request"
+        assert client.post(url).json()["status"] in ("queued", "working")
+        # The existing worker uses real FFmpeg on the committed subtitle bundle.
+        deadline = time.monotonic() + 25
+        while time.monotonic() < deadline:
+            detail = client.get(f"/api/songs/{song_id}/detail").json()
+            if detail["download_render_status"] in ("ready", "failed"):
+                break
+            time.sleep(0.2)
+        assert detail["download_render_status"] == "ready", detail
+        assert detail["downloadable"]
+        response = client.get(f"/api/songs/{song_id}/download")
+        assert response.status_code == 200
+        baked = tmp_path / "download.mp4"
+        baked.write_bytes(response.content)
+        assert baked.read_bytes() != sample.read_bytes()
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "csv=p=0",
+                str(baked),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert result.stdout.strip() == "h264"
+        assert client.post(url).json()["status"] == "ready"
+        assert [s["id"] for s in client.get("/api/state").json()["queue"]] == [song_id]
+        after = app.state.events.current_store.rows(
+            "SELECT html_only,media_file,source_file FROM songs WHERE id=?", (song_id,)
+        )[0]
+        assert (
+            after["html_only"]
+            and after["media_file"] == after["source_file"] == saved["source_file"]
+        )
 
 
 def test_cpu_mode_can_still_choose_original(tmp_path):

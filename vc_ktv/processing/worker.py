@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from vc_ktv.core.artifacts import source_record
+from vc_ktv.core.artifacts import bundle_archive, find_bundle, source_record
 from vc_ktv.infra.disk_budget import (
     DiskBudgetExceeded,
     budget_scope,
@@ -25,7 +25,8 @@ from vc_ktv.infra.process_cancel import (
 )
 from vc_ktv.processing import bitrate
 from vc_ktv.processing.backing_audio import BackingTracks
-from vc_ktv.processing.bitrate import source_profile
+from vc_ktv.processing.bitrate import fits_budget, source_profile
+from vc_ktv.processing.download_render import execute_download_render
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -145,6 +146,9 @@ class AutoPrep:
                 )
                 self.store.db.execute(
                     "UPDATE songs SET refresh_state='queued' WHERE status='ready' AND refresh_state='working'"
+                )
+                self.store.db.execute(
+                    "UPDATE download_renders SET status='queued' WHERE status='working'"
                 )
                 self.store.db.commit()
             except sqlite3.Error:
@@ -294,6 +298,9 @@ class AutoPrep:
                         if self.stop_signal.is_set():
                             return
                         # The attempt remains active only while its media is published.
+                        bundle = find_bundle(self.store, dict(row))
+                        if bundle is None or bundle_archive(bundle) != archive:
+                            return
                         if not (archive / "attempt.json").is_file():
                             return
                         metadata = json.loads((archive / "attempt.json").read_text())
@@ -439,6 +446,9 @@ class AutoPrep:
                             "UPDATE songs SET refresh_state='failed',refresh_error=? WHERE status='ready' AND refresh_state='working'",
                             ("本场 200 GiB 磁盘预算已用尽",),
                         )
+                        self.store.db.execute(
+                            "UPDATE download_renders SET status='failed' WHERE status='working'"
+                        )
                         self.store.db.commit()
                     except sqlite3.Error:
                         self.store.db.rollback()
@@ -541,6 +551,9 @@ class AutoPrep:
             try:
                 with budget_scope(getattr(self.store, "disk_budget", None), cancelled):
                     check_current_budget()
+                    if row.get("download_render_task"):
+                        execute_download_render(self, row)
+                        continue
                     with self.store.lock:
                         current = self.store.db.execute(
                             "SELECT status,prep_state,refresh_state FROM songs WHERE id=?",
@@ -569,7 +582,7 @@ class AutoPrep:
                         else:
                             self.prepare_subtitles(row)
             except Exception as error:
-                if cancelled.is_set():
+                if cancelled.is_set() and not row.get("download_render_task"):
                     continue  # User cancellation also interrupts downloader subprocesses.
                 log.exception("Unexpected preparation error for song #%s", row["id"])
                 while not self.stop_signal.is_set():
@@ -681,10 +694,13 @@ class AutoPrep:
         }
         published = False
         try:
+            burn = row.get("burn_subtitles", True)
             options = {"preset": preset}
             if self.enhance is render_upstream_video:
                 options["max_bandwidth_mbps"] = max_bandwidth_mbps
                 options["progress"] = progress
+                if not burn:
+                    options["burn_subtitles"] = False
             if row.get("lyric_timing_mode") == "provider":
                 # Song duration is rounded for display/queue metadata. Validate
                 # line timestamps against the actual source media duration.
@@ -710,6 +726,7 @@ class AutoPrep:
                     media_duration,
                     max_bandwidth_mbps=max_bandwidth_mbps,
                     preset=preset,
+                    **({"burn_subtitles": False} if not burn else {}),
                 )
             else:
                 report = self.enhance(
@@ -724,10 +741,46 @@ class AutoPrep:
             progress.finish()
             metadata["outcome"] = "rendered"
             metadata["report"] = report
-            metadata["media_file"] = target.name
+            html_only = not burn and not target.is_file()
+            playback_target = source if html_only else target
+            if html_only:
+                bundle = archive / (
+                    "provider_subtitles"
+                    if row["lyric_timing_mode"] == "provider"
+                    else "pipeline/subtitles"
+                )
+                if not all(
+                    (bundle / name).is_file()
+                    for name in ("timeline.json", "display_plan.json", "style.json")
+                ):
+                    raise SubtitleError("timeline", "字幕时间轴制作失败")
+                cache_started = time.monotonic()
+                # With no baked fallback, a valid playback source is required
+                # before publishing the timeline.
+                if not fits_budget(
+                    source, float(row["duration"]), max_bandwidth_mbps, profile
+                ):
+                    prepare_tv_source(
+                        source,
+                        archive,
+                        float(row["duration"]),
+                        max_bandwidth_mbps,
+                        native_av1=_native_av1_variant(row),
+                        profile=profile,
+                    )
+                    if (
+                        not (archive / "tv-source.mp4").is_file()
+                        or (archive / "tv-source.mp4").stat().st_size < 1024
+                    ):
+                        raise SubtitleError("tv_cache", "电视播放缓存制作失败")
+                metadata["tv_source_ready"] = (archive / "tv-source.mp4").is_file()
+                metadata["tv_cache_seconds"] = round(
+                    time.monotonic() - cache_started, 2
+                )
+            metadata["media_file"] = playback_target.name
             metadata["render_bandwidth_mbps"] = max_bandwidth_mbps
             render_meta = {
-                **inspect_media(target),
+                **(profile or {} if html_only else inspect_media(target)),
                 "subtitle_style": preset,
                 "bandwidth": max_bandwidth_mbps,
             }
@@ -737,13 +790,23 @@ class AutoPrep:
             # Publish song state and its HTML subtitle manifest under the
             # same lock, so readers cannot observe one without the other.
             with self.store.lock:
+                if html_only:
+                    _write_attempt_report(archive, metadata)
                 if not publish_subtitles(
                     self.store,
                     row,
-                    target,
+                    playback_target,
                     archive / "aligned.lrc",
                     render_meta,
                     profile,
+                    **(
+                        {
+                            "html_only": True,
+                            "html_attempt": str(archive.relative_to(self.store.media)),
+                        }
+                        if html_only
+                        else {}
+                    ),
                 ):
                     metadata["outcome"] = "stale"
                 else:
@@ -756,7 +819,11 @@ class AutoPrep:
                         log.warning(
                             "Unable to publish subtitle manifest for song #%s", song_id
                         )
-            if metadata["outcome"] == "rendered" and row.get("tv_html_overlay"):
+            if (
+                metadata["outcome"] == "rendered"
+                and row.get("tv_html_overlay")
+                and not html_only
+            ):
                 cache_started = time.monotonic()
                 try:
                     prepare_tv_source(

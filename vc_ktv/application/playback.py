@@ -65,6 +65,7 @@ class PlaybackService:
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     (mode,),
                 )
+                self.store.queue_required_burns()
                 self.store.db.commit()
             except sqlite3.Error:
                 self.store.db.rollback()
@@ -98,9 +99,7 @@ class PlaybackService:
                     bail(404, "歌曲不存在")
                 bail(409, "只能置顶尚未播放且已可播放的歌曲")
             settings = self.store.settings()
-            if self.store.refresh_blocked(song, settings) or not self.store.playable(
-                song, settings
-            ):
+            if not self.store.media_playable(song, settings):
                 bail(409, "歌曲尚未准备好，不能安排为下一首")
             try:
                 self._set_next_priority(song_id)
@@ -221,8 +220,8 @@ class PlaybackService:
                         bvid,page,title,uploader,cover,duration,requester,requested_at,
                         status,lyrics,lyric_choice,lyric_source,prep_state,
                         skip_subtitles,priority_next,replay_of,source_type,source_id,
-                        lyric_timing_mode,provider_lrc,source_lrc_raw,lyric_offset_ms
-                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        lyric_timing_mode,provider_lrc,source_lrc_raw,lyric_offset_ms,html_only,html_attempt
+                    ) VALUES(?,?,?,?,?,?,?,?,'ready',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         row["bvid"],
                         row["page"],
@@ -249,6 +248,8 @@ class PlaybackService:
                         row["provider_lrc"],
                         row["source_lrc_raw"],
                         row["lyric_offset_ms"],
+                        row["html_only"],
+                        row["html_attempt"],
                     ),
                 )
                 new_id = cur.lastrowid

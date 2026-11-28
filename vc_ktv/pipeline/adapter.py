@@ -43,6 +43,7 @@ def make_karaoke_video(
     style: Style | None = None,
     render_options: RenderOptions | None = None,
     mode: str = "quality",
+    burn_subtitles: bool = True,
 ) -> PipelineResult:
     """Run the selected alignment mode, preserving current subtitles and MP4 output.
 
@@ -298,31 +299,35 @@ def make_karaoke_video(
             timeline = rough(error)
             style = style.model_copy(update={"auto_complete": True})
             write_bundle(timeline, style, bundle)
-        stage("render", "将字幕烧录到保留原始音轨的 MP4")
-        # Rendering has no fixed wall-clock cap; on an actual encoder failure,
-        # retry once with a lower-resource preset.
-        try:
-            final = render(
-                source, bundle, info, settings, render_options, "karaoke.mp4"
-            )
-        except Exception as error:
-            record_failure("render", error)
-            emit("字幕烧录失败，改用较低资源的编码参数再试一次")
-            safe_render = RenderOptions(
-                preset="ultrafast",
-                crf=28,
-                max_video_kbps=render_options.max_video_kbps,
-            )
-            final = render(source, bundle, info, settings, safe_render, "karaoke.mp4")
-            # The subtitle export precedes rendering; also record any retry.
-            report_path = bundle / "export_report.json"
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            report["fallback_attempts"] = list(recovery)
-            report_path.write_text(
-                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-        if not final.is_file() or final.stat().st_size == 0:
-            raise RuntimeError("字幕视频未生成")
+        final = source
+        if burn_subtitles:
+            stage("render", "将字幕烧录到保留原始音轨的 MP4")
+            # Rendering has no fixed wall-clock cap; on an actual encoder failure,
+            # retry once with a lower-resource preset.
+            try:
+                final = render(
+                    source, bundle, info, settings, render_options, "karaoke.mp4"
+                )
+            except Exception as error:
+                record_failure("render", error)
+                emit("字幕烧录失败，改用较低资源的编码参数再试一次")
+                safe_render = RenderOptions(
+                    preset="ultrafast",
+                    crf=28,
+                    max_video_kbps=render_options.max_video_kbps,
+                )
+                final = render(
+                    source, bundle, info, settings, safe_render, "karaoke.mp4"
+                )
+                # The subtitle export precedes rendering; also record any retry.
+                report_path = bundle / "export_report.json"
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+                report["fallback_attempts"] = list(recovery)
+                report_path.write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            if not final.is_file() or final.stat().st_size == 0:
+                raise RuntimeError("字幕视频未生成")
         result = PipelineResult(
             video=final,
             ass=bundle / "lyrics.ass",
@@ -348,7 +353,7 @@ def make_karaoke_video(
             fallback_attempts=recovery,
             outputs=result.as_dict(),
         )
-        emit("字幕视频制作完成")
+        emit("字幕视频制作完成" if burn_subtitles else "字幕时间轴制作完成")
         return result
     except Exception as exc:
         status.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:600])

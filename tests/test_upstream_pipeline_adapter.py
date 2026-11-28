@@ -146,7 +146,10 @@ def test_bad_input_and_safe_failure(tmp_path, monkeypatch):
     assert not (output / "subtitles" / "karaoke.mp4").exists()
 
 
-def test_estimated_words_are_marked_in_rendered_bundle(media, tmp_path, monkeypatch):
+@pytest.mark.parametrize("burn_subtitles", (True, False))
+def test_estimated_words_are_marked_in_rendered_bundle(
+    media, tmp_path, monkeypatch, burn_subtitles
+):
     def separation(video, original, info, folder, method, settings, event):
         return original, {"method": "mock"}
 
@@ -168,9 +171,24 @@ def test_estimated_words_are_marked_in_rendered_bundle(media, tmp_path, monkeypa
 
     monkeypatch.setattr(pipeline, "prepare_alignment_audio", separation)
     monkeypatch.setattr(pipeline, "align_reliable_blocks", partial)
+    if not burn_subtitles:
+
+        def no_burn(*args, **kwargs):
+            raise AssertionError("HTML-only pipeline must not encode video")
+
+        monkeypatch.setattr(pipeline, "render", no_burn)
     result = pipeline.make_karaoke_video(
-        media, "DUDUDU\n你好", tmp_path / "estimated", Settings(), mode="quality"
+        media,
+        "DUDUDU\n你好",
+        tmp_path / "estimated",
+        Settings(),
+        mode="quality",
+        burn_subtitles=burn_subtitles,
     )
+    if not burn_subtitles:
+        assert result.video == media.resolve()
+        assert not (result.timeline.parent / "karaoke.mp4").exists()
+        assert (result.timeline.parent / "style.json").is_file()
     timeline = json.loads(result.timeline.read_text())
     assert timeline["lines"][1]["text"] == "你好"
     assert any(

@@ -13,7 +13,13 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Literal
 
-from vc_ktv.core.artifacts import MEDIA_SETTINGS, freshness, remember_legacy
+from vc_ktv.core.artifacts import (
+    MEDIA_SETTINGS,
+    burn_required,
+    freshness,
+    html_playback_source,
+    remember_legacy,
+)
 from vc_ktv.core.titles import title_key
 from vc_ktv.infra.disk_budget import EventDiskBudget
 from vc_ktv.rendering.subtitle_styles import StylePreset
@@ -62,6 +68,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS media_artifacts(
                 filename TEXT NOT NULL, kind TEXT NOT NULL, metadata TEXT NOT NULL,
                 PRIMARY KEY(filename,kind));
+            CREATE TABLE IF NOT EXISTS download_renders(
+                attempt TEXT PRIMARY KEY, status TEXT NOT NULL,
+                requested_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS backing_tracks(
                 cache_key TEXT PRIMARY KEY,
                 source_file TEXT NOT NULL,
@@ -145,6 +154,8 @@ class Store:
             ("source_id", "TEXT NOT NULL DEFAULT ''"),
             ("refresh_state", "TEXT NOT NULL DEFAULT ''"),
             ("refresh_error", "TEXT NOT NULL DEFAULT ''"),
+            ("html_only", "INTEGER NOT NULL DEFAULT 0"),
+            ("html_attempt", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")
@@ -241,7 +252,7 @@ class Store:
                    s.skip_subtitles,s.prep_stage,s.prep_stage_at,s.priority_next,s.personal_order,s.replay_of,
                    s.lyric_choice != '' AS lyric_selected,s.lyric_source,
                    s.lyric_timing_mode,s.lyric_offset_ms,s.source_file,s.media_file,
-                   s.refresh_state,s.refresh_error,
+                   s.refresh_state,s.refresh_error,s.html_only,
                    g.name AS nickname,g.id AS requester_id,s.lyrics != '' AS has_lyrics
             FROM songs s JOIN guests g ON g.id=s.requester
             WHERE s.status IN ('waiting','rendering','ready','playing')
@@ -268,7 +279,7 @@ class Store:
             row["name"]: row["value"]
             for row in self.rows(
                 "SELECT name,value FROM room_state "
-                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay','force_h264_originals','original_codec_mode','require_backing_ready')"
+                "WHERE name IN ('queue_policy','allow_unsubtitled','subtitle_style','video_quality','max_bandwidth_mbps','orders_paused','tv_html_overlay','force_h264_originals','original_codec_mode','require_backing_ready','burn_subtitles')"
             )
         }
         return {
@@ -285,6 +296,8 @@ class Store:
             ),
             "orders_paused": values.get("orders_paused", "0") == "1",
             "tv_html_overlay": values.get("tv_html_overlay", "1") == "1",
+            "burn_subtitles": values.get("burn_subtitles", "0") == "1",
+            "playback_mode": self.playback_mode(),
             "original_codec_mode": values.get(
                 "original_codec_mode",
                 "h264" if values.get("force_h264_originals") == "1" else "default",
@@ -308,6 +321,7 @@ class Store:
         tv_html_overlay: bool | None = None,
         original_codec_mode: Literal["default", "h264", "av1"] | None = None,
         require_backing_ready: bool | None = None,
+        burn_subtitles: bool | None = None,
     ):
         # Optional values are updates, not resets; legacy admin clients omit them.
         if max_bandwidth_mbps is not None and not (
@@ -331,6 +345,7 @@ class Store:
                 None if tv_html_overlay is None else int(tv_html_overlay),
             ),
             ("original_codec_mode", original_codec_mode),
+            ("burn_subtitles", None if burn_subtitles is None else int(burn_subtitles)),
         ):
             if value is not None:
                 updates[key] = str(value)
@@ -347,11 +362,22 @@ class Store:
                     "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                     updates.items(),
                 )
+                if not burn_required(before) and burn_required(self.settings()):
+                    self.queue_required_burns()
                 self.db.commit()
             except sqlite3.Error:
                 self.db.rollback()
                 raise
             return self.settings()
+
+    def queue_required_burns(self, song_id=None):
+        if burn_required(self.settings()):
+            self.db.execute(
+                "UPDATE songs SET refresh_state='queued',refresh_error='' "
+                "WHERE status='ready' AND prep_state='done' AND html_only=1 "
+                "AND refresh_state NOT IN ('queued','working') AND (? IS NULL OR id=?)",
+                (song_id, song_id),
+            )
 
     @staticmethod
     def playable(song, settings):
@@ -376,12 +402,25 @@ class Store:
             else self.refresh_reasons(song, settings)
         )
 
-    def can_play(self, song, settings):
+    def media_playable(self, song, settings):
         if not self.playable(song, settings) or self.refresh_blocked(song, settings):
             return False
-        if not settings.get("require_backing_ready"):
-            return True
-        return self.backing_ready(song)
+        if song.get("html_only") and song.get("prep_state") == "done":
+            if settings.get("playback_mode", "tv") != "tv" or not settings.get(
+                "tv_html_overlay", True
+            ):
+                return False
+            row = self.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song["id"],)
+            ).fetchone()
+            if row is None or html_playback_source(self, dict(row), settings) is None:
+                return False
+        return True
+
+    def can_play(self, song, settings):
+        return self.media_playable(song, settings) and (
+            not settings.get("require_backing_ready") or self.backing_ready(song)
+        )
 
     def backing_ready(self, song):
         """Use the same source-identity and cache validation as the media API."""
@@ -531,6 +570,7 @@ class Store:
         return (
             song["status"] in ("ready", "playing", "played", "skipped")
             and song["prep_state"] in ("done", "manual", "original")
+            and not (song.get("html_only") and song["prep_state"] == "done")
             and bool(song.get("has_media") or song.get("media_file"))
         )
 
@@ -650,10 +690,10 @@ class Store:
                         **s,
                         "awaiting_subtitles": s["status"] == "ready"
                         and not self.refresh_blocked(s, settings)
-                        and not self.playable(s, settings),
+                        and not self.media_playable(s, settings),
                         "awaiting_backing": s["status"] == "ready"
                         and not self.refresh_blocked(s, settings)
-                        and self.playable(s, settings)
+                        and self.media_playable(s, settings)
                         and not self.can_play(s, settings),
                     }
                     for s in pool

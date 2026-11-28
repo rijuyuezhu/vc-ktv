@@ -61,7 +61,7 @@ def publish_original(
                 store.db.execute(
                     """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
                        prep_state=?,prep_stage=?,prep_stage_at=?,prep_timing=?,
-                       prep_error='',prep_retry_at=0 WHERE id=?""",
+                       prep_error='',prep_retry_at=0,html_only=0,html_attempt='' WHERE id=?""",
                     (
                         target.name,
                         target.name,
@@ -96,6 +96,9 @@ def publish_subtitles(
     aligned_lrc: Path,
     metadata: dict | None = None,
     source_profile: dict | None = None,
+    *,
+    html_only: bool = False,
+    html_attempt: str = "",
 ) -> bool:
     """Commit a render against its original claim; cleanup follows commit."""
     song_id = claimed["id"]
@@ -115,21 +118,31 @@ def publish_subtitles(
             and latest["provider_lrc"] == claimed.get("provider_lrc", "")
             and latest["lyric_offset_ms"] == claimed.get("lyric_offset_ms", 0)
         ):
-            target.unlink(missing_ok=True)
+            if not html_only:
+                target.unlink(missing_ok=True)
             return False
         try:
             store.db.execute(
                 "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
-                "prep_stage='done',prep_stage_at=?,prep_error='' WHERE id=?",
-                (target.name, aligned_lrc.read_text(), int(time.time()), song_id),
+                "prep_stage='done',prep_stage_at=?,prep_error='',html_only=?,html_attempt=? WHERE id=?",
+                (
+                    target.name,
+                    aligned_lrc.read_text(),
+                    int(time.time()),
+                    int(html_only),
+                    html_attempt if html_only else "",
+                    song_id,
+                ),
             )
-            if metadata is not None:
+            if metadata is not None and not html_only:
                 store.record_artifact(target.name, "render", metadata)
             if source_profile:
                 name = claimed["source_file"]
                 store.record_artifact(
                     name, "source", {**store.artifact(name, "source"), **source_profile}
                 )
+            if html_only:
+                store.queue_required_burns(song_id)
             store.db.commit()
         except BaseException:
             # The AutoPrep caller removes the failed render; never commit its path.

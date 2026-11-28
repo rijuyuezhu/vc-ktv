@@ -42,6 +42,7 @@ class PlaybackSettings(BaseModel):
 
     orders_paused: bool | None = None
     tv_html_overlay: bool | None = None
+    burn_subtitles: bool | None = None
     original_codec_mode: Literal["default", "h264", "av1"] | None = None
 
 
@@ -95,6 +96,7 @@ def create_event_admin_router(
                 body.tv_html_overlay,
                 body.original_codec_mode,
                 body.require_backing_ready,
+                body.burn_subtitles,
             )
             return settings_view()
 

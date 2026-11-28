@@ -10,6 +10,9 @@ MEDIA_SETTINGS = (
     "video_quality",
     "subtitle_style",
     "max_bandwidth_mbps",
+    "burn_subtitles",
+    "tv_html_overlay",
+    "playback_mode",
 )
 
 
@@ -96,6 +99,37 @@ def find_bundle(store, song: dict) -> Path | None:
         return None
     source = store.media / Path(resolved["source_file"]).name
     video = store.media / Path(resolved["media_file"]).name
+    if song.get("html_only"):
+        # A timeline-only generation has the same video name across retries,
+        # so the committed attempt (not newest directory) is authoritative.
+        row = store.db.execute(
+            "SELECT html_attempt FROM songs WHERE id=?", (song["id"],)
+        ).fetchone()
+        if not row or not row["html_attempt"]:
+            return None
+        archive = store.media / row["html_attempt"]
+        try:
+            if not archive.resolve().is_relative_to(store.media.resolve()):
+                return None
+            info = json.loads((archive / "attempt.json").read_text())
+            if (
+                info.get("outcome") != "rendered"
+                or info.get("source_file") != resolved["source_file"]
+                or info.get("media_file") != resolved["media_file"]
+                or not source.is_file()
+                or not video.is_file()
+            ):
+                return None
+            for name in ("pipeline/subtitles", "provider_subtitles"):
+                bundle = archive / name
+                if all(
+                    (bundle / f).is_file()
+                    for f in ("timeline.json", "display_plan.json", "style.json")
+                ):
+                    return bundle
+        except (OSError, ValueError, TypeError):
+            pass
+        return None
     for ancestor in store.replay_chain(song):
         for field, actual in (("source_file", source), ("media_file", video)):
             path = ancestor.get(field)
@@ -140,9 +174,93 @@ def bundle_archive(bundle: Path) -> Path:
     return bundle.parent.parent if bundle.name == "subtitles" else bundle.parent
 
 
+def download_render(store, song):
+    """Extra baked download for the exact committed HTML generation."""
+    if (
+        not song.get("html_only")
+        or song.get("prep_state") != "done"
+        or song.get("status") not in ("ready", "playing", "played", "skipped")
+    ):
+        return "unavailable", None, None
+    row = store.db.execute("SELECT * FROM songs WHERE id=?", (song["id"],)).fetchone()
+    if not row:
+        return "unavailable", None, None
+    bundle = find_bundle(store, dict(row))
+    if bundle is None:
+        return "unavailable", None, None
+    archive = bundle_archive(bundle)
+    attempt = str(archive.relative_to(store.media))
+    path = archive / "download.mp4"
+    record = store.db.execute(
+        "SELECT status FROM download_renders WHERE attempt=?", (attempt,)
+    ).fetchone()
+    if record and record["status"] == "ready":
+        if path.is_file() and path.stat().st_size > 0:
+            return "ready", attempt, path
+        return "failed", attempt, None
+    return record["status"] if record else "available", attempt, None
+
+
+def burn_required(settings: dict) -> bool:
+    return (
+        settings.get("burn_subtitles", False)
+        or settings.get("playback_mode", "tv") != "tv"
+        or not settings.get("tv_html_overlay", True)
+    )
+
+
+def html_playback_source(store, song, settings):
+    """Select the committed bitrate-safe original/cache without probing."""
+    from vc_ktv.processing.bitrate import fits_budget, source_profile
+
+    if not settings["tv_html_overlay"] and not (
+        song.get("html_only") and song.get("status") == "playing"
+    ):
+        return None
+    bundle = find_bundle(store, song)
+    name = store.replay_assets(song).get("source_file")
+    source = store.media / Path(name or "").name
+    if not bundle or not source.is_file() or not float(song.get("duration") or 0) > 0:
+        return None
+    archive = bundle_archive(bundle)
+    limit = settings["max_bandwidth_mbps"]
+    try:
+        info = {}
+        # HTML-only songs retain their committed playable generation until
+        # an explicit refresh, like the existing baked rendition policy.
+        if song.get("html_only"):
+            info = json.loads((archive / "attempt.json").read_text())
+            limit = float(info.get("max_bandwidth_mbps", limit))
+        if fits_budget(
+            source,
+            float(song["duration"]),
+            limit,
+            source_profile(store, source, archive),
+        ):
+            return source
+        cache = archive / "tv-source.mp4"
+        if not info:
+            info = json.loads((archive / "attempt.json").read_text())
+        if (
+            cache.stat().st_size >= 1024
+            and info.get("tv_source_ready") is not False
+            and float(info.get("max_bandwidth_mbps", 0)) <= limit
+        ):
+            return cache
+    except (OSError, ValueError, TypeError):
+        return None
+    return None
+
+
 def freshness(store, song: dict, settings: dict) -> list[str]:
     if song.get("status") != "ready":
         return []
+    if song.get("html_only") and not song.get("source_file"):
+        full = store.db.execute(
+            "SELECT * FROM songs WHERE id=?", (song["id"],)
+        ).fetchone()
+        if full:
+            song = dict(full)
     resolved = (
         store.replay_assets(song)
         if not song.get("source_file") or not song.get("media_file")
@@ -158,6 +276,35 @@ def freshness(store, song: dict, settings: dict) -> list[str]:
         if media_name and media_name != source_name
         else source
     )
+    if song.get("html_only") and song.get("prep_state") == "done":
+        if burn_required(settings):
+            reasons.append("burn")
+        # Queue projections intentionally omit lyrics and source paths.
+        full = store.db.execute(
+            "SELECT * FROM songs WHERE id=?", (song["id"],)
+        ).fetchone()
+        bundle = find_bundle(store, dict(full)) if full else None
+        if bundle:
+            try:
+                info = json.loads((bundle_archive(bundle) / "attempt.json").read_text())
+                if info.get("subtitle_style") != settings["subtitle_style"]:
+                    reasons.append("style")
+                if (
+                    float(info.get("max_bandwidth_mbps", 0))
+                    > settings["max_bandwidth_mbps"]
+                ):
+                    reasons.append("bandwidth")
+            except (OSError, ValueError, TypeError):
+                reasons.append("timeline")
+        else:
+            reasons.append("timeline")
+        if (
+            bundle
+            and not burn_required(settings)
+            and html_playback_source(store, song, settings) is None
+        ):
+            reasons.append("tv_cache")
+        return reasons
     if (
         song.get("prep_state") == "done"
         and not song.get("skip_subtitles")
