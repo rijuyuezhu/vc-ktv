@@ -130,6 +130,7 @@ bannerTransparency.oninput = () => {
 function setHiddenUI(hidden) {
   hideUI.checked = hidden;
   banner.hidden = hidden;
+  captions.classList.toggle("clean-screen", hidden);
   toggle.classList.toggle("clean-screen", hidden);
 }
 try {
