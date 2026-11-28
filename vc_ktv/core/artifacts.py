@@ -174,6 +174,33 @@ def bundle_archive(bundle: Path) -> Path:
     return bundle.parent.parent if bundle.name == "subtitles" else bundle.parent
 
 
+def download_render(store, song):
+    """Extra baked download for the exact committed HTML generation."""
+    if (
+        not song.get("html_only")
+        or song.get("prep_state") != "done"
+        or song.get("status") not in ("ready", "playing", "played", "skipped")
+    ):
+        return "unavailable", None, None
+    row = store.db.execute("SELECT * FROM songs WHERE id=?", (song["id"],)).fetchone()
+    if not row:
+        return "unavailable", None, None
+    bundle = find_bundle(store, dict(row))
+    if bundle is None:
+        return "unavailable", None, None
+    archive = bundle_archive(bundle)
+    attempt = str(archive.relative_to(store.media))
+    path = archive / "download.mp4"
+    record = store.db.execute(
+        "SELECT status FROM download_renders WHERE attempt=?", (attempt,)
+    ).fetchone()
+    if record and record["status"] == "ready":
+        if path.is_file() and path.stat().st_size > 0:
+            return "ready", attempt, path
+        return "failed", attempt, None
+    return record["status"] if record else "available", attempt, None
+
+
 def burn_required(settings: dict) -> bool:
     return (
         settings.get("burn_subtitles", False)

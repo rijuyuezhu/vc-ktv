@@ -53,6 +53,28 @@ def download_failure_reason(source_type: str, error: Exception) -> str:
     return "媒体下载失败"
 
 
+def claim_download_locked(store, lane, active_ids):
+    if lane != "general":
+        return None
+    # Downloads are optional; don't delay the normal preparation queue.
+    for row in store.rows(
+        """SELECT s.* FROM download_renders d JOIN songs s ON s.html_attempt=d.attempt
+           WHERE d.status='queued' AND s.html_only=1 AND s.prep_state='done'
+           AND s.status IN ('ready','playing','played','skipped')
+           AND s.refresh_state NOT IN ('queued','working')
+           ORDER BY d.requested_at,s.id"""
+    ):
+        if row["id"] in active_ids:
+            continue
+        store.db.execute(
+            "UPDATE download_renders SET status='working' WHERE attempt=?",
+            (row["html_attempt"],),
+        )
+        store.db.commit()
+        return {**row, "download_render_task": True}
+    return None
+
+
 def claim_next_locked(store, lane: str, gpu_alignment: bool, active_ids=()):
     """Select and commit the next task while the caller holds store.lock."""
     try:
@@ -72,7 +94,7 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool, active_ids=()):
             )
         }
         if not candidates:
-            return None
+            return claim_download_locked(store, lane, active_ids)
         settings = store.settings()
         row = None
         for turn in store.projected_queue(settings):
@@ -135,7 +157,7 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool, active_ids=()):
                 (int(time.time()), row["id"]),
             )
         if not row:
-            return None  # Idle polling has no write to commit.
+            return claim_download_locked(store, lane, active_ids)
         claimed = dict(row)
         # Snapshot current settings before marking the claim committed.
         if row["status"] == "waiting":
@@ -162,6 +184,13 @@ def record_failure(store, row: dict, error: Exception, attempt_started: float):
     """Write retry or fallback state for a failed claim under store.lock."""
     with store.lock:
         try:
+            if row.get("download_render_task"):
+                store.db.execute(
+                    "UPDATE download_renders SET status='failed' WHERE attempt=? AND status='working'",
+                    (row["html_attempt"],),
+                )
+                store.db.commit()
+                return
             if row.get("refresh_task"):
                 store.db.execute(
                     "UPDATE songs SET refresh_state='failed',refresh_error=? WHERE id=? AND status='ready' AND refresh_state='working'",

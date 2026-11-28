@@ -68,6 +68,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS media_artifacts(
                 filename TEXT NOT NULL, kind TEXT NOT NULL, metadata TEXT NOT NULL,
                 PRIMARY KEY(filename,kind));
+            CREATE TABLE IF NOT EXISTS download_renders(
+                attempt TEXT PRIMARY KEY, status TEXT NOT NULL,
+                requested_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS backing_tracks(
                 cache_key TEXT PRIMARY KEY,
                 source_file TEXT NOT NULL,

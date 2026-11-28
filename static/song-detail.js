@@ -78,6 +78,32 @@ export function setupSongDetail({
     };
     if (!archive && song.downloadable)
       link("下载成片", "/api/songs/" + song.id + "/download", "download");
+    else if (
+      !archive &&
+      ["available", "failed", "queued", "working"].includes(song.download_render_status)
+    ) {
+      if (["queued", "working"].includes(song.download_render_status)) {
+        const btn = appendText(
+          row,
+          "button",
+          song.download_render_status === "queued" ? "成片等待制作" : "成片制作中",
+          "btn neutral"
+        );
+        btn.disabled = true;
+      } else {
+        const btn = actionButton(
+          row,
+          song.download_render_status === "failed" ? "重试生成成片" : "生成成片",
+          async () => {
+            await api("/api/songs/" + song.id + "/download/request", "POST");
+            toast("已请求成片");
+            invalidateSongDetail();
+            await refresh();
+          }
+        );
+        actionIcon(btn, "download");
+      }
+    }
     if (!archive && song.source_downloadable)
       link(
         song.source_type === "netease" ? "下载源视频" : "下载原片",

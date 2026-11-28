@@ -218,3 +218,60 @@ def test_missing_required_cache_is_refreshable_without_realigning(
     assert new["media_file"] == source.name and store.fair_queue()
     assert (store.media / new["html_attempt"] / "tv-source.mp4").is_file()
     assert not store.refresh_reasons(new, store.settings())
+
+
+def test_download_render_shared_by_replay_and_retry(tmp_path, monkeypatch):
+    from vc_ktv.processing import download_render as downloads
+
+    app = room(tmp_path)
+    store, sid, source = seed(app)
+    worker = AutoPrep(store, lambda _: 20, gpu_alignment=False)
+    monkeypatch.setattr(media_preparation, "render", no_render)
+    worker.prepare_subtitles(worker.claim("fast"))
+    with TestClient(app) as admin, TestClient(app) as anonymous:
+        assert (
+            admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        url = f"/api/songs/{sid}/download/request"
+        assert anonymous.post(url).status_code == 401
+        assert admin.post(url).json()["status"] == "queued"
+        assert admin.post(url).json()["status"] == "queued"
+        assert worker.claim("fast") is None
+        claim = worker.claim("general")
+        assert claim["download_render_task"]
+        assert worker.claim("general") is None
+        assert admin.post(url).json()["status"] == "working"
+        worker._record_failure(claim, ValueError("encoder failed"), 0)
+        assert (
+            admin.get(f"/api/songs/{sid}/detail").json()["download_render_status"]
+            == "failed"
+        )
+        assert store.fair_queue()[0]["id"] == sid
+        assert admin.post(url).json()["status"] == "queued"
+        claim = worker.claim("general")
+
+        def bake(src, bundle, target, limit):
+            assert src == source and (bundle / "lyrics.ass").is_file()
+            target.write_bytes(b"baked download")
+
+        monkeypatch.setattr(downloads, "_render_from_bundle", bake)
+        token = primary_tv_token(admin)
+        headers = {"Authorization": f"Bearer {token}"}
+        active = admin.post("/api/tv/next", headers=headers).json()["active"]
+        assert active["id"] == sid and active["media_url"] is None
+        downloads.execute_download_render(worker, claim)
+        assert row(store, sid)["status"] == "playing"
+        assert admin.get(f"/api/songs/{sid}/download").content == b"baked download"
+        assert (
+            admin.post(
+                "/api/tv/finish", headers=headers, json={"song_id": sid}
+            ).status_code
+            == 200
+        )
+        replay = admin.post(f"/api/admin/songs/{sid}/replay").json()["id"]
+        assert admin.get(f"/api/songs/{replay}/download").content == b"baked download"
+        assert (
+            admin.post(f"/api/songs/{replay}/download/request").json()["status"]
+            == "ready"
+        )
+        assert worker.claim("general") is None

@@ -26,6 +26,7 @@ from vc_ktv.infra.process_cancel import (
 from vc_ktv.processing import bitrate
 from vc_ktv.processing.backing_audio import BackingTracks
 from vc_ktv.processing.bitrate import fits_budget, source_profile
+from vc_ktv.processing.download_render import execute_download_render
 from vc_ktv.processing.media_preparation import (
     media_download,
     normalize_original_codec,
@@ -145,6 +146,9 @@ class AutoPrep:
                 )
                 self.store.db.execute(
                     "UPDATE songs SET refresh_state='queued' WHERE status='ready' AND refresh_state='working'"
+                )
+                self.store.db.execute(
+                    "UPDATE download_renders SET status='queued' WHERE status='working'"
                 )
                 self.store.db.commit()
             except sqlite3.Error:
@@ -442,6 +446,9 @@ class AutoPrep:
                             "UPDATE songs SET refresh_state='failed',refresh_error=? WHERE status='ready' AND refresh_state='working'",
                             ("本场 200 GiB 磁盘预算已用尽",),
                         )
+                        self.store.db.execute(
+                            "UPDATE download_renders SET status='failed' WHERE status='working'"
+                        )
                         self.store.db.commit()
                     except sqlite3.Error:
                         self.store.db.rollback()
@@ -544,6 +551,9 @@ class AutoPrep:
             try:
                 with budget_scope(getattr(self.store, "disk_budget", None), cancelled):
                     check_current_budget()
+                    if row.get("download_render_task"):
+                        execute_download_render(self, row)
+                        continue
                     with self.store.lock:
                         current = self.store.db.execute(
                             "SELECT status,prep_state,refresh_state FROM songs WHERE id=?",
@@ -572,7 +582,7 @@ class AutoPrep:
                         else:
                             self.prepare_subtitles(row)
             except Exception as error:
-                if cancelled.is_set():
+                if cancelled.is_set() and not row.get("download_render_task"):
                     continue  # User cancellation also interrupts downloader subprocesses.
                 log.exception("Unexpected preparation error for song #%s", row["id"])
                 while not self.stop_signal.is_set():

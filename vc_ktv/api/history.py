@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, Cookie
 
 from vc_ktv.application.errors import bail
+from vc_ktv.core.artifacts import download_render
 from vc_ktv.core.store import Store
 from vc_ktv.core.titles import title_key
 
@@ -132,6 +133,9 @@ def create_history_router(
                 Store.downloadable(song)
                 and (store.media / Path(song["media_file"] or "").name).is_file()
             )
+            status, _, _ = download_render(store, song)
+            song["download_render_status"] = status
+            song["downloadable"] = song["downloadable"] or status == "ready"
             source = store.media / Path(song["source_file"] or "").name
             song["source_downloadable"] = bool(
                 song["source_file"]
