@@ -1,7 +1,7 @@
 """Signed media views, subtitle archives and safe streamed file responses."""
 
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi.responses import FileResponse
 
@@ -32,11 +32,24 @@ class PinnedFileResponse(FileResponse):
 
 
 class MediaService:
-    def __init__(self, store, events, auth, media_pins):
+    def __init__(self, store, events, auth, media_pins, media_origin: str = ""):
         self.store = store
         self.events = events
         self.auth = auth
         self.media_pins = media_pins
+        self.media_origin = media_origin.rstrip("/")
+        if self.media_origin:
+            parsed = urlsplit(self.media_origin)
+            if (
+                parsed.scheme not in ("http", "https")
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("VC_KTV_MEDIA_ORIGIN must be an HTTP(S) origin")
 
     def pinned_response(self, path: Path, **kwargs) -> PinnedFileResponse:
         # The route pins while holding Store.lock; FileResponse opens later.
@@ -47,7 +60,7 @@ class MediaService:
         token = self.auth.sign(
             "media", f"{self.events.active_id}:{song['id']}", 8 * 3600
         )
-        return f"/media/{song['id']}?token={quote(token)}"
+        return f"{self.media_origin}/media/{song['id']}?token={quote(token)}"
 
     def backing_asset(self, song: dict) -> tuple[str, str | None, Path | None]:
         return self.store.backing_asset(song)
@@ -61,7 +74,7 @@ class MediaService:
         return {
             "status": "ready",
             "cache_key": key,
-            "url": f"/media/{song['id']}/backing?token={quote(token)}",
+            "url": f"{self.media_origin}/media/{song['id']}/backing?token={quote(token)}",
         }
 
     def overlay_bundle(self, song: dict) -> Path | None:
@@ -93,7 +106,7 @@ class MediaService:
             self.auth.sign("overlay", f"{self.events.active_id}:{song['id']}", 8 * 3600)
         )
         return {
-            "source_url": f"/media/{song['id']}/source?token={media_token}",
+            "source_url": f"{self.media_origin}/media/{song['id']}/source?token={media_token}",
             "source_key": source_key,
             "timeline_url": f"/api/tv/subtitles/{song['id']}?token={tv_token}",
         }

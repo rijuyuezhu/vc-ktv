@@ -64,3 +64,5 @@ curl -fsS http://127.0.0.1:8778/api/health
 需要更新模型资源时，按 [安装指南](INSTALL.md) 安装并检查所需资源，再启动服务。已校验的模型可复用。
 
 回滚时停止服务、切回原提交并重启。需要恢复场次数据时，使用 `python -m scripts.offline_backup restore --help` 查看恢复命令，并先在独立目录检查备份。
+
+若配置独立媒体入口（`VC_KTV_MEDIA_ORIGIN`），使用 HTTPS 并仅转发签名媒体的 GET/HEAD 请求（`/media/*`），保留 Range；网页、字幕接口和需登录的下载仍使用主入口。未配置时全部同源。

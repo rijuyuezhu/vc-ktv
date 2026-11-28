@@ -99,7 +99,9 @@ def create_app(
     auth = AuthService(events, store, password, secret)
     archive = EventArchiveService(events, auth)
     lyric_selection = LyricSelectionService(store, events, auth, gpu_alignment)
-    media = MediaService(store, events, auth, media_pins)
+    media = MediaService(
+        store, events, auth, media_pins, os.getenv("VC_KTV_MEDIA_ORIGIN", "")
+    )
     orders = OrderService(store, events)
     playback = PlaybackService(store, orders)
     tv = TVSessionService(store, events, auth, media)
