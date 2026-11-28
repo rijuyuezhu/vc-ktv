@@ -380,6 +380,7 @@ def render_upstream_video(
     preset: StylePreset = DEFAULT_PRESET,
     max_bandwidth_mbps: float = 3.0,
     progress=None,
+    burn_subtitles: bool = True,
 ) -> dict:
     """Run the selected alignment pipeline; no implicit fallback or retiming."""
     # AutoPrep owns a new attempt directory; the pipeline owns its own
@@ -393,10 +394,13 @@ def render_upstream_video(
     options["mode"] = os.environ.get("VC_KTV_PIPELINE_MODE", "quality")
     if progress is not None:
         options["progress"] = progress
+    if not burn_subtitles:
+        options["burn_subtitles"] = False
     result = make_karaoke_video(
         source, lyrics, archive / "pipeline", pipeline_settings(), **options
     )
-    shutil.copyfile(result.video, destination)
+    if burn_subtitles:
+        shutil.copyfile(result.video, destination)
     shutil.copyfile(result.ass.parent / "lyrics.lrc", archive / "aligned.lrc")
     return json.loads(result.report.read_text(encoding="utf-8"))
 
@@ -411,6 +415,7 @@ def render_provider_video(
     *,
     max_bandwidth_mbps: float = 3.0,
     preset: StylePreset = DEFAULT_PRESET,
+    burn_subtitles: bool = True,
 ) -> dict:
     """Render explicitly chosen line timestamps, without loading GPU models."""
     archive.mkdir(exist_ok=True, parents=True)
@@ -476,20 +481,21 @@ def render_provider_video(
         preset_style(preset),
         bundle,
     )
-    options = RenderOptions(
-        max_video_kbps=stream_video_kbps(max_bandwidth_mbps),
-    )
-    # Reuse the same audio-preserving encoder, style/bitrate and container as
-    # the full-quality route; only the model alignment stages are skipped.
-    video = render(
-        source,
-        bundle,
-        probe(source, pipeline_settings()),
-        pipeline_settings(),
-        options,
-        "karaoke.mp4",
-    )
-    shutil.copyfile(video, destination)
+    if burn_subtitles:
+        options = RenderOptions(
+            max_video_kbps=stream_video_kbps(max_bandwidth_mbps),
+        )
+        # Reuse the same audio-preserving encoder, style/bitrate and container as
+        # the full-quality route; only the model alignment stages are skipped.
+        video = render(
+            source,
+            bundle,
+            probe(source, pipeline_settings()),
+            pipeline_settings(),
+            options,
+            "karaoke.mp4",
+        )
+        shutil.copyfile(video, destination)
     return {
         "mode": "provider_line_only",
         "lines": len(rows),

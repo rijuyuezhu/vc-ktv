@@ -12,6 +12,7 @@ from vc_ktv.processing import media_preparation
 
 def ready_song(tmp_path):
     store = Store(tmp_path / "room")
+    store.save_settings(None, None, burn_subtitles=True)
     source = store.media / "original.mp4"
     source.write_bytes(b"unchanged-source")
     with store.lock:

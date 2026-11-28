@@ -34,7 +34,8 @@ async function fixture() {
           "allow-unsubtitled",
           "require-backing-ready",
           "pause-orders",
-          "tv-html-overlay"
+          "tv-html-overlay",
+          "burn-subtitles"
         ].includes(id)
           ? "checkbox"
           : "select-one",

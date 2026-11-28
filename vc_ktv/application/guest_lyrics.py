@@ -128,7 +128,7 @@ class LyricSelectionService:
                 bail(409, "原视频尚未准备好")
             try:
                 self.store.db.execute(
-                    "UPDATE songs SET skip_subtitles=1,lyric_choice='',lyric_source='',"
+                    "UPDATE songs SET skip_subtitles=1,html_only=0,html_attempt='',lyric_choice='',lyric_source='',"
                     "lyric_timing_mode='align',provider_lrc='',source_lrc_raw='',lyric_offset_ms=0,"
                     "source_file=COALESCE(source_file,?),"
                     "media_file=CASE WHEN ? THEN ? ELSE media_file END,"

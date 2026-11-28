@@ -12,6 +12,7 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
     "max-bandwidth-mbps": "max_bandwidth_mbps",
     "pause-orders": "orders_paused",
     "tv-html-overlay": "tv_html_overlay",
+    "burn-subtitles": "burn_subtitles",
     "original-codec-mode": "original_codec_mode"
   };
   const readValue = (id) => {
@@ -70,6 +71,7 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
         "video-quality",
         "max-bandwidth-mbps",
         "tv-html-overlay",
+        "burn-subtitles",
         "original-codec-mode"
       ]);
       await api("/api/admin/settings", "PUT", {
@@ -77,6 +79,7 @@ export function setupAdminSettings({ refresh, invalidateQueueState }) {
         video_quality: Number($("video-quality").value),
         max_bandwidth_mbps: Number($("max-bandwidth-mbps").value),
         tv_html_overlay: $("tv-html-overlay").checked,
+        burn_subtitles: $("burn-subtitles").checked,
         original_codec_mode: $("original-codec-mode").value
       });
       markSaved(snapshot);

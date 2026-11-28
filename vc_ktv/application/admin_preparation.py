@@ -235,7 +235,7 @@ class AdminPreparationService:
             try:
                 store.db.execute(
                     "UPDATE songs SET media_file=source_file,prep_state='original',"
-                    "skip_subtitles=1,prep_stage='skipped',prep_stage_at=?,"
+                    "skip_subtitles=1,html_only=0,html_attempt='',prep_stage='skipped',prep_stage_at=?,"
                     "prep_error='' WHERE id=?",
                     (time_now(), song_id),
                 )
@@ -302,7 +302,7 @@ class AdminPreparationService:
                     bail(409, "歌曲状态已变化")
                 try:
                     store.db.execute(
-                        "UPDATE songs SET status='ready',media_file=?,source_file=?,duration=?,render_error='',prep_state='manual',prep_error='' WHERE id=?",
+                        "UPDATE songs SET status='ready',media_file=?,source_file=?,duration=?,render_error='',prep_state='manual',prep_error='',html_only=0,html_attempt='' WHERE id=?",
                         (target.name, target.name, round(actual_duration), song_id),
                     )
                     store.record_artifact(

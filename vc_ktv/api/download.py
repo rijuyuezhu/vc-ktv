@@ -1,12 +1,15 @@
 """Authenticated song media downloads, including replay assets."""
 
 import re
+import sqlite3
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Cookie
 
 from vc_ktv.application.errors import bail
 from vc_ktv.application.media import MEDIA_MIMES
+from vc_ktv.core.artifacts import download_render
 from vc_ktv.core.store import Store
 from vc_ktv.core.titles import title_key
 
@@ -31,9 +34,12 @@ def create_download_router(*, store, events, admin_principal, require_user, medi
             if not row:
                 bail(404, "歌曲不存在")
             asset = store.replay_assets(row)
-            if not Store.downloadable(asset):
-                bail(409, "视频尚未准备好")
-            file = store.media / Path(asset["media_file"]).name
+            if Store.downloadable(asset):
+                file = store.media / Path(asset["media_file"]).name
+            else:
+                _, _, file = download_render(store, asset)
+                if file is None:
+                    bail(409, "视频尚未准备好")
             if not file.is_file():
                 bail(404, "媒体文件缺失")
             title = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title_key(row["title"]))
@@ -45,6 +51,45 @@ def create_download_router(*, store, events, admin_principal, require_user, medi
                 content_disposition_type="attachment",
                 headers={"Cache-Control": "private, no-store"},
             )
+
+    @router.post("/api/songs/{song_id}/download/request")
+    def request_download(
+        song_id: int,
+        vc_guest: str | None = Cookie(default=None),
+        vc_admin: str | None = Cookie(default=None),
+    ):
+        if not events.active_id:
+            bail(404, "当前没有活动场次")
+        if admin_principal(vc_admin) is None:
+            require_user(vc_guest)
+        with store.lock:
+            row = store.db.execute(
+                "SELECT * FROM songs WHERE id=?", (song_id,)
+            ).fetchone()
+            if not row:
+                bail(404, "歌曲不存在")
+            asset = store.replay_assets(row)
+            if (
+                Store.downloadable(asset)
+                and (store.media / Path(asset["media_file"]).name).is_file()
+            ):
+                return {"status": "ready"}
+            status, attempt, _ = download_render(store, asset)
+            if attempt is None:
+                bail(409, "字幕尚未准备好")
+            if status in ("available", "failed"):
+                try:
+                    store.db.execute(
+                        "INSERT INTO download_renders(attempt,status,requested_at) VALUES(?,'queued',?) "
+                        "ON CONFLICT(attempt) DO UPDATE SET status='queued',requested_at=excluded.requested_at",
+                        (attempt, int(time.time())),
+                    )
+                    store.db.commit()
+                except sqlite3.Error:
+                    store.db.rollback()
+                    raise
+                status = "queued"
+            return {"status": status}
 
     @router.get("/api/songs/{song_id}/download/source")
     def download_original(

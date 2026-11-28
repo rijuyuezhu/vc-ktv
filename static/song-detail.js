@@ -78,6 +78,32 @@ export function setupSongDetail({
     };
     if (!archive && song.downloadable)
       link("下载成片", "/api/songs/" + song.id + "/download", "download");
+    else if (
+      !archive &&
+      ["available", "failed", "queued", "working"].includes(song.download_render_status)
+    ) {
+      if (["queued", "working"].includes(song.download_render_status)) {
+        const btn = appendText(
+          row,
+          "button",
+          song.download_render_status === "queued" ? "成片等待制作" : "成片制作中",
+          "btn neutral"
+        );
+        btn.disabled = true;
+      } else {
+        const btn = actionButton(
+          row,
+          song.download_render_status === "failed" ? "重试生成成片" : "生成成片",
+          async () => {
+            await api("/api/songs/" + song.id + "/download/request", "POST");
+            toast("已请求成片");
+            invalidateSongDetail();
+            await refresh();
+          }
+        );
+        actionIcon(btn, "download");
+      }
+    }
     if (!archive && song.source_downloadable)
       link(
         song.source_type === "netease" ? "下载源视频" : "下载原片",
@@ -120,7 +146,7 @@ export function setupSongDetail({
         });
       if (song.mine && ["waiting", "ready", "rendering"].includes(song.status))
         actionButton(actions, "取消点歌", () => cancelGuestSong(song.id), "subtle");
-      if (["played", "skipped"].includes(song.status) && song.downloadable)
+      if (["played", "skipped"].includes(song.status) && (song.downloadable || song.html_only))
         actionButton(
           actions,
           "↻ 再来一首",
@@ -242,7 +268,7 @@ export function setupSongDetail({
           },
           "primary"
         );
-      if (song.status === "played" && song.downloadable)
+      if (song.status === "played" && (song.downloadable || song.html_only))
         actionButton(
           actions,
           "↻ 下一首重唱",
@@ -331,6 +357,9 @@ export function setupSongDetail({
       const labels = {
         codec: "编码",
         codec_unknown: "编码待检查",
+        burn: "烧录版",
+        timeline: "字幕时间轴",
+        tv_cache: "电视缓存",
         quality: "清晰度",
         quality_unknown: "清晰度待检查",
         style: "字幕样式",
