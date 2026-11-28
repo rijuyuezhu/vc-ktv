@@ -156,7 +156,7 @@ def create_history_router(
             song["awaiting_backing"] = (
                 song["status"] == "ready"
                 and not store.refresh_blocked(song, settings)
-                and Store.playable(song, settings)
+                and store.media_playable(song, settings)
                 and not song["playable"]
             )
             if (

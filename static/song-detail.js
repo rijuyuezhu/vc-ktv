@@ -333,6 +333,7 @@ export function setupSongDetail({
         codec_unknown: "编码待检查",
         burn: "烧录版",
         timeline: "字幕时间轴",
+        tv_cache: "电视缓存",
         quality: "清晰度",
         quality_unknown: "清晰度待检查",
         style: "字幕样式",

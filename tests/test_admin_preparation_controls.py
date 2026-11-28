@@ -192,6 +192,7 @@ def test_real_stage_events_only_five_transitions(tmp_path, monkeypatch):
 
     app = make_app(tmp_path)
     store = app.state.store
+    store.save_settings(None, None, burn_subtitles=True)
     sid = add_song(store, "A", 1)
     stages = []
 

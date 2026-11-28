@@ -428,7 +428,10 @@ def execute_refresh(owner, row: dict) -> None:
             if (
                 html_only
                 and not fits_budget(source, duration, limit, source_meta)
-                and not (archive / "tv-source.mp4").is_file()
+                and (
+                    not (archive / "tv-source.mp4").is_file()
+                    or (archive / "tv-source.mp4").stat().st_size < 1024
+                )
             ):
                 raise ValueError("电视播放缓存制作失败")
             manifest = {
@@ -539,13 +542,16 @@ def execute_refresh(owner, row: dict) -> None:
                         owner.backing.model_sha256,
                     )
                 store.db.execute(
-                    "UPDATE songs SET source_file=?,media_file=?,duration=?,lyrics=?,html_only=?,refresh_state='',refresh_error='' WHERE id=?",
+                    "UPDATE songs SET source_file=?,media_file=?,duration=?,lyrics=?,html_only=?,html_attempt=?,refresh_state='',refresh_error='' WHERE id=?",
                     (
                         source.name,
                         media.name,
                         round(duration),
                         lyrics,
                         int(html_only),
+                        str(new_archive.relative_to(store.media))
+                        if html_only and new_archive
+                        else "",
                         song_id,
                     ),
                 )

@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from vc_ktv.core.artifacts import source_record
+from vc_ktv.core.artifacts import bundle_archive, find_bundle, source_record
 from vc_ktv.infra.disk_budget import (
     DiskBudgetExceeded,
     budget_scope,
@@ -294,6 +294,9 @@ class AutoPrep:
                         if self.stop_signal.is_set():
                             return
                         # The attempt remains active only while its media is published.
+                        bundle = find_bundle(self.store, dict(row))
+                        if bundle is None or bundle_archive(bundle) != archive:
+                            return
                         if not (archive / "attempt.json").is_file():
                             return
                         metadata = json.loads((archive / "attempt.json").read_text())
@@ -786,7 +789,14 @@ class AutoPrep:
                     archive / "aligned.lrc",
                     render_meta,
                     profile,
-                    **({"html_only": True} if html_only else {}),
+                    **(
+                        {
+                            "html_only": True,
+                            "html_attempt": str(archive.relative_to(self.store.media)),
+                        }
+                        if html_only
+                        else {}
+                    ),
                 ):
                     metadata["outcome"] = "stale"
                 else:

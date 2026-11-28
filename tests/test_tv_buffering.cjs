@@ -1031,3 +1031,37 @@ test("a video pause interrupting stall recovery retries without losing accompani
   await h.advance(5200);
   assert.equal(h.evaluate("remoteReport().audio_mode"), "backing");
 });
+
+test("HTML-only song never starts raw playback when its timeline request fails", async () => {
+  const h = tvHarness();
+  await h.ready();
+  let timelineReady = false;
+  const active = {
+    id: 1,
+    title: "A",
+    nickname: "guest",
+    media_url: null,
+    media_file: "source.mp4",
+    source_file: "source.mp4",
+    html_only: true,
+    html_overlay: { source_url: "/media/1/source", timeline_url: "/api/tv/subtitles/1" }
+  };
+  h.setFetch(async (url) => ({
+    ok: !url.includes("/api/tv/subtitles/") || timelineReady,
+    async json() {
+      if (url.includes("/api/tv/next")) return { active };
+      if (url.includes("/api/tv/state")) return { queue: [], current: active, playback_mode: "tv" };
+      return {};
+    }
+  }));
+  await h.el("start").onclick();
+  assert.equal(h.evaluate("activeId"), null);
+  assert.equal(h.el("video").paused, true);
+  assert.deepEqual(h.calls.plays, []);
+  await h.advance(13000);
+  assert.deepEqual(h.calls.plays, []);
+  timelineReady = true;
+  await h.evaluate("next()");
+  assert.equal(h.evaluate("activeId"), 1);
+  assert.equal(h.el("video").src, "/media/1/source");
+});

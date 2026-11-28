@@ -838,6 +838,9 @@ async function next() {
         : null;
     const sourceUrl = useOverlay ? mediaSource(answer.active) : answer.active.media_url;
     if (!sourceUrl) {
+      video.pause();
+      clearPreload();
+      cover.classList.remove("hidden");
       resetBacking();
       resetOverlay();
       activeId = null;

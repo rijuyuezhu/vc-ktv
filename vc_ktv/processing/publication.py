@@ -61,7 +61,7 @@ def publish_original(
                 store.db.execute(
                     """UPDATE songs SET media_file=?,source_file=?,duration=?,status='ready',
                        prep_state=?,prep_stage=?,prep_stage_at=?,prep_timing=?,
-                       prep_error='',prep_retry_at=0 WHERE id=?""",
+                       prep_error='',prep_retry_at=0,html_only=0,html_attempt='' WHERE id=?""",
                     (
                         target.name,
                         target.name,
@@ -98,6 +98,7 @@ def publish_subtitles(
     source_profile: dict | None = None,
     *,
     html_only: bool = False,
+    html_attempt: str = "",
 ) -> bool:
     """Commit a render against its original claim; cleanup follows commit."""
     song_id = claimed["id"]
@@ -123,12 +124,13 @@ def publish_subtitles(
         try:
             store.db.execute(
                 "UPDATE songs SET media_file=?,lyrics=?,prep_state='done',"
-                "prep_stage='done',prep_stage_at=?,prep_error='',html_only=? WHERE id=?",
+                "prep_stage='done',prep_stage_at=?,prep_error='',html_only=?,html_attempt=? WHERE id=?",
                 (
                     target.name,
                     aligned_lrc.read_text(),
                     int(time.time()),
                     int(html_only),
+                    html_attempt if html_only else "",
                     song_id,
                 ),
             )

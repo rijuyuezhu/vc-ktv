@@ -89,6 +89,7 @@ def test_compression_toggle_snapshotted_per_subtitle_attempt_and_forwarded(
     app = make_app(tmp_path)
     app.state.events.create("First", "000001")
     store = app.state.store
+    store.save_settings(None, None, burn_subtitles=True)
     original = store.media / "original.mp4"
     original.write_bytes(b"source untouched")
     with store.lock:

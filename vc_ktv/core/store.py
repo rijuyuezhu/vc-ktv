@@ -152,6 +152,7 @@ class Store:
             ("refresh_state", "TEXT NOT NULL DEFAULT ''"),
             ("refresh_error", "TEXT NOT NULL DEFAULT ''"),
             ("html_only", "INTEGER NOT NULL DEFAULT 0"),
+            ("html_attempt", "TEXT NOT NULL DEFAULT ''"),
         ):
             if column not in columns:
                 self.db.execute(f"ALTER TABLE songs ADD COLUMN {column} {ddl}")

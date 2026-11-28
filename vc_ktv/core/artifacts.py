@@ -99,6 +99,37 @@ def find_bundle(store, song: dict) -> Path | None:
         return None
     source = store.media / Path(resolved["source_file"]).name
     video = store.media / Path(resolved["media_file"]).name
+    if song.get("html_only"):
+        # A timeline-only generation has the same video name across retries,
+        # so the committed attempt (not newest directory) is authoritative.
+        row = store.db.execute(
+            "SELECT html_attempt FROM songs WHERE id=?", (song["id"],)
+        ).fetchone()
+        if not row or not row["html_attempt"]:
+            return None
+        archive = store.media / row["html_attempt"]
+        try:
+            if not archive.resolve().is_relative_to(store.media.resolve()):
+                return None
+            info = json.loads((archive / "attempt.json").read_text())
+            if (
+                info.get("outcome") != "rendered"
+                or info.get("source_file") != resolved["source_file"]
+                or info.get("media_file") != resolved["media_file"]
+                or not source.is_file()
+                or not video.is_file()
+            ):
+                return None
+            for name in ("pipeline/subtitles", "provider_subtitles"):
+                bundle = archive / name
+                if all(
+                    (bundle / f).is_file()
+                    for f in ("timeline.json", "display_plan.json", "style.json")
+                ):
+                    return bundle
+        except (OSError, ValueError, TypeError):
+            pass
+        return None
     for ancestor in store.replay_chain(song):
         for field, actual in (("source_file", source), ("media_file", video)):
             path = ancestor.get(field)
@@ -240,6 +271,12 @@ def freshness(store, song: dict, settings: dict) -> list[str]:
                 reasons.append("timeline")
         else:
             reasons.append("timeline")
+        if (
+            bundle
+            and not burn_required(settings)
+            and html_playback_source(store, song, settings) is None
+        ):
+            reasons.append("tv_cache")
         return reasons
     if (
         song.get("prep_state") == "done"

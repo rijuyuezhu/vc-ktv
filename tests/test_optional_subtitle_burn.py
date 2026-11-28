@@ -159,3 +159,62 @@ def test_html_only_mode_switch_queues_baked_copy(tmp_path, monkeypatch):
         )
         # Reverting the mode makes the previous HTML-only generation valid.
         assert [s["id"] for s in store.fair_queue()] == [sid]
+
+
+def test_html_attempt_is_committed_not_inferred_from_filename(tmp_path, monkeypatch):
+    import shutil
+
+    app = room(tmp_path)
+    store, sid, source = seed(app)
+    worker = AutoPrep(store, lambda _: 20, gpu_alignment=False)
+    monkeypatch.setattr(media_preparation, "render", no_render)
+    worker.prepare_subtitles(worker.claim("fast"))
+    song = row(store, sid)
+    attempt = store.media / song["html_attempt"]
+    other = attempt.parent / "attempt-99999999999999999999-stale"
+    shutil.copytree(attempt, other)
+    assert find_bundle(store, song).is_relative_to(attempt)
+    # Loss of the current timing bundle cannot resurrect an older generation.
+    (find_bundle(store, song) / "timeline.json").unlink()
+    assert find_bundle(store, song) is None
+    assert not store.fair_queue()
+    assert "timeline" in store.refresh_reasons(song, store.settings())
+    assert source.is_file()
+
+
+def test_missing_required_cache_is_refreshable_without_realigning(
+    tmp_path, monkeypatch
+):
+    app = room(tmp_path)
+    store, sid, source = seed(app, source_size=8_000_000)
+    worker = AutoPrep(store, lambda _: 20, gpu_alignment=False)
+    monkeypatch.setattr(media_preparation, "render", no_render)
+
+    def cache(src, archive, *args, **kwargs):
+        (archive / "tv-source.mp4").write_bytes(b"C" * 2048)
+
+    monkeypatch.setattr("vc_ktv.processing.worker.prepare_tv_source", cache)
+    worker.prepare_subtitles(worker.claim("fast"))
+    old = row(store, sid)
+    assert old["html_only"] and store.fair_queue()
+    old_archive = store.media / old["html_attempt"]
+    (old_archive / "tv-source.mp4").unlink()
+    assert not store.fair_queue()
+    assert "tv_cache" in store.refresh_reasons(old, store.settings())
+    with TestClient(app) as admin:
+        assert (
+            admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        details = admin.get(f"/api/songs/{sid}/detail")
+        assert details.status_code == 200, details.text
+        assert not details.json()["awaiting_backing"]
+        assert admin.post(f"/api/admin/songs/{sid}/refresh").json()["count"] == 1
+        monkeypatch.setattr(refresh, "known_media", lambda *a: PROFILE)
+        monkeypatch.setattr(refresh, "prepare_tv_source", cache)
+        monkeypatch.setattr(refresh, "render_provider_video", no_render)
+        refresh.execute_refresh(worker, worker.claim("general"))
+    new = row(store, sid)
+    assert new["html_only"] and new["html_attempt"] != old["html_attempt"]
+    assert new["media_file"] == source.name and store.fair_queue()
+    assert (store.media / new["html_attempt"] / "tv-source.mp4").is_file()
+    assert not store.refresh_reasons(new, store.settings())
