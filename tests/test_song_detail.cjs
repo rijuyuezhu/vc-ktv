@@ -830,3 +830,31 @@ test("refresh uses shared detail controls and does not duplicate preparation act
     h.cleanup();
   }
 });
+
+test("on-demand download keeps the shared media action layout for every state", async () => {
+  const h = await harness();
+  try {
+    const page = h.byId("page-song");
+    for (const [status, label, icon, disabled] of [
+      ["available", "生成成片", "download", false],
+      ["queued", "等待制作", "clock", true],
+      ["working", "制作中", "loader", true],
+      ["failed", "重试生成成片", "download", false]
+    ]) {
+      h.state.song = baseSong({ downloadable: false, download_render_status: status });
+      h.invalidateSongDetail();
+      await h.refreshSongDetail();
+      const control = button(page, label);
+      assert.equal(control.type, "button");
+      assert.equal(control.disabled, disabled);
+      assert.ok(control.classList.contains("neutral"));
+      assert.equal(control.querySelector("img").src, "/icons/" + icon + ".svg");
+    }
+    h.state.song = baseSong({ downloadable: true, download_render_status: "ready" });
+    h.invalidateSongDetail();
+    await h.refreshSongDetail();
+    assert.ok(find(page, (x) => x.tagName === "A" && x.href === "/api/songs/17/download"));
+  } finally {
+    h.cleanup();
+  }
+});

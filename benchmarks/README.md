@@ -1,14 +1,8 @@
 # 多用户基准测试
 
-这些脚本用于验证点歌、歌词时间轴、取消、调度、公平性与主屏相关的状态竞争，以及真实媒体制作。**所有操作都在新建的临时 FastAPI + SQLite 场次中进行**：只绑定本机回环地址，结束后清理场次，不接入已有服务、生产场次或账号。
+从仓库根目录运行 `uv sync --locked`。所有测试使用本机临时场次和账号，不接入生产服务，结束后清理数据。结果默认保存至 `benchmarks/.results/`（不提交 Git），可用 `--output PATH` 修改。
 
-从仓库根目录运行，先安装开发依赖：`uv sync --locked`。
-
-## Fast 与 Real
-
-Fast 模式验证 Web、队列和制作状态机，不下载歌曲、不执行 FFmpeg 或 GPU 推理。Real 模式启动实际制作 Worker，下载真实歌曲、对齐字幕、分离伴奏，并验证主屏播放。两者都使用独立的本机场次，不接入生产服务。
-
-### Fast：Web 和制作调度
+## Fast：Web 与制作调度
 
 ```sh
 uv run --no-sync python -m benchmarks.preparation \
@@ -16,52 +10,42 @@ uv run --no-sync python -m benchmarks.preparation \
   --web-readers 12 --web-every 1
 ```
 
-复用下文的概率用户行为。普通、Fast、伴奏三类制作任务使用实际领取逻辑和合成媒体，分别核对预计演唱顺序、任务资格、累计演唱次数和缓存状态。包含个人队列置顶、伴奏就绪限制、编码/分辨率/码率/字幕样式变更、增量重制、重唱和取消。并发读取用户及管理员状态，与随机写操作交错执行；报告读取与操作耗时的 P50/P95/最大值，以及各类动作和调度核验次数。随机场景的覆盖程度以结果中的动作计数为准。
+使用实际 API、SQLite 和任务领取逻辑，模拟下载及制作，验证公平调度、重制、伴奏缓存与并发操作。报告 Web 查询、操作延迟和动作覆盖率。快速冒烟可用 `--users 4 --steps 35 --max-orders 15 --web-readers 2`。
 
-轻量冒烟测试：`--users 4 --steps 35 --max-orders 15 --web-readers 2`。Fast 模式使用合成媒体，不能检验真实编码、声画同步或 GPU 吞吐；并发 Web 压力也不是公网性能测试。
+## Real：实际制作与主屏
 
-### Real：实际制作与主屏
+安装 GPU 模型及运行时（见 [安装指南](../docs/INSTALL.md)），确认机器空闲。歌单格式见 [real_playlist.example.json](real_playlist.example.json)，支持 B站和网易云，歌词方式为 `provider`、`align` 或 `skip`；可指定 `query`，对齐任务也可提供 `lyrics_file`。使用已确认可播放的歌曲替换示例。
 
-歌单 JSON 格式见 [real_playlist.example.json](real_playlist.example.json)，支持 B站 BV/分P、网易云单曲 ID 或分享链接、`align`（实际 GPU 对齐）、`provider`（来源时间轴）、`skip`（原片）。可指定 `query` 精确搜索歌词；`align` 也支持相对于歌单的 `lyrics_file`。示例歌单尚未联网验证，实际运行前可替换成确认能播放的歌曲。
-
-仅检查参数（不启动服务器、不访问来源、不使用 GPU）：
-
-```sh
-uv run --no-sync python -m benchmarks.real_party \
-  --manifest benchmarks/real_playlist.example.json
-```
-
-确认机器空闲且已安装模型、CUDA 运行时后，才显式添加 `--execute`：
+仅检查参数时不加 `--execute`。完整制作、重制及 API 播放验证：
 
 ```sh
 uv run --no-sync python -m benchmarks.real_party \
   --manifest benchmarks/real_playlist.example.json --execute \
-  --users 3 --general-workers 4 --fast-workers 2 --quality 1080 \
-  --refresh --playback api
+  --users 3 --refresh --playback api
 ```
 
-Real 使用真实来源及 Worker，完整播放验证默认强制伴奏就绪，记录观察到的歌曲就绪耗时（从提交开始，受轮询和提交批次影响）。`--refresh` 在制作完成后切换编码和字幕样式并触发增量重制。`--playback api` 验证主屏配对、签名媒体 Range、字幕接口和重唱伴奏缓存；它不解码媒体。
-
-另可将播放模式改为 `--playback browser`，并通过 `uv run --no-sync --with playwright` 启动（需预先安装 Chromium）。实际主屏播放第一首歌曲，切换原唱/伴奏并采样两个媒体时钟、暂停与解码错误状态。媒体时钟差不是物理音画同步测量。`--playback manual` 提供临时主屏配对地址，供本机浏览器或 SSH 隧道手动试听；按 Enter 结束。真实电视、音响和投屏延迟仍需人工体验。
-
-按实际歌词选择习惯生成负载时，使用 `--orders N --provider-ratio 0.8 --skip-ratio 0 --seed 42`。其中来源时间轴和 GPU 对齐按 4:1 分配，跳过歌词的歌曲单独占比；从 JSON 中对应的歌曲池按种子抽样，优先使用池内不同来源，池不足才重复。直接使用清单或 `--repeat` 则保持清单中的固定比例。完整制作的 `--timeout` 默认随歌曲数和对齐任务数增加；`--pressure-seconds` 是独立的压力观察窗口。Fast 模式也可通过 `--p-provider-timing` 改变选择时间轴的概率（默认 0.8），与 `--p-netease` 音乐来源概率分开。
-
-生产配置下的有界真实负载观察（默认 4 General、2 Fast、1 Backing、quality 对齐及 Kim single-flight）：
+多用户真实负载测试（需预先安装 Playwright Chromium）：
 
 ```sh
-uv run --no-sync python -m benchmarks.real_party \
+uv run --no-sync --with playwright python -m benchmarks.real_party \
   --manifest benchmarks/real_playlist.example.json --execute \
-  --users 10 --additional-readers 30 --orders 10 --provider-ratio 0.8 --submit-workers 3 \
-  --quality 1080 --codec h264 --bandwidth 3 --pressure-seconds 150
+  --users 10 --additional-readers 30 --orders 15 --provider-ratio 0.8 \
+  --submit-workers 3 --quality 1080 --codec av1 --bandwidth 3 \
+  --pressure-seconds 150 --pressure-playback --continuous-seconds 1800
 ```
 
-10 人提交真实歌曲，40 名注册用户中额外 30 人在观察窗口中途开始查询。每 2 秒并发请求用户及管理员状态，分别记录各阶段 Web 延迟、请求失败和 GPU 利用率、温度、功率、显存采样（取决于设备计数器支持）。观察窗口从最后一批点歌结束开始，结束时记录制作/伴奏状态并停止隔离服务，不保证全部歌曲完成，也默认不执行播放验证；可添加 `--pressure-playback`（需 Chromium）在观察后选择一首已完成伴奏的歌曲进行实际播放，而不等待整个队列。该模式不强制伴奏就绪，符合通常播放设置。重复歌单并非不同歌曲来源；比较两段查询延迟时也需考虑制作阶段变化。GPU 计数器为整机观察，不能归因到单一 Worker。
+| 参数 | 用途 |
+| --- | --- |
+| `--orders N --provider-ratio 0.8 --skip-ratio 0 --seed 42` | 抽取歌曲，默认来源时间轴与对齐 4:1，优先不同来源 |
+| `--repeat N` / `--timeout S` | 重复清单 / 完整制作等待上限 |
+| `--general-workers` / `--fast-workers` | 普通、Fast Worker 数量（基准默认 4、2；伴奏 1） |
+| `--burn-subtitles` | 提前烧录字幕，默认仅实时字幕 |
+| `--pressure-seconds S` / `--additional-readers N` | 提交后观察 S 秒，中途增加查询者；不等待全部制作完成 |
+| `--pressure-playback --continuous-seconds S` | 随后在 Chromium 中观察实际自动切歌、原唱与伴奏切换 |
+| `--playback api/browser/manual` | 完整制作后验证签名媒体与重唱缓存、浏览器播放或人工试听 |
+| `--refresh` | 完整制作后改变编码及字幕样式并更新 |
 
-默认使用 HTML 字幕、不生成烧录版；添加 `--burn-subtitles` 可对照原制作方式。结果记录 HTML-only / 烧录歌曲数及实际烧录产物数。
-
-连续主屏验证：在有界压力模式添加 `--pressure-playback --continuous-seconds 1800`（或 3600），并通过 `uv run --no-sync --with playwright` 启动。实际播放器自动切歌，继续采集 Web/GPU 数据，记录当前可见视频元素（随预加载交换）、浏览器自然 ended 事件与服务端完成记录的差异、队列空闲、媒体错误、超过 10 秒无进度的采样事件，以及每首有伴奏歌曲的一次原唱/伴奏往返切换。观察时间包括等歌，不等同于有效播放时间；建议使用足够多的不同歌曲。
-
-Real 不自动安装模型，不共享生产账号和场次；临时数据在测试结束后清理。运行 GPU 及真实来源测试前应确认机器空闲。
+Real 记录歌曲就绪耗时、制作和伴奏状态、烧录产物、Web 延迟及整机 GPU 指标。连续播放还记录自然完播、服务端记录差异、媒体错误、停滞和伴奏切换时钟差。就绪时间受轮询影响，观察窗口包含等歌时间；媒体时钟差不是物理音画同步测量。Fast 不测真实编码或 GPU 性能，两种模式均不能代表公网延迟或实体电视体验。
 
 ## 概率用户
 
@@ -72,11 +56,7 @@ uv run --no-sync python -m benchmarks.party \
   --p-netease 0.5 --p-bad-timing 0.5
 ```
 
-不同用户具有连点、慎选歌词、跳过歌词、中途加入等行为偏好。可自定义所有动作的权重、歌词时间轴偏移概率、候选歌词逐行选择概率、场次人数、操作数和每隔多少步检查一次。`--help` 查看完整参数。
-
-`p-order`、`p-cancel`、`p-join` 等是每步动作的**相对权重**；`p-burst`、`p-netease`、`p-bad-timing` 等是命中相应条件后的概率。相同种子便于重现操作序列；并发线程执行的先后顺序不承诺完全一致。
-
-随机模拟器用实际 HTTP 登录、歌词候选签名、API 与 SQLite 状态转换，但媒体制作是**模拟 Worker 完成**，不执行网络下载或 GPU 对齐。内置独立调度参考算法，并核验歌曲状态、用户累计歌数、取消权限和来源时间轴。
+模拟连点、选词、跳过、取消和中途加入，使用独立公平调度参考算法核对结果。`p-order`、`p-cancel` 等为动作相对权重，`p-burst` 等为条件概率；`--p-provider-timing` 控制来源时间轴比例（默认 0.8）。相同种子便于复现操作序列，并发执行顺序仍可能不同。各脚本的完整参数见 `--help`。
 
 ## 独立场景
 
@@ -99,14 +79,10 @@ uv run --no-sync python -m benchmarks.replay_lyrics
 
 Chromium 首次使用时需安装相应浏览器运行文件。移动端测试的歌词候选是本地夹具，页面、签名、提交与状态持久化是实际代码。
 
-所有脚本均有 `--help`。可通过 `--output PATH` 指定 JSON 结果目录；默认写入被 Git 忽略的 `benchmarks/.results/`，**不要提交包含运行时诊断的结果文件**。
-
 ## 范围
 
-- 使用虚构用户名、临时密码、本机测试地址和模拟歌曲 ID；公开的第三方歌词来源网址仅用于候选歌词的测试元数据。
 - 概率场景包括虚拟重唱后的选词、偏移和跳过歌词；`replay_lyrics` 检查源媒体继承、原片回退和重制可行性，`--require-fixed` 会把回归视为失败。
 - 公平调度的补偿规则是累计歌数差距最多 2，**不保证每个人在前两轮一定轮到**。大队列脚本会检查前一轮参与者、队列响应时间和后续调度一致性。
-- 这些基准不替代真实媒体、GPU 或不同电视硬件的端到端测试；不作为公网延迟或生产服务性能的数据来源。
 
 ## 伴奏分离
 
