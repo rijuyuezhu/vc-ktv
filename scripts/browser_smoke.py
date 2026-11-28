@@ -1097,6 +1097,8 @@ def check_ui(
         page.wait_for_timeout(500)
     else:
         raise AssertionError("TV did not finish the synthetic song")
+    assert guest.request.get(f"{base}/api/songs/{song_id}/download").status == 409
+    assert admin.request.post(f"{base}/api/admin/tv/revoke").status == 200
     downloaded = guest.request.get(f"{base}/api/songs/{song_id}/download")
     assert downloaded.status == 200, downloaded.text()[:200]
     assert len(downloaded.body()) == video.stat().st_size

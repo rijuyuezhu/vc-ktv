@@ -76,10 +76,20 @@ export function setupSongDetail({
       const btn = actionButton(row, label, () => copyValue(value, what));
       actionIcon(btn, "copy");
     };
-    if (!archive && song.downloadable)
+    const downloadsBlocked =
+      !archive &&
+      song.downloads_blocked &&
+      (song.downloadable ||
+        song.source_downloadable ||
+        ["available", "failed", "queued", "working"].includes(song.download_render_status));
+    if (downloadsBlocked) {
+      appendText(section, "p", "主屏在线，暂不可下载或生成成片", "ui-status");
+    }
+    if (!archive && !downloadsBlocked && song.downloadable)
       link("下载成片", "/api/songs/" + song.id + "/download", "download");
     else if (
       !archive &&
+      !downloadsBlocked &&
       ["available", "failed", "queued", "working"].includes(song.download_render_status)
     ) {
       if (["queued", "working"].includes(song.download_render_status)) {
@@ -106,7 +116,7 @@ export function setupSongDetail({
         actionIcon(btn, "download");
       }
     }
-    if (!archive && song.source_downloadable)
+    if (!archive && !downloadsBlocked && song.source_downloadable)
       link(
         song.source_type === "netease" ? "下载源视频" : "下载原片",
         "/api/songs/" + song.id + "/download/source",
@@ -118,7 +128,7 @@ export function setupSongDetail({
       copy("复制链接", url, "链接");
       link("打开来源", url, "external-link", true);
     }
-    if (!row.children.length) section.remove();
+    if (!row.children.length && !downloadsBlocked) section.remove();
   }
 
   function detailActions(song, isAdmin) {

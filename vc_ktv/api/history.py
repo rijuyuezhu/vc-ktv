@@ -135,6 +135,7 @@ def create_history_router(
             )
             status, _, _ = download_render(store, song)
             song["download_render_status"] = status
+            song["downloads_blocked"] = store.tv_online()
             song["downloadable"] = song["downloadable"] or status == "ready"
             source = store.media / Path(song["source_file"] or "").name
             song["source_downloadable"] = bool(

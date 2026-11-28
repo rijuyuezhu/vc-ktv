@@ -54,7 +54,7 @@ def download_failure_reason(source_type: str, error: Exception) -> str:
 
 
 def claim_download_locked(store, lane, active_ids):
-    if lane != "general":
+    if lane != "general" or store.tv_online():
         return None
     # Downloads are optional; don't delay the normal preparation queue.
     for row in store.rows(

@@ -275,3 +275,30 @@ def test_download_render_shared_by_replay_and_retry(tmp_path, monkeypatch):
             == "ready"
         )
         assert worker.claim("general") is None
+
+
+def test_queued_download_render_waits_until_primary_disconnects(tmp_path, monkeypatch):
+    from tests.test_ui_tv_remote import report
+
+    app = room(tmp_path)
+    store, sid, _ = seed(app)
+    worker = AutoPrep(store, lambda _: 20, gpu_alignment=False)
+    monkeypatch.setattr(media_preparation, "render", no_render)
+    worker.prepare_subtitles(worker.claim("fast"))
+    with TestClient(app) as admin, TestClient(app) as tv:
+        assert (
+            admin.post("/api/admin/login", json={"password": "pw"}).status_code == 200
+        )
+        assert (
+            admin.post(f"/api/songs/{sid}/download/request").json()["status"]
+            == "queued"
+        )
+        token = primary_tv_token(admin)
+        report(tv, token, started=False)
+        assert worker.claim("general") is None
+        assert (
+            admin.get(f"/api/songs/{sid}/detail").json()["download_render_status"]
+            == "queued"
+        )
+        assert admin.post("/api/admin/tv/revoke").status_code == 200
+        assert worker.claim("general")["download_render_task"]

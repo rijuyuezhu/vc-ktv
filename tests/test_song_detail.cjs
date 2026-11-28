@@ -858,3 +858,31 @@ test("on-demand download keeps the shared media action layout for every state", 
     h.cleanup();
   }
 });
+
+test("online primary blocks media download controls but preserves source and replay", async () => {
+  const h = await harness();
+  try {
+    const page = h.byId("page-song");
+    h.state.song = baseSong({
+      status: "played",
+      downloads_blocked: true,
+      download_render_status: "ready"
+    });
+    await h.refreshSongDetail();
+    assert.ok(!find(page, (x) => x.tagName === "A" && x.href.includes("/download")));
+    assert.ok(find(page, (x) => x.textContent === "主屏在线，暂不可下载或生成成片"));
+    assert.ok(button(page, "↻ 再来一首"));
+    h.state.song = baseSong({
+      downloadable: false,
+      download_render_status: "available",
+      downloads_blocked: true
+    });
+    await h.refreshSongDetail();
+    assert.ok(!find(page, (x) => x.tagName === "BUTTON" && x.textContent === "生成成片"));
+    h.state.song.downloads_blocked = false;
+    await h.refreshSongDetail();
+    assert.ok(button(page, "生成成片"));
+  } finally {
+    h.cleanup();
+  }
+});
