@@ -52,7 +52,7 @@ def download_failure_reason(source_type: str, error: Exception) -> str:
     return "媒体下载失败"
 
 
-def claim_next_locked(store, lane: str, gpu_alignment: bool):
+def claim_next_locked(store, lane: str, gpu_alignment: bool, active_ids=()):
     """Select and commit the next task while the caller holds store.lock."""
     try:
         candidates = {
@@ -76,7 +76,7 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool):
         row = None
         for turn in store.projected_queue(settings):
             candidate = candidates.get(turn["id"])
-            if candidate is None:
+            if candidate is None or turn["id"] in active_ids:
                 continue
             if lane == "fast" and candidate["lyric_timing_mode"] != "provider":
                 continue

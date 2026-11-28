@@ -281,3 +281,50 @@ def test_four_workers_start_with_one_song_and_fill_available_slots(tmp_path):
             gate.set()
         assert worker.stop()
         assert all(not thread.is_alive() for thread in worker.workers)
+
+
+def test_published_source_not_reclaimed_until_previous_worker_releases(
+    tmp_path, monkeypatch
+):
+    store = Store(tmp_path / "room")
+    seed_downloads(store, 2)
+    store.db.execute("UPDATE songs SET lyric_choice='歌词' WHERE id=1")
+    store.db.commit()
+    published = threading.Event()
+    release = threading.Event()
+    aligned = threading.Event()
+    worker = AutoPrep(store, lambda _: 8, max_workers=2)
+
+    def prepare_source(row):
+        with store.lock:
+            store.db.execute(
+                "UPDATE songs SET status='ready',prep_state='downloaded' WHERE id=?",
+                (row["id"],),
+            )
+            store.db.commit()
+        if row["id"] == 1:
+            published.set()
+            assert release.wait(6)
+
+    def prepare_subtitles(row):
+        assert row["id"] == 1
+        aligned.set()
+        with store.lock:
+            store.db.execute("UPDATE songs SET prep_state='done' WHERE id=1")
+            store.db.commit()
+
+    monkeypatch.setattr(worker, "prepare_source", prepare_source)
+    monkeypatch.setattr(worker, "prepare_subtitles", prepare_subtitles)
+    worker.start()
+    try:
+        assert published.wait(4)
+        assert eventually(lambda: worker.active_claims == 1)
+        # A different worker is idle, but must not take over song 1 yet.
+        assert not aligned.wait(1.3)
+        assert 1 in worker.active_tasks
+        release.set()
+        assert aligned.wait(4)
+        assert eventually(lambda: worker.active_claims == 0)
+    finally:
+        release.set()
+        assert worker.stop()
