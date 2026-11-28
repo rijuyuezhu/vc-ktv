@@ -496,16 +496,24 @@ class AutoPrep:
             self.budget_watcher.start()
         self.backing.start()
 
-    def claim(self, lane="general"):
+    def claim(self, lane="general", *, cancelled=None):
         with self.store.lock:
             if self.stop_signal.is_set():
                 return None
             budget = getattr(self.store, "disk_budget", None)
             if budget is not None:
                 budget.check()
-            claimed = claim_next_locked(self.store, lane, self.gpu_alignment)
-            if claimed is None:
-                return None
+            with self.active_tasks_lock:
+                claimed = claim_next_locked(
+                    self.store, lane, self.gpu_alignment, self.active_tasks.keys()
+                )
+                if claimed is None:
+                    return None
+                if cancelled is not None:
+                    self.active_tasks[claimed["id"]] = (
+                        threading.get_native_id(),
+                        cancelled,
+                    )
             # Keep claim and in-memory accounting under the same Store lock.
             self.active_claims += 1
             self.busy.set()
@@ -516,8 +524,9 @@ class AutoPrep:
 
     def loop(self, lane="general"):
         while not self.stop_signal.is_set():
+            cancelled = threading.Event()
             try:
-                row = self.claim(lane)
+                row = self.claim(lane, cancelled=cancelled)
             except sqlite3.Error:
                 log.exception("Failed to claim AutoPrep task; retrying")
                 self.stop_signal.wait(1)
@@ -529,9 +538,6 @@ class AutoPrep:
                 self.stop_signal.wait(1)
                 continue
             attempt_started = time.monotonic()
-            cancelled = threading.Event()
-            with self.active_tasks_lock:
-                self.active_tasks[row["id"]] = (threading.get_native_id(), cancelled)
             try:
                 with budget_scope(getattr(self.store, "disk_budget", None), cancelled):
                     check_current_budget()

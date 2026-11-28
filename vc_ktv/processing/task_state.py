@@ -52,59 +52,65 @@ def download_failure_reason(source_type: str, error: Exception) -> str:
     return "媒体下载失败"
 
 
-def claim_next_locked(store, lane: str, gpu_alignment: bool):
+def claim_next_locked(store, lane: str, gpu_alignment: bool, active_ids=()):
     """Select and commit the next task while the caller holds store.lock."""
     try:
-        # Provider subtitles are cheap CPU work: never let downloads or
-        # GPU alignment prevent an already-downloaded song from finishing.
-        row = store.db.execute(
-            """SELECT * FROM songs WHERE status='ready'
-               AND prep_state='downloaded' AND lyric_choice != ''
-               AND skip_subtitles=0 AND lyric_timing_mode='provider'
-               AND refresh_state NOT IN ('queued','working')
-               ORDER BY requested_at,id LIMIT 1"""
-        ).fetchone()
-        if not row:
-            # Fast workers download only songs with provider timing.
-            download_filter = (
-                " AND lyric_timing_mode='provider'" if lane == "fast" else ""
-            )
-            row = store.db.execute(
-                """SELECT * FROM songs WHERE status='waiting' AND
-                   (prep_state='pending' OR
-                    (prep_state='unavailable' AND prep_attempts < 3
-                     AND prep_retry_at <= ?))"""
-                + download_filter
-                + """ ORDER BY CASE WHEN prep_state='pending' THEN 0 ELSE 1 END,
-                             requested_at,id LIMIT 1""",
+        candidates = {
+            row["id"]: row
+            for row in store.rows(
+                """SELECT * FROM songs WHERE
+                   (status='waiting' AND (prep_state='pending' OR
+                     (prep_state='unavailable' AND prep_attempts < 3
+                      AND prep_retry_at <= ?)))
+                   OR (status='ready' AND
+                     ((prep_state='downloaded' AND lyric_choice != ''
+                       AND skip_subtitles=0 AND refresh_state!='working')
+                      OR (refresh_state='queued'
+                          AND prep_state NOT IN ('aligning','downloading'))))""",
                 (int(time.time()),),
-            ).fetchone()
-        if not row and lane == "general":
-            # Explicit refresh claims share the regular worker/cancellation lifecycle.
-            for candidate in store.rows(
-                "SELECT * FROM songs WHERE status='ready' AND refresh_state='queued' AND prep_state NOT IN ('aligning','downloading') ORDER BY priority_next DESC,requested_at,id"
+            )
+        }
+        if not candidates:
+            return None
+        settings = store.settings()
+        row = None
+        for turn in store.projected_queue(settings):
+            candidate = candidates.get(turn["id"])
+            if candidate is None or turn["id"] in active_ids:
+                continue
+            if lane == "fast" and candidate["lyric_timing_mode"] != "provider":
+                continue
+            if (
+                candidate["status"] == "ready"
+                and candidate["refresh_state"] == "queued"
             ):
-                settings = store.settings()
-                if not store.refresh_reasons(candidate, settings):
+                if lane == "fast":
+                    continue
+                if store.refresh_reasons(candidate, settings):
                     store.db.execute(
-                        "UPDATE songs SET refresh_state='',refresh_error='' WHERE id=?",
+                        "UPDATE songs SET refresh_state='working',refresh_error='' WHERE id=?",
                         (candidate["id"],),
                     )
                     store.db.commit()
-                    continue
+                    return {
+                        **candidate,
+                        "refresh_task": True,
+                        "refresh_settings": settings,
+                    }
                 store.db.execute(
-                    "UPDATE songs SET refresh_state='working',refresh_error='' WHERE id=?",
+                    "UPDATE songs SET refresh_state='',refresh_error='' WHERE id=?",
                     (candidate["id"],),
                 )
                 store.db.commit()
-                return {**candidate, "refresh_task": True, "refresh_settings": settings}
-            # General workers may also run GPU alignment on downloaded sources.
-            row = store.db.execute(
-                """SELECT * FROM songs WHERE status='ready'
-                   AND prep_state='downloaded' AND lyric_choice != ''
-                   AND skip_subtitles=0 AND refresh_state NOT IN ('queued','working')
-                   ORDER BY requested_at,id LIMIT 1"""
-            ).fetchone()
+                candidate["refresh_state"] = ""
+                if not (
+                    candidate["prep_state"] == "downloaded"
+                    and candidate["lyric_choice"]
+                    and not candidate["skip_subtitles"]
+                ):
+                    continue
+            row = candidate
+            break
         if row and row["status"] == "waiting":
             store.db.execute(
                 "UPDATE songs SET prep_state='downloading',prep_attempts=prep_attempts+1,"
@@ -131,7 +137,6 @@ def claim_next_locked(store, lane: str, gpu_alignment: bool):
             return None  # Idle polling has no write to commit.
         claimed = dict(row)
         # Snapshot current settings before marking the claim committed.
-        settings = store.settings()
         if row["status"] == "waiting":
             claimed["video_quality"] = settings["video_quality"]
             claimed["original_codec_mode"] = settings["original_codec_mode"]

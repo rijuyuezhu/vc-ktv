@@ -248,15 +248,11 @@ class BackingTracks:
             settings = {**self.store.settings(), "require_backing_ready": False}
             order = {
                 song["id"]: i
-                for i, song in enumerate(self.store.fair_queue(settings=settings))
+                for i, song in enumerate(self.store.projected_queue(settings))
             }
             songs.sort(
                 key=lambda song: (
-                    0
-                    if song["id"] in order
-                    else 1
-                    if song["status"] == "playing"
-                    else 2,
+                    0 if song["id"] in order else 1,
                     order.get(song["id"], 0),
                     song["requested_at"],
                     song["id"],
